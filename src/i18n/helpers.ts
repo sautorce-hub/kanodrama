@@ -584,9 +584,9 @@ const SECTION_SEO_COPY: Record<
   en: {
     home: {
       path: '/',
-      title: 'KanoDrama — Watch Free HD Vertical Short Dramas & Asian Series Online',
+      title: 'KanoDrama — Watch Free Short Dramas, Asian Series & Movies HD',
       description:
-        'Watch free trending HD vertical short dramas, billionaire romance, revenge sagas, and Asian mini-series across 49+ top platforms on KanoDrama.',
+        'KanoDrama (kano-drama.xyz) is a free streaming platform for short dramas, Asian series, Chinese & Korean dramas, and movies with Indonesian & multi-lang subs.',
     },
     movies: {
       path: '/movies',
@@ -652,9 +652,9 @@ const SECTION_SEO_COPY: Record<
   id: {
     home: {
       path: '/',
-      title: 'KanoDrama — Nonton Gratis Drama Pendek Vertikal & Serial Asia HD Online',
+      title: 'KanoDrama — Nonton Gratis Drama Pendek, Serial Asia & Film Sub Indo HD',
       description:
-        'Nonton gratis drama pendek vertikal HD, romansa CEO, kisah balas dendam, dan serial Asia dari 49+ platform populer di KanoDrama.',
+        'KanoDrama (kano-drama.xyz) adalah platform streaming drama pendek, serial Asia, drama China/Korea & film gratis dengan subtitle Bahasa Indonesia & lainnya.',
     },
     movies: {
       path: '/movies',
@@ -1617,12 +1617,15 @@ export function generateMetadata(
       ? input.keywords
       : [
           'KanoDrama',
+          'kano-drama.xyz',
           'Short Drama',
-          'Vertical Drama',
+          'Drama Pendek',
+          'Asian Series',
+          'Chinese Drama',
+          'Korean Drama',
           'DramaBox',
           'NetShort',
-          'Asian Series',
-          lang === 'id' ? 'Nonton Gratis Drama Sub Indo' : 'Watch Free Mini Series Online',
+          lang === 'id' ? 'Nonton Gratis Drama Sub Indo' : 'Watch Free Mini Series & Movies Online',
         ]
   )
     .filter(Boolean)

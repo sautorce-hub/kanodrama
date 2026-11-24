@@ -141,11 +141,6 @@ export default defineConfig(() => {
                 priority: 30,
               },
               {
-                name: 'firebase-vendor',
-                test: /node_modules[\\/]firebase[\\/]/,
-                priority: 25,
-              },
-              {
                 name: 'hls-vendor',
                 test: /node_modules[\\/]hls\.js[\\/]/,
                 priority: 25,

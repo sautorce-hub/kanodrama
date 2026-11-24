@@ -5,12 +5,14 @@ import {
   CheckCircle2,
   Clapperboard,
   Clock,
+  Coins,
   Crown,
   Flame,
   FolderOpen,
   Heart,
   History,
   Lock,
+  Mail,
   MessageSquare,
   Play,
   Settings,
@@ -18,6 +20,7 @@ import {
   User,
 } from 'lucide-react';
 import { useDramaContext } from '../context/DramaContext';
+import { RewardsPayoutSection } from './RewardsPayoutSection';
 import { SUPPORTED_LANGUAGES } from '../i18n/helpers';
 import { formatPlaybackClock, getDramaPath, getWatchPath } from '../utils/seo';
 import type {
@@ -37,7 +40,7 @@ interface UserDashboardProps {
   initialWatchlistCategory?: 'movie' | 'drama';
 }
 
-type DashboardSubTab = 'profile' | 'watchlist' | 'history' | 'comments';
+type DashboardSubTab = 'profile' | 'rewards' | 'watchlist' | 'history' | 'comments';
 
 const ACCENT_OPTIONS: { id: AccentThemeId; label: string; hex: string }[] = [
   { id: 'crimson', label: 'Crimson Noir', hex: '#EF4444' },
@@ -58,6 +61,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     language,
     user,
     streak,
+    gmailLoginCount,
+    refreshGmailLoginCount,
+    pointsBalance,
+    refreshPointsBalance,
     openAuthModal,
     updateUserProfile,
     loadUserCommentHistory,
@@ -88,6 +95,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   useEffect(() => {
     setWatchlistCategory(initialWatchlistCategory);
   }, [initialWatchlistCategory]);
+
+  useEffect(() => {
+    void refreshGmailLoginCount();
+    if (user) {
+      void refreshPointsBalance();
+    }
+  }, [refreshGmailLoginCount, refreshPointsBalance, user]);
 
   useEffect(() => {
     const onNav = (evt: Event) => {
@@ -197,6 +211,14 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       icon: <Settings className="w-4 h-4" />,
     },
     {
+      id: 'rewards',
+      label:
+        user && typeof pointsBalance === 'number'
+          ? `${t.dashboard.tabRewards} (${pointsBalance.toLocaleString()})`
+          : t.dashboard.tabRewards,
+      icon: <Coins className="w-4 h-4 text-[#D4AF37]" />,
+    },
+    {
       id: 'watchlist',
       label: `${t.nav.watchlist} (${myListItems.length})`,
       icon: <Bookmark className="w-4 h-4" />,
@@ -281,7 +303,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         </div>
 
         {/* KPI Metric Summary Strip */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-white/10">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2 border-t border-white/10">
           <div className="p-3.5 rounded-2xl bg-[#111015] border border-white/5">
             <div className="flex items-center gap-1.5 text-[11px] text-[#A1A1AA]">
               <Bookmark className="w-3.5 h-3.5 text-[#D4AF37]" />
@@ -318,7 +340,33 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               <span>{t.dashboard.streakLabel}</span>
             </div>
             <p className="text-2xl font-extrabold text-white mt-1 tabular-nums">
-              {Math.max(1, streak.count)}d
+              {user ? Math.max(1, streak.count) : 0}d
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setSubTab('rewards')}
+            className="p-3.5 rounded-2xl bg-gradient-to-br from-[#231B0E] to-[#111015] border border-[#D4AF37]/40 hover:border-[#D4AF37]/75 text-left transition-colors"
+          >
+            <div className="flex items-center gap-1.5 text-[11px] text-[#FDE68A]">
+              <Coins className="w-3.5 h-3.5 text-[#D4AF37]" />
+              <span>{t.dashboard.tabRewards}</span>
+            </div>
+            <p className="text-2xl font-extrabold text-white mt-1 tabular-nums">
+              {user && typeof pointsBalance === 'number'
+                ? pointsBalance.toLocaleString()
+                : 0}
+            </p>
+          </button>
+
+          <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#2A1016] to-[#111015] border border-[#991B1B]/45">
+            <div className="flex items-center gap-1.5 text-[11px] text-[#FCA5A5]">
+              <Mail className="w-3.5 h-3.5 text-[#EF4444]" />
+              <span>{t.auth.gmailLoginCount}</span>
+            </div>
+            <p className="text-2xl font-extrabold text-white mt-1 tabular-nums">
+              {user ? Math.max(1, gmailLoginCount) : gmailLoginCount}
             </p>
           </div>
         </div>
@@ -521,7 +569,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         </form>
       )}
 
-      {/* Sub-Tab 2: Separated Movie Watchlist (Login Required) & Drama Watchlist */}
+      {/* Sub-Tab 2: Points, Payout Requests & Live Payout History */}
+      {subTab === 'rewards' && <RewardsPayoutSection />}
+
+      {/* Sub-Tab 3: Separated Movie Watchlist (Login Required) & Drama Watchlist */}
       {subTab === 'watchlist' && (
         <section className="space-y-4">
           <div

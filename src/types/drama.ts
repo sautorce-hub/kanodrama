@@ -138,6 +138,7 @@ export interface DramaItem {
   year?: string;
   area?: string;
   quality?: string;
+  duration?: string;
   isVip: boolean;
   provider: MediaProviderName;
   mediaType?: MediaType;

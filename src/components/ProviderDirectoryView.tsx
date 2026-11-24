@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useDramaContext } from '../context/DramaContext';
 import { getProviderRouteSlug } from '../constants/providerLogos';
+import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import {
   PROVIDER_DIRECTORY_ITEMS,
   ProviderBrandLogo,
@@ -65,8 +66,9 @@ export const ProviderDirectoryView: React.FC<ProviderDirectoryViewProps> = ({
         className="flex items-center gap-2 text-xs text-[#A1A1AA]"
       >
         <a
-          href="/"
+          href={`${DEFAULT_SITE_ORIGIN}/`}
           onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
             e.preventDefault();
             onBackHome();
           }}
@@ -95,8 +97,9 @@ export const ProviderDirectoryView: React.FC<ProviderDirectoryViewProps> = ({
 
         <div className="flex flex-wrap items-center gap-2">
           <a
-            href="/movies"
+            href={`${DEFAULT_SITE_ORIGIN}/movies`}
             onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
               e.preventDefault();
               onNavigateMovies();
             }}
@@ -148,13 +151,14 @@ export const ProviderDirectoryView: React.FC<ProviderDirectoryViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {filtered.map((prov) => {
             const provSlug = getProviderRouteSlug(prov.id);
-            const href = `/provider/${provSlug}`;
+            const href = `${DEFAULT_SITE_ORIGIN}/provider/${provSlug}`;
             const count = counts[prov.id] ?? 0;
             return (
               <a
                 key={prov.id}
                 href={href}
                 onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                   e.preventDefault();
                   onSelectProvider(prov.id);
                 }}

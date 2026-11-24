@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 import { useDramaContext } from '../context/DramaContext';
 import { ProviderBadge } from './ProviderBadge';
-import { getDramaPath, getWatchPath, slugifyDramaTitle } from '../utils/seo';
+import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
+import { getDramaPath, slugifyDramaTitle } from '../utils/seo';
 import type { DramaItem } from '../types/drama';
 
 interface ShareDramaModalProps {
@@ -27,21 +28,15 @@ interface ShareDramaModalProps {
 
 export function buildDramaDeepLink(
   drama: DramaItem,
-  episodeNumber = 1
+  _episodeNumber = 1
 ): string {
-  const origin =
-    typeof window !== 'undefined' ? window.location.origin : '';
-  const path =
-    episodeNumber > 1
-      ? getWatchPath(
-          drama.bookId,
-          drama.title,
-          drama.provider,
-          drama.slug,
-          episodeNumber
-        )
-      : getDramaPath(drama.bookId, drama.title, drama.provider, drama.slug);
-  return `${origin}${path}`;
+  const detailPath = getDramaPath(
+    drama.bookId,
+    drama.title,
+    drama.provider,
+    drama.slug
+  );
+  return `${DEFAULT_SITE_ORIGIN}${detailPath}`;
 }
 
 function loadCorsImage(url: string): Promise<HTMLImageElement | null> {
@@ -336,7 +331,13 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
   if (!open || !drama) return null;
 
   const deepLink = buildDramaDeepLink(drama, episodeNumber);
-  const viralCaption = `🔥 "${drama.title}" (EP ${episodeNumber}) on KanoDrama [${drama.provider}] — binge vertical HD drama now!\n\nWatch free here: ${deepLink}`;
+  const isSingleMovieShare =
+    (drama.mediaType === 'movie' ||
+      drama.provider === 'LK21' ||
+      drama.provider === 'LookSeries') &&
+    (drama.chapterCount || 1) <= 1;
+  const shareBadgeLabel = isSingleMovieShare ? 'Full HD' : `EP ${episodeNumber}`;
+  const viralCaption = `🔥 Nonton gratis "${drama.title}" (${shareBadgeLabel}) di KanoDrama [${drama.provider}]!\n\nStreaming HD Sub Indo & multi-bahasa: ${deepLink}`;
   const downloadFilename = `${slugifyDramaTitle(drama.title)}-ep${episodeNumber}-spoiler-card.png`;
 
   const completeShareAction = () => {
@@ -351,7 +352,7 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
     try {
       await navigator.clipboard?.writeText(viralCaption);
       setCopied(true);
-      pushToast('Viral caption & deep-link copied!', 'gold');
+      pushToast('Viral caption & KanoDrama link copied!', 'gold');
       window.setTimeout(() => setCopied(false), 2000);
       completeShareAction();
     } catch {
@@ -384,7 +385,7 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
           if (canShareFiles) {
             await navigator.share({
               files: [file],
-              title: `${drama.title} · EP ${episodeNumber}`,
+              title: `${drama.title} · KanoDrama`,
               text: viralCaption,
               url: deepLink,
             });
@@ -393,7 +394,7 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
           }
         }
         await navigator.share({
-          title: `${drama.title} · EP ${episodeNumber}`,
+          title: `${drama.title} · KanoDrama`,
           text: viralCaption,
           url: deepLink,
         });
@@ -409,9 +410,9 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
   const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(viralCaption)}`;
   const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(
     deepLink
-  )}&text=${encodeURIComponent(`🔥 ${drama.title} (EP ${episodeNumber}) on KanoDrama`)}`;
+  )}&text=${encodeURIComponent(`🔥 Nonton ${drama.title} (${shareBadgeLabel}) di KanoDrama`)}`;
   const xShareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
-    `🔥 Watching "${drama.title}" (EP ${episodeNumber}) in HD on KanoDrama`
+    `🔥 Nonton gratis "${drama.title}" (${shareBadgeLabel}) di KanoDrama`
   )}&url=${encodeURIComponent(deepLink)}`;
   const facebookShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
     deepLink

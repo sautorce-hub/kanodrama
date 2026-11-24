@@ -73,7 +73,11 @@ import {
   movieToDramaItem,
 } from './services/movieService';
 import { useDramaContext } from './context/DramaContext';
-import { getDictionary, getLanguageMeta } from './i18n/helpers';
+import {
+  DEFAULT_SITE_ORIGIN,
+  getDictionary,
+  getLanguageMeta,
+} from './i18n/helpers';
 import {
   getProviderRouteSlug,
   isKnownProviderRouteSlug,
@@ -883,7 +887,7 @@ export default function App() {
   );
   const [providerHubOpen, setProviderHubOpen] = useState(false);
   const [dashboardSubTab, setDashboardSubTab] = useState<
-    'profile' | 'watchlist' | 'history' | 'comments'
+    'profile' | 'rewards' | 'watchlist' | 'history' | 'comments'
   >('profile');
   const [dashboardWatchlistCategory, setDashboardWatchlistCategory] = useState<
     'movie' | 'drama'
@@ -3519,8 +3523,9 @@ export default function App() {
                   </div>
                   <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
                     <a
-                      href="/providers"
+                      href={`${DEFAULT_SITE_ORIGIN}/providers`}
                       onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                         e.preventDefault();
                         navigateToProvidersDirectory();
                       }}
@@ -3530,8 +3535,9 @@ export default function App() {
                       <span>{t.providers.all}</span>
                     </a>
                     <a
-                      href="/"
+                      href={`${DEFAULT_SITE_ORIGIN}/`}
                       onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                         e.preventDefault();
                         handleNavigateTab('home');
                       }}
@@ -3549,8 +3555,9 @@ export default function App() {
                   className="max-w-[1440px] mx-auto px-4 md:px-8 pt-5 flex items-center gap-2 text-xs text-[#A1A1AA]"
                 >
                   <a
-                    href="/"
+                    href={`${DEFAULT_SITE_ORIGIN}/`}
                     onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                       e.preventDefault();
                       handleNavigateTab('home');
                     }}
@@ -3560,8 +3567,9 @@ export default function App() {
                   </a>
                   <span>/</span>
                   <a
-                    href="/providers"
+                    href={`${DEFAULT_SITE_ORIGIN}/providers`}
                     onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                       e.preventDefault();
                       navigateToProvidersDirectory();
                     }}
@@ -3648,17 +3656,23 @@ export default function App() {
                       </button>
                     );
                   })}
-                  <button
-                    type="button"
-                    onClick={() => handleNavigateTab('explore')}
+                  <a
+                    href={`${DEFAULT_SITE_ORIGIN}/explore`}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                      e.preventDefault();
+                      handleNavigateTab('explore');
+                    }}
                     className="inline-flex items-center gap-1.5 px-4 py-1.5 min-h-[38px] rounded-full bg-[#141418] border border-white/15 hover:border-[var(--cd-accent)] text-xs font-semibold text-[#D4AF37] whitespace-nowrap shrink-0 transition-colors"
                   >
                     <Compass className="w-3.5 h-3.5" />
                     <span>{t.nav.explore}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
+                  </a>
+                  <a
+                    href={`${DEFAULT_SITE_ORIGIN}/account`}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                      e.preventDefault();
                       setWatchlistCategory('drama');
                       handleNavigateTab('mylist');
                     }}
@@ -3669,7 +3683,7 @@ export default function App() {
                       {t.sections.dramaWatchlistTitle}
                       {dramaWatchlistItems.length > 0 ? ` (${dramaWatchlistItems.length})` : ''}
                     </span>
-                  </button>
+                  </a>
                 </div>
               </section>
 
@@ -3813,14 +3827,18 @@ export default function App() {
                         {t.sections.homeCatalogGrid}
                       </h2>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleNavigateTab('explore')}
+                    <a
+                      href={`${DEFAULT_SITE_ORIGIN}/explore`}
+                      onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                        e.preventDefault();
+                        handleNavigateTab('explore');
+                      }}
                       className="inline-flex items-center gap-1 text-xs font-medium text-[#A1A1AA] hover:text-white transition-colors whitespace-nowrap shrink-0"
                     >
                       <span>{t.nav.explore}</span>
                       <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
+                    </a>
                   </div>
 
                   {homeLoading && !(homeCatalog?.catalogGrid.length) ? (
@@ -3857,15 +3875,19 @@ export default function App() {
                   ) : null}
 
                   <div className="mt-8 flex justify-center">
-                    <button
-                      type="button"
-                      onClick={() => handleNavigateTab('explore')}
+                    <a
+                      href={`${DEFAULT_SITE_ORIGIN}/explore`}
+                      onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                        e.preventDefault();
+                        handleNavigateTab('explore');
+                      }}
                       className="inline-flex items-center gap-2 px-6 py-2.5 min-h-[44px] rounded-full bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-xs sm:text-sm font-semibold text-white transition-colors"
                     >
                       <Compass className="w-4 h-4 cd-accent-text" />
                       <span>{t.sections.exploreAllCategories}</span>
                       <ChevronRight className="w-4 h-4 text-[#A1A1AA]" />
-                    </button>
+                    </a>
                   </div>
                 </section>
               </LazySection>
@@ -4321,9 +4343,13 @@ export default function App() {
         aria-label="Mobile Bottom Navigation"
       >
         {/* 1. Home (/ or /drama) */}
-        <button
-          type="button"
-          onClick={() => handleNavigateTab('home')}
+        <a
+          href={`${DEFAULT_SITE_ORIGIN}/`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            handleNavigateTab('home');
+          }}
           aria-label={t.nav.home}
           className={`flex flex-col items-center justify-center gap-0.5 w-full h-full min-h-[44px] text-[10px] font-medium transition-colors ${
             !activeDramaRoute &&
@@ -4338,7 +4364,7 @@ export default function App() {
         >
           <Home className="w-4 h-4" />
           <span className="truncate max-w-[60px]">{t.nav.home}</span>
-        </button>
+        </a>
 
         {/* 2. Search (/search) */}
         <button
@@ -4356,9 +4382,13 @@ export default function App() {
         </button>
 
         {/* 3. Provider (Opens Provider Hub modal/drawer) */}
-        <button
-          type="button"
-          onClick={handleOpenProviderHub}
+        <a
+          href={`${DEFAULT_SITE_ORIGIN}/providers`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            handleOpenProviderHub();
+          }}
           aria-label={t.nav.providers}
           className={`flex flex-col items-center justify-center gap-0.5 w-full h-full min-h-[44px] text-[10px] font-semibold transition-colors ${
             providerHubOpen || selectedProvider !== 'All'
@@ -4372,12 +4402,16 @@ export default function App() {
               ? t.nav.providers
               : selectedProvider.slice(0, 7)}
           </span>
-        </button>
+        </a>
 
         {/* 4. Movie (/movies) */}
-        <button
-          type="button"
-          onClick={() => handleNavigateTab('movies')}
+        <a
+          href={`${DEFAULT_SITE_ORIGIN}/movies`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            handleNavigateTab('movies');
+          }}
           aria-label={t.nav.movies}
           className={`flex flex-col items-center justify-center gap-0.5 w-full h-full min-h-[44px] text-[10px] font-semibold transition-colors ${
             !activeDramaRoute &&
@@ -4392,7 +4426,7 @@ export default function App() {
         >
           <Clapperboard className="w-4 h-4" />
           <span className="truncate max-w-[60px]">{t.nav.movies}</span>
-        </button>
+        </a>
 
         {/* 5. Login (Profile / Auth & Integrated Movie Watchlist) */}
         <button

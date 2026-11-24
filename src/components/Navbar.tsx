@@ -25,7 +25,7 @@ import { CoffeeDramaLogo } from './CoffeeDramaLogo';
 import { PWAInstallButton } from './PWAInstallBanner';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { useDramaContext } from '../context/DramaContext';
-import { getLanguageMeta } from '../i18n/helpers';
+import { DEFAULT_SITE_ORIGIN, getLanguageMeta } from '../i18n/helpers';
 import type {
   AccentThemeId,
   LanguageCode,
@@ -55,6 +55,34 @@ const ACCENT_PRESETS: { id: AccentThemeId; name: string; color: string }[] = [
   { id: 'rose', name: 'Royal Rose', color: '#E11D48' },
   { id: 'emerald', name: 'Emerald Jade', color: '#10B981' },
 ];
+
+function getNavTabPath(tab: NavTab): string {
+  switch (tab) {
+    case 'movies':
+      return '/movies';
+    case 'providers':
+      return '/providers';
+    case 'explore':
+    case 'anime':
+    case 'dubbing':
+      return '/explore';
+    case 'ranking':
+      return '/trending';
+    case 'terbaru':
+      return '/latest';
+    case 'vip':
+      return '/vip';
+    case 'mylist':
+    case 'dashboard':
+      return '/account';
+    default:
+      return '/';
+  }
+}
+
+function isPlainLeftClick(e: React.MouseEvent): boolean {
+  return !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.button === 0;
+}
 
 export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   activeTab,
@@ -125,11 +153,16 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       <div className="flex-1 overflow-y-auto scrollbar-none space-y-1">
         {primaryItems.map((item) => {
           const isActive = !hasActiveSubRoute && activeTab === item.id;
+          const itemPath = getNavTabPath(item.id);
           return (
-            <button
+            <a
               key={item.id}
-              type="button"
-              onClick={() => onSelectTab(item.id)}
+              href={`${DEFAULT_SITE_ORIGIN}${itemPath}`}
+              onClick={(e) => {
+                if (!isPlainLeftClick(e)) return;
+                e.preventDefault();
+                onSelectTab(item.id);
+              }}
               title={item.label}
               aria-current={isActive ? 'page' : undefined}
               className={`w-full min-h-[42px] px-2.5 lg:px-3 py-2 rounded-xl flex items-center justify-center lg:justify-between gap-2.5 text-xs font-medium transition-colors ${
@@ -147,13 +180,17 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
                   {item.badge}
                 </span>
               )}
-            </button>
+            </a>
           );
         })}
 
-        <button
-          type="button"
-          onClick={onOpenProviderHub}
+        <a
+          href={`${DEFAULT_SITE_ORIGIN}/providers`}
+          onClick={(e) => {
+            if (!isPlainLeftClick(e)) return;
+            e.preventDefault();
+            onOpenProviderHub();
+          }}
           title={t.nav.providers}
           aria-current={!hasActiveSubRoute && activeTab === 'providers' ? 'page' : undefined}
           className={`w-full min-h-[42px] px-2.5 lg:px-3 py-2 rounded-xl flex items-center justify-center lg:justify-between gap-2.5 text-xs font-medium transition-colors ${
@@ -172,14 +209,18 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
               {selectedProvider}
             </span>
           )}
-        </button>
+        </a>
       </div>
 
-      {/* Bottom Anchored Movies Route Button */}
+      {/* Bottom Anchored Movies Route Link */}
       <div className="pt-3 mt-2 border-t border-white/10 shrink-0">
-        <button
-          type="button"
-          onClick={() => onSelectTab('movies')}
+        <a
+          href={`${DEFAULT_SITE_ORIGIN}/movies`}
+          onClick={(e) => {
+            if (!isPlainLeftClick(e)) return;
+            e.preventDefault();
+            onSelectTab('movies');
+          }}
           title={t.nav.movies}
           aria-current={isMoviesActive ? 'page' : undefined}
           className={`w-full min-h-[46px] px-2.5 lg:px-3.5 py-2.5 rounded-xl flex items-center justify-center lg:justify-start gap-2.5 text-xs font-bold transition-all border ${
@@ -194,7 +235,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
             }`}
           />
           <span className="hidden lg:inline truncate">{t.nav.movies}</span>
-        </button>
+        </a>
       </div>
     </aside>
   );
@@ -279,17 +320,19 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="max-w-[1600px] mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
         {/* Left Zone: Brand Logo */}
         <div className="flex items-center gap-4 min-w-0">
-          <button
-            type="button"
-            onClick={() => {
+          <a
+            href={`${DEFAULT_SITE_ORIGIN}/`}
+            onClick={(e) => {
+              if (!isPlainLeftClick(e)) return;
+              e.preventDefault();
               onSelectTab('home');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
-            className="focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cd-accent)] rounded-lg shrink-0"
+            className="focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cd-accent)] rounded-lg shrink-0 inline-flex"
             aria-label="KanoDrama Home"
           >
             <CoffeeDramaLogo />
-          </button>
+          </a>
         </div>
 
         {/* Right Zone: PWA Install, Theme Accent Switcher, Language Switcher, Search, Account */}
@@ -457,11 +500,14 @@ export const Navbar: React.FC<NavbarProps> = ({
           {mobileDrawerTabs.map((tab) => {
             const isActive = activeTab === tab.id;
             const isMoviesRow = tab.id === 'movies';
+            const tabPath = getNavTabPath(tab.id);
             return (
-              <button
+              <a
                 key={tab.id}
-                type="button"
-                onClick={() => {
+                href={`${DEFAULT_SITE_ORIGIN}${tabPath}`}
+                onClick={(e) => {
+                  if (!isPlainLeftClick(e)) return;
+                  e.preventDefault();
                   onSelectTab(tab.id);
                   setMobileMenuOpen(false);
                 }}
@@ -482,7 +528,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     {myListItems.length}
                   </span>
                 )}
-              </button>
+              </a>
             );
           })}
           <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2 text-xs text-[#A1A1AA]">

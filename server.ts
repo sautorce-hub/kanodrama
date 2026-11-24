@@ -8,40 +8,53 @@ import express, { type Request, type Response } from 'express';
 import compression from 'compression';
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
 import {
+  ALLOWED_PAYOUT_METHODS,
   ACTIVE_VISITOR_TTL_SECONDS,
+  bindReferralForUserInDb,
   buildGmailAccountKey,
+  claimPointsInDb,
   createCommentInDb,
+  createPayoutRequestInDb,
   deleteWatchHistoryInDb,
   ensureDatabaseReady,
   filterCatalogFromDb,
   getDramaStatsFromDb,
   getJakartaDateKey,
+  getPayoutRuntimeConfig,
   getSiteVisitorStatsFromDb,
   getTopDailyStatsFromDb,
   getTrendingStatsMapFromDb,
   getUniqueGmailLoginCountFromDb,
   getUserFromDb,
+  getUserPointsSummaryFromDb,
+  getUserReferralSummaryFromDb,
   isDatabaseEnabled,
+  listAdminPayoutRequestsFromDb,
   listCatalogForSitemapFromDb,
   listCommentsFromDb,
   listFavoritesFromDb,
   listLikesFromDb,
+  listLivePayoutFeedFromDb,
   listMoviesForSitemapFromDb,
   listUserCommentsFromDb,
   listWatchHistoryFromDb,
   pingDb,
   recordGmailLoginInDb,
+  recordUserSecuritySignalInDb,
   recordVideoViewInDb,
   recordVisitorHeartbeatInDb,
+  recordWatchHeartbeatInDb,
   removeActiveVisitorSessionInDb,
   resolveDramaBySlugFromDb,
   syncUserInDb,
   toggleFavoriteInDb,
   toggleLikeInDb,
+  updateAdminPayoutStatusInDb,
   updateCatalogEpisodeCountIfHigherInDb,
   updateFavoriteFolderInDb,
   updateUserProfileInDb,
   upsertWatchHistoryInDb,
+  type PayoutMethod,
 } from './server/db.ts';
 import {
   attachLiveBadgesToItems,
@@ -99,6 +112,7 @@ import {
 } from './src/constants/providerLogos.ts';
 import {
   buildOgImageEndpointUrl,
+  DEFAULT_SITE_ORIGIN,
   detectLanguageFromContent,
   generateMetadata,
   getHtmlLangTag,
@@ -108,6 +122,7 @@ import {
   stripLeadingWatchPrefix,
 } from './src/i18n/helpers.ts';
 import {
+  BRAND_LOGO_ICON_PATH,
   cleanSeoDescription,
   resolveDramaSeoDescriptionFields,
 } from './src/utils/seo.ts';
@@ -419,7 +434,7 @@ function normalizeVisitorStatsResponse(input: {
   };
 }
 
-function resolveAllowedFirebaseProjectIds(): Set<string> {
+function resolveAllowedGoogleClientIds(): Set<string> {
   const ids = new Set<string>();
   const addId = (val: unknown) => {
     if (typeof val !== 'string') return;
@@ -428,57 +443,42 @@ function resolveAllowedFirebaseProjectIds(): Set<string> {
       if (cleaned) ids.add(cleaned);
     }
   };
-
-  addId(process.env.FIREBASE_PROJECT_ID);
-  addId(process.env.VITE_FIREBASE_PROJECT_ID);
-
-  const viteCfgRaw = (process.env.VITE_FIREBASE_CONFIG || '').trim();
-  if (viteCfgRaw.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(viteCfgRaw) as { projectId?: string };
-      addId(parsed.projectId);
-    } catch {
-      // Ignore malformed VITE_FIREBASE_CONFIG
-    }
-  }
-
-  try {
-    const cfgPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-    if (fs.existsSync(cfgPath)) {
-      const parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) as {
-        projectId?: string;
-      };
-      addId(parsed.projectId);
-    }
-  } catch {
-    // Fallback below
-  }
-
+  addId(process.env.GOOGLE_CLIENT_ID);
+  addId(process.env.VITE_GOOGLE_CLIENT_ID);
   return ids;
 }
 
-const ALLOWED_FIREBASE_PROJECT_IDS = resolveAllowedFirebaseProjectIds();
-let firebaseCertsCache: {
+function getPrimaryGoogleClientId(): string {
+  const allowed = resolveAllowedGoogleClientIds();
+  return allowed.values().next().value || '';
+}
+
+function getGoogleClientSecret(): string {
+  return (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+}
+
+let googleCertsCache: {
   certs: Record<string, string>;
   expiresAt: number;
 } | null = null;
 
-async function getFirebasePublicCerts(forceRefresh = false): Promise<Record<string, string> | null> {
+async function getGooglePublicCerts(
+  forceRefresh = false
+): Promise<Record<string, string> | null> {
   const now = Date.now();
-  if (!forceRefresh && firebaseCertsCache && now < firebaseCertsCache.expiresAt) {
-    return firebaseCertsCache.certs;
+  if (!forceRefresh && googleCertsCache && now < googleCertsCache.expiresAt) {
+    return googleCertsCache.certs;
   }
   try {
-    const res = await fetch(
-      'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com',
-      { signal: AbortSignal.timeout(5000) }
-    );
+    const res = await fetch('https://www.googleapis.com/oauth2/v1/certs', {
+      signal: AbortSignal.timeout(5000),
+    });
     if (!res.ok) return null;
     const certs = (await res.json()) as Record<string, string>;
     const cc = res.headers.get('cache-control') || '';
     const maxAgeMatch = cc.match(/max-age=(\d+)/i);
     const maxAgeMs = maxAgeMatch ? Number(maxAgeMatch[1]) * 1000 : 3600_000;
-    firebaseCertsCache = {
+    googleCertsCache = {
       certs,
       expiresAt: now + Math.max(60_000, maxAgeMs),
     };
@@ -488,14 +488,19 @@ async function getFirebasePublicCerts(forceRefresh = false): Promise<Record<stri
   }
 }
 
-async function verifyFirebaseGoogleIdToken(idToken: string): Promise<{
-  status: 'verified' | 'invalid' | 'certs_unavailable';
-  uid?: string;
+interface VerifiedGoogleClaims {
+  status: 'verified' | 'invalid' | 'unavailable';
+  sub?: string;
   email?: string;
   emailVerified?: boolean;
-}> {
-  if (ALLOWED_FIREBASE_PROJECT_IDS.size === 0) {
-    return { status: 'certs_unavailable' };
+  name?: string;
+  picture?: string | null;
+}
+
+async function verifyGoogleIdToken(idToken: string): Promise<VerifiedGoogleClaims> {
+  const allowedClientIds = resolveAllowedGoogleClientIds();
+  if (allowedClientIds.size === 0) {
+    return { status: 'unavailable' };
   }
   const parts = idToken.split('.');
   if (parts.length !== 3) {
@@ -504,12 +509,14 @@ async function verifyFirebaseGoogleIdToken(idToken: string): Promise<{
   let header: { alg?: string; kid?: string };
   let payload: {
     aud?: string;
+    azp?: string;
     iss?: string;
     sub?: string;
     exp?: number;
     email?: string;
     email_verified?: boolean;
-    firebase?: { sign_in_provider?: string };
+    name?: string;
+    picture?: string;
   };
   try {
     header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf-8'));
@@ -521,11 +528,15 @@ async function verifyFirebaseGoogleIdToken(idToken: string): Promise<{
   if (header.alg !== 'RS256' || !header.kid) {
     return { status: 'invalid' };
   }
+
   const nowSec = Math.floor(Date.now() / 1000);
+  const issValid =
+    payload.iss === 'https://accounts.google.com' ||
+    payload.iss === 'accounts.google.com';
   if (
+    !issValid ||
     typeof payload.aud !== 'string' ||
-    !ALLOWED_FIREBASE_PROJECT_IDS.has(payload.aud) ||
-    payload.iss !== `https://securetoken.google.com/${payload.aud}` ||
+    !allowedClientIds.has(payload.aud) ||
     !payload.sub ||
     typeof payload.exp !== 'number' ||
     payload.exp + 60 <= nowSec
@@ -533,14 +544,14 @@ async function verifyFirebaseGoogleIdToken(idToken: string): Promise<{
     return { status: 'invalid' };
   }
 
-  let certs = await getFirebasePublicCerts();
+  let certs = await getGooglePublicCerts();
   if (!certs) {
-    return { status: 'certs_unavailable' };
+    return { status: 'unavailable' };
   }
   let certPem = certs[header.kid];
   if (!certPem) {
-    certs = await getFirebasePublicCerts(true);
-    if (!certs) return { status: 'certs_unavailable' };
+    certs = await getGooglePublicCerts(true);
+    if (!certs) return { status: 'unavailable' };
     certPem = certs[header.kid];
   }
   if (!certPem) {
@@ -555,12 +566,476 @@ async function verifyFirebaseGoogleIdToken(idToken: string): Promise<{
     return { status: 'invalid' };
   }
 
+  const email = typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '';
+  const emailVerified = payload.email_verified === true;
+  if (!email || !emailVerified) {
+    return { status: 'invalid' };
+  }
+
   return {
     status: 'verified',
-    uid: payload.sub,
-    email: typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : '',
-    emailVerified: payload.email_verified !== false,
+    sub: payload.sub,
+    email,
+    emailVerified,
+    name: typeof payload.name === 'string' ? payload.name.trim() : '',
+    picture: typeof payload.picture === 'string' ? payload.picture.trim() : null,
   };
+}
+
+async function verifyGoogleAccessToken(
+  accessToken: string
+): Promise<VerifiedGoogleClaims> {
+  const allowedClientIds = resolveAllowedGoogleClientIds();
+  if (allowedClientIds.size === 0) {
+    return { status: 'unavailable' };
+  }
+  const cleanToken = accessToken.trim();
+  if (!cleanToken) {
+    return { status: 'invalid' };
+  }
+
+  try {
+    const tokenInfoRes = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(cleanToken)}`,
+      { signal: AbortSignal.timeout(6000) }
+    );
+    if (!tokenInfoRes.ok) {
+      return { status: 'invalid' };
+    }
+    const tokenInfo = (await tokenInfoRes.json()) as {
+      aud?: string;
+      azp?: string;
+      sub?: string;
+      email?: string;
+      email_verified?: string | boolean;
+      expires_in?: string | number;
+    };
+
+    const audMatched =
+      (typeof tokenInfo.aud === 'string' && allowedClientIds.has(tokenInfo.aud)) ||
+      (typeof tokenInfo.azp === 'string' && allowedClientIds.has(tokenInfo.azp));
+    const expiresIn = Number(tokenInfo.expires_in || 0);
+    if (!audMatched || !Number.isFinite(expiresIn) || expiresIn <= 0) {
+      return { status: 'invalid' };
+    }
+
+    const userInfoRes = await fetch(
+      'https://www.googleapis.com/oauth2/v3/userinfo',
+      {
+        headers: { Authorization: `Bearer ${cleanToken}` },
+        signal: AbortSignal.timeout(6000),
+      }
+    );
+    if (!userInfoRes.ok) {
+      return { status: 'invalid' };
+    }
+    const userInfo = (await userInfoRes.json()) as {
+      sub?: string;
+      email?: string;
+      email_verified?: boolean;
+      name?: string;
+      picture?: string;
+    };
+
+    const sub = cleanText(userInfo.sub || tokenInfo.sub);
+    const email = cleanText(userInfo.email || tokenInfo.email).toLowerCase();
+    const emailVerified = userInfo.email_verified === true;
+    if (!sub || !email || !emailVerified) {
+      return { status: 'invalid' };
+    }
+
+    return {
+      status: 'verified',
+      sub,
+      email,
+      emailVerified: true,
+      name: cleanText(userInfo.name),
+      picture: cleanText(userInfo.picture) || null,
+    };
+  } catch {
+    return { status: 'unavailable' };
+  }
+}
+
+const SESSION_COOKIE_NAME = 'kd_session';
+const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+const RUNTIME_SESSION_FALLBACK_SECRET = crypto.randomBytes(32).toString('hex');
+
+function getAuthSessionSecret(): string {
+  return (
+    process.env.SESSION_SECRET ||
+    process.env.STREAM_SIGNING_SECRET ||
+    RUNTIME_SESSION_FALLBACK_SECRET
+  ).trim();
+}
+
+interface SessionTokenPayload {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string | null;
+  iat: number;
+  exp: number;
+}
+
+function signAuthSessionToken(claims: {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string | null;
+}): string {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const payload: SessionTokenPayload = {
+    uid: claims.uid,
+    email: claims.email,
+    displayName: claims.displayName,
+    photoURL: claims.photoURL,
+    iat: nowSec,
+    exp: nowSec + SESSION_TTL_SECONDS,
+  };
+  const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf-8').toString('base64url');
+  const sig = crypto
+    .createHmac('sha256', getAuthSessionSecret())
+    .update(encodedPayload)
+    .digest('base64url');
+  return `v1.${encodedPayload}.${sig}`;
+}
+
+function verifyAuthSessionToken(token: string): SessionTokenPayload | null {
+  const parts = token.trim().split('.');
+  if (parts.length !== 3 || parts[0] !== 'v1') return null;
+  const [, encodedPayload, providedSig] = parts;
+  if (!encodedPayload || !providedSig) return null;
+
+  const expectedSig = crypto
+    .createHmac('sha256', getAuthSessionSecret())
+    .update(encodedPayload)
+    .digest('base64url');
+  const a = Buffer.from(providedSig, 'utf-8');
+  const b = Buffer.from(expectedSig, 'utf-8');
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(encodedPayload, 'base64url').toString('utf-8')
+    ) as SessionTokenPayload;
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (
+      !parsed ||
+      typeof parsed.uid !== 'string' ||
+      !parsed.uid ||
+      typeof parsed.exp !== 'number' ||
+      parsed.exp <= nowSec
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function parseCookiesMap(cookieHeader: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!cookieHeader) return out;
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx <= 0) continue;
+    const name = part.slice(0, idx).trim();
+    const rawVal = part.slice(idx + 1).trim();
+    if (!name) continue;
+    try {
+      out[name] = decodeURIComponent(rawVal);
+    } catch {
+      out[name] = rawVal;
+    }
+  }
+  return out;
+}
+
+function isHttpsRequest(req: Request): boolean {
+  if (req.secure) return true;
+  const proto = (req.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase();
+  return proto === 'https';
+}
+
+function setAuthSessionCookie(req: Request, res: Response, token: string): void {
+  const secure = isHttpsRequest(req);
+  const attrs = [
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`,
+    'Path=/',
+    `Max-Age=${SESSION_TTL_SECONDS}`,
+    'HttpOnly',
+    ...(secure ? ['Secure', 'SameSite=None', 'Partitioned'] : ['SameSite=Lax']),
+  ];
+  res.append('Set-Cookie', attrs.join('; '));
+}
+
+function clearAuthSessionCookie(req: Request, res: Response): void {
+  const secure = isHttpsRequest(req);
+  const attrs = [
+    `${SESSION_COOKIE_NAME}=`,
+    'Path=/',
+    'Max-Age=0',
+    'HttpOnly',
+    ...(secure ? ['Secure', 'SameSite=None', 'Partitioned'] : ['SameSite=Lax']),
+  ];
+  res.append('Set-Cookie', attrs.join('; '));
+}
+
+function extractAuthSessionFromRequest(req: Request): {
+  session: SessionTokenPayload | null;
+  viaCookie: boolean;
+} {
+  const authHeader = req.get('authorization') || '';
+  const bearerToken = authHeader.startsWith('Bearer ')
+    ? authHeader.slice(7).trim()
+    : '';
+  if (bearerToken) {
+    const verified = verifyAuthSessionToken(bearerToken);
+    if (verified) return { session: verified, viaCookie: false };
+  }
+  const cookies = parseCookiesMap(req.get('cookie'));
+  const cookieToken = cookies[SESSION_COOKIE_NAME];
+  if (cookieToken) {
+    const verified = verifyAuthSessionToken(cookieToken);
+    if (verified) return { session: verified, viaCookie: true };
+  }
+  return { session: null, viaCookie: false };
+}
+
+function isTrustedSameOriginMutation(req: Request): boolean {
+  if (req.get('x-requested-with') === 'KanoDrama') {
+    return true;
+  }
+  const hostHeader = (req.get('x-forwarded-host') || req.get('host') || '')
+    .split(',')[0]
+    .trim()
+    .toLowerCase();
+  const originHeader = (req.get('origin') || '').trim();
+  const refererHeader = (req.get('referer') || '').trim();
+  const candidate = originHeader || refererHeader;
+  if (!candidate) return false;
+  try {
+    const parsedHost = new URL(candidate).host.toLowerCase();
+    const canonicalHost = new URL(DEFAULT_SITE_ORIGIN).host.toLowerCase();
+    return Boolean(
+      (hostHeader && parsedHost === hostHeader) || parsedHost === canonicalHost
+    );
+  } catch {
+    return false;
+  }
+}
+
+function buildAvatarInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'KD';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+const SESSION_AVATAR_COLORS = ['#EF4444', '#D4AF37', '#10B981', '#E11D48', '#3B82F6'];
+function pickAvatarColor(seed: string): string {
+  const hash = seed.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  return SESSION_AVATAR_COLORS[Math.abs(hash) % SESSION_AVATAR_COLORS.length];
+}
+
+function signOAuthStateToken(origin: string): string {
+  const payload = Buffer.from(
+    JSON.stringify({
+      origin,
+      nonce: crypto.randomBytes(8).toString('hex'),
+      exp: Math.floor(Date.now() / 1000) + 600,
+    }),
+    'utf-8'
+  ).toString('base64url');
+  const sig = crypto
+    .createHmac('sha256', getAuthSessionSecret())
+    .update(`oauth_state:${payload}`)
+    .digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+function verifyOAuthStateToken(stateRaw: string): { origin: string } | null {
+  const dot = stateRaw.indexOf('.');
+  if (dot <= 0) return null;
+  const payload = stateRaw.slice(0, dot);
+  const sig = stateRaw.slice(dot + 1);
+  const expected = crypto
+    .createHmac('sha256', getAuthSessionSecret())
+    .update(`oauth_state:${payload}`)
+    .digest('base64url');
+  const a = Buffer.from(sig, 'utf-8');
+  const b = Buffer.from(expected, 'utf-8');
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(payload, 'base64url').toString('utf-8')
+    ) as { origin?: string; exp?: number };
+    if (
+      !parsed ||
+      typeof parsed.exp !== 'number' ||
+      parsed.exp < Math.floor(Date.now() / 1000) ||
+      typeof parsed.origin !== 'string'
+    ) {
+      return null;
+    }
+    return { origin: parsed.origin };
+  } catch {
+    return null;
+  }
+}
+
+function sha256SecurityDigest(value: string): string {
+  if (!value) return '';
+  return crypto
+    .createHash('sha256')
+    .update(`kd-sec-v1:${value}`)
+    .digest('hex')
+    .slice(0, 64);
+}
+
+function extractClientIpNormalized(req: Request): string {
+  const xff = (req.get('x-forwarded-for') || '').split(',')[0].trim();
+  const realIp = (req.get('x-real-ip') || '').trim();
+  const raw = xff || realIp || req.ip || req.socket.remoteAddress || '';
+  return raw.replace(/^::ffff:/i, '').trim();
+}
+
+function computeIpSubnetPrefix(ip: string): string {
+  if (!ip) return '';
+  if (ip.includes('.')) {
+    const parts = ip.split('.');
+    if (parts.length === 4) {
+      return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+    }
+  }
+  if (ip.includes(':')) {
+    const groups = ip.split(':').filter(Boolean);
+    return `${groups.slice(0, 3).join(':')}::/48`;
+  }
+  return ip;
+}
+
+function extractClientSecurityHashes(
+  req: Request,
+  explicitDeviceFp?: string
+): {
+  ipHash: string;
+  subnetHash: string;
+  uaHash: string;
+  deviceHash: string;
+} {
+  const ip = extractClientIpNormalized(req);
+  const subnet = computeIpSubnetPrefix(ip);
+  const ua = (req.get('user-agent') || '').trim().slice(0, 320);
+  const rawDevice = (
+    explicitDeviceFp ||
+    req.get('x-device-fingerprint') ||
+    (typeof req.body?.deviceFingerprint === 'string'
+      ? req.body.deviceFingerprint
+      : '') ||
+    ''
+  )
+    .trim()
+    .slice(0, 128);
+
+  return {
+    ipHash: sha256SecurityDigest(ip),
+    subnetHash: sha256SecurityDigest(subnet),
+    uaHash: sha256SecurityDigest(ua),
+    deviceHash: sha256SecurityDigest(rawDevice),
+  };
+}
+
+const endpointRateWindows = new Map<string, number[]>();
+function isEndpointRateLimited(
+  bucketKey: string,
+  maxRequests: number,
+  windowMs: number
+): boolean {
+  const now = Date.now();
+  const cutoff = now - windowMs;
+  const existing = (endpointRateWindows.get(bucketKey) || []).filter(
+    (ts) => ts > cutoff
+  );
+  if (existing.length >= maxRequests) {
+    endpointRateWindows.set(bucketKey, existing);
+    return true;
+  }
+  existing.push(now);
+  endpointRateWindows.set(bucketKey, existing);
+  if (endpointRateWindows.size > 5000) {
+    for (const [k, list] of endpointRateWindows.entries()) {
+      if (list.length === 0 || list[list.length - 1] <= cutoff) {
+        endpointRateWindows.delete(k);
+      }
+    }
+  }
+  return false;
+}
+
+async function recordGmailAccountAndSync(input: {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL: string | null;
+  visitDate?: string;
+  isLoginEvent: boolean;
+}) {
+  const avatarInitials = buildAvatarInitials(input.displayName);
+  const avatarColor = pickAvatarColor(input.email || input.uid);
+
+  const synced = await syncUserInDb({
+    uid: input.uid,
+    email: input.email,
+    displayName: input.displayName,
+    photoURL: input.photoURL,
+    avatarInitials,
+    avatarColor,
+    visitDate: input.visitDate || getJakartaDateKey(),
+  });
+
+  const accountKey = buildGmailAccountKey(input.uid, input.email);
+  const emailVerified = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email);
+  const dbCount = await recordGmailLoginInDb({
+    uid: input.uid,
+    email: input.email,
+    emailVerified,
+    isLoginEvent: input.isLoginEvent,
+  });
+
+  if (accountKey) {
+    const prevAccountCount = memoryGmailAccountCounts.get(accountKey) || 0;
+    if (input.isLoginEvent) {
+      memoryGmailAccountCounts.set(accountKey, prevAccountCount + 1);
+      memoryGmailTotalLogins =
+        dbCount !== null
+          ? Math.max(dbCount, memoryGmailTotalLogins + 1)
+          : memoryGmailTotalLogins + 1;
+    } else if (!memoryGmailAccountCounts.has(accountKey)) {
+      memoryGmailAccountCounts.set(accountKey, 1);
+      memoryGmailTotalLogins =
+        dbCount !== null
+          ? Math.max(dbCount, memoryGmailTotalLogins + 1)
+          : memoryGmailTotalLogins + 1;
+    } else if (dbCount !== null && dbCount > memoryGmailTotalLogins) {
+      memoryGmailTotalLogins = dbCount;
+    }
+    saveFallbackGmailLoginsToDisk();
+  } else if (dbCount !== null && dbCount > memoryGmailTotalLogins) {
+    memoryGmailTotalLogins = dbCount;
+    saveFallbackGmailLoginsToDisk();
+  }
+
+  const gmailLoginCount =
+    dbCount !== null
+      ? Math.max(dbCount, memoryGmailTotalLogins)
+      : memoryGmailTotalLogins;
+
+  return { synced, gmailLoginCount };
 }
 
 function syncJakartaDayRollover(now = Date.now()): string {
@@ -1397,6 +1872,7 @@ function injectDramaSeoIntoHtml(
   isWatchRoute = false,
   relatedItems: SsrRelatedLink[] = []
 ): string {
+  const brandOrigin = DEFAULT_SITE_ORIGIN;
   const safeEp = Math.max(1, Math.floor(Number(episodeNumber) || 1));
   const slug = (cleanText(drama.slug) || slugifyTitle(drama.title))
     .trim()
@@ -1404,10 +1880,10 @@ function injectDramaSeoIntoHtml(
   const encodedSlug = encodeURIComponent(slug);
   const provSlug = getProviderRouteSlug(drama.provider);
   const canonicalPath = `/${provSlug}/detail/${encodedSlug}`;
-  const canonicalUrl = `${origin}${canonicalPath}`;
+  const canonicalUrl = `${brandOrigin}${canonicalPath}`;
   const watchPath = `/${provSlug}/watch/${encodedSlug}${safeEp > 1 ? `?ep=${safeEp}` : ''}`;
   const epWatchUrl =
-    isWatchRoute || safeEp > 1 ? `${origin}${watchPath}` : canonicalUrl;
+    isWatchRoute || safeEp > 1 ? `${brandOrigin}${watchPath}` : canonicalUrl;
   const epCount = Math.max(1, episodes.length || drama.chapterCount || 1);
   const effectiveLang =
     explicitQueryLang ??
@@ -1420,6 +1896,7 @@ function injectDramaSeoIntoHtml(
       },
       'en'
     );
+  const isId = effectiveLang === 'id';
   const activeEpisode = episodes.find((ep) => Number(ep.episodeNumber) === safeEp);
   const { seriesDescription, episodeDescription } =
     resolveDramaSeoDescriptionFields({
@@ -1440,11 +1917,11 @@ function injectDramaSeoIntoHtml(
   const ogImage = toAbsoluteImageUrl(drama.cover || DEFAULT_OG_IMAGE_PATH, origin);
   const keywordsList = [
     drama.title,
-    `Watch Free ${drama.title} online`,
+    isId ? `Nonton Gratis ${drama.title} Sub Indo` : `Watch Free ${drama.title} online`,
     'KanoDrama',
-    'Kano Drama',
-    'Vertical Short Drama',
-    'Asian Mini Series',
+    'kano-drama.xyz',
+    'Short Drama',
+    'Drama Pendek',
     drama.provider,
     ...drama.tags,
   ].filter(Boolean);
@@ -1452,7 +1929,7 @@ function injectDramaSeoIntoHtml(
   const meta = generateMetadata({
     page: 'drama',
     lang: effectiveLang,
-    origin,
+    origin: brandOrigin,
     pathname: canonicalPath,
     title: drama.title,
     description:
@@ -1479,8 +1956,13 @@ function injectDramaSeoIntoHtml(
     : [];
 
   const dramaBreadcrumbs: Array<Record<string, unknown>> = [
-    { '@type': 'ListItem', position: 1, name: 'Home', item: `${origin}/` },
-    { '@type': 'ListItem', position: 2, name: 'Explore', item: `${origin}/explore` },
+    { '@type': 'ListItem', position: 1, name: isId ? 'Beranda' : 'Home', item: `${brandOrigin}/` },
+    {
+      '@type': 'ListItem',
+      position: 2,
+      name: drama.provider,
+      item: `${brandOrigin}/provider/${provSlug}`,
+    },
     { '@type': 'ListItem', position: 3, name: drama.title, item: canonicalUrl },
   ];
   if (isWatchRoute || safeEp > 1) {
@@ -1500,7 +1982,7 @@ function injectDramaSeoIntoHtml(
         '@id': `${canonicalUrl}#tvseries`,
         name: drama.title,
         description: seriesDescription,
-        image: meta.openGraph.image,
+        image: ogImage,
         url: canonicalUrl,
         inLanguage: meta.inLanguage,
         numberOfEpisodes: epCount,
@@ -1524,8 +2006,9 @@ function injectDramaSeoIntoHtml(
   };
 
   const primaryImg = meta.openGraph.images[0];
-  const ogImageUrl = primaryImg?.url || meta.openGraph.image;
-  const ogSecureUrl = primaryImg?.secureUrl || ogImageUrl.replace(/^http:\/\//i, 'https://');
+  const resolvedOgImg = buildOgImageEndpointUrl(drama.cover || DEFAULT_OG_IMAGE_PATH, origin, pageTitle);
+  const ogImageUrl = resolvedOgImg || primaryImg?.url || meta.openGraph.image;
+  const ogSecureUrl = ogImageUrl.replace(/^http:\/\//i, 'https://');
   const ogImgAlt = primaryImg?.alt || pageTitle;
 
   const seoHeadBlock = `
@@ -1550,7 +2033,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtmlAttr(pageTitle)}" />
     <meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />
-    <meta name="twitter:image" content="${escapeHtmlAttr(meta.twitter.image)}" />
+    <meta name="twitter:image" content="${escapeHtmlAttr(ogImageUrl)}" />
     <script type="application/ld+json" id="kano-drama-jsonld">${JSON.stringify(
       jsonLd
     ).replace(/<\/script>/gi, '<\\/script>')}</script>
@@ -1566,7 +2049,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
     .map((tg) => {
       const tSlug = slugifyTitle(tg);
       if (!tSlug) return '';
-      return `<a href="/tag/${encodeURIComponent(tSlug)}">${escapeHtmlAttr(tg)}</a>`;
+      return `<a href="${brandOrigin}/tag/${encodeURIComponent(tSlug)}">${escapeHtmlAttr(tg)}</a>`;
     })
     .filter(Boolean)
     .join(' · ');
@@ -1583,32 +2066,32 @@ ${buildHreflangLinksHtml(canonicalUrl)}
   const ssrEpisodeLinks = ssrEpisodeNumbers
     .map(
       (ep) =>
-        `<li><a href="/${provSlug}/watch/${encodedSlug}?ep=${ep.num}">${escapeHtmlAttr(ep.label)}</a></li>`
+        `<li><a href="${brandOrigin}/${provSlug}/watch/${encodedSlug}?ep=${ep.num}">${escapeHtmlAttr(ep.label)}</a></li>`
     )
     .join('');
   const ssrRelatedLinksHtml =
     relatedItems.length > 0
-      ? `<section aria-label="Related Dramas"><h2>Related Dramas</h2><ul>${relatedItems
+      ? `<section aria-label="${isId ? 'Rekomendasi Drama & Film Terkait' : 'Related Dramas & Movies'}"><h2>${isId ? 'Rekomendasi Drama & Film Terkait' : 'Related Dramas & Movies'}</h2><ul>${relatedItems
           .map((item) => {
             const rProvSlug = getProviderRouteSlug(item.provider);
             const rSlug = encodeURIComponent(item.slug);
-            return `<li><a href="/${rProvSlug}/detail/${rSlug}">${escapeHtmlAttr(item.title)}</a></li>`;
+            return `<li><a href="${brandOrigin}/${rProvSlug}/detail/${rSlug}">${escapeHtmlAttr(item.title)}</a></li>`;
           })
           .join('')}</ul></section>`
       : '';
 
   const ssrDramaRootHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
-    <nav aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/explore">Explore</a> / <span>${escapeHtmlAttr(drama.title)}</span></nav>
+    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${isId ? 'Beranda' : 'Home'}</a> / <a href="${brandOrigin}/provider/${provSlug}">${escapeHtmlAttr(drama.provider)}</a> / <span>${escapeHtmlAttr(drama.title)}</span></nav>
     <article itemscope itemtype="https://schema.org/TVSeries">
       <img itemprop="image" src="${escapeHtmlAttr(ogImageUrl)}" alt="${escapeHtmlAttr(drama.title)}" width="360" height="540" />
       <h1 itemprop="name">${escapeHtmlAttr(drama.title)}</h1>
-      <p>${escapeHtmlAttr(drama.provider)} · ${epCount} Episodes</p>
-      ${drama.protagonist ? `<p>Cast: ${escapeHtmlAttr(drama.protagonist)}</p>` : ''}
-      ${ssrTagLinks ? `<p>Genres: ${ssrTagLinks}</p>` : ''}
+      <p><a href="${brandOrigin}/provider/${provSlug}">${escapeHtmlAttr(drama.provider)}</a> · ${epCount} ${isId ? 'Episode' : 'Episodes'} · ${isId ? '~1-2 mnt/ep' : '~1-2 min/ep'} · ${isId ? 'Subtitle Indonesia & Multi-Bahasa' : 'Indonesian & Multi-Language Subtitles'}</p>
+      ${drama.protagonist ? `<p>${isId ? 'Pemeran' : 'Cast'}: ${escapeHtmlAttr(drama.protagonist)}</p>` : ''}
+      ${ssrTagLinks ? `<p>${isId ? 'Genre' : 'Genres'}: ${ssrTagLinks}</p>` : ''}
       <p itemprop="description">${escapeHtmlAttr(seriesDescription)}</p>
-      <p><a href="${escapeHtmlAttr(watchPath)}">Watch Free Episode ${safeEp}</a></p>
+      <p><a href="${brandOrigin}${escapeHtmlAttr(watchPath)}">${isId ? `Nonton Gratis Episode ${safeEp}` : `Watch Free Episode ${safeEp}`}</a></p>
       <section aria-label="Episodes">
-        <h2>Episodes (${epCount})</h2>
+        <h2>${isId ? 'Daftar Episode' : 'Episodes'} (${epCount})</h2>
         <ul>${ssrEpisodeLinks}</ul>
       </section>
       ${ssrRelatedLinksHtml}
@@ -1693,21 +2176,23 @@ function injectMovieSeoIntoHtml(
   isWatchRoute = false,
   relatedItems: SsrRelatedLink[] = []
 ): string {
+  const brandOrigin = DEFAULT_SITE_ORIGIN;
   const safeEp = Math.max(1, Math.floor(Number(episodeNumber) || 1));
   const movieSlug = (cleanText(movie.slug) || slugifyTitle(movie.title))
     .trim()
     .toLowerCase();
   const encodedMovieSlug = encodeURIComponent(movieSlug);
   const canonicalPath = `/movie/detail/${encodedMovieSlug}`;
-  const canonicalUrl = `${origin}${canonicalPath}`;
+  const canonicalUrl = `${brandOrigin}${canonicalPath}`;
   const isSeries = movie.type === 'series' && episodes.length > 1;
   const watchPath = `/movie/watch/${encodedMovieSlug}${isSeries && safeEp > 1 ? `?ep=${safeEp}` : ''}`;
   const epWatchUrl =
     isWatchRoute || (isSeries && safeEp > 1)
-      ? `${origin}${watchPath}`
+      ? `${brandOrigin}${watchPath}`
       : canonicalUrl;
   const yearTag = movie.year ? ` (${movie.year})` : '';
   const rawDesc = cleanSeoDescription(movie.synopsis || movie.description || '');
+  const movieProviderLabel = movie.app === 'lookseries' ? 'LookSeries' : 'LK21';
   const effectiveLang =
     explicitQueryLang ??
     detectLanguageFromContent(
@@ -1716,10 +2201,11 @@ function injectMovieSeoIntoHtml(
         description: rawDesc,
         tags: movie.genres,
         area: movie.area,
-        provider: movie.app === 'lookseries' ? 'LookSeries' : 'LK21',
+        provider: movieProviderLabel,
       },
       'en'
     );
+  const isId = effectiveLang === 'id';
   const cleanMovieBaseTitle =
     stripLeadingWatchPrefix(movie.title || '') || movie.title || 'HD Movie';
   const hasYearInTitle = Boolean(
@@ -1751,10 +2237,13 @@ function injectMovieSeoIntoHtml(
     origin
   );
   const keywordsList = [
-    `Watch Free ${cleanMovieBaseTitle} online`,
+    isId
+      ? `Nonton Gratis ${cleanMovieBaseTitle} Sub Indo`
+      : `Watch Free ${cleanMovieBaseTitle} online`,
     `${cleanMovieBaseTitle} full movie HD`,
     'KanoDrama',
-    'Kano Drama',
+    'kano-drama.xyz',
+    movieProviderLabel,
     ...movie.genres,
     movie.area,
     movie.year,
@@ -1765,7 +2254,7 @@ function injectMovieSeoIntoHtml(
   const meta = generateMetadata({
     page: 'movie',
     lang: effectiveLang,
-    origin,
+    origin: brandOrigin,
     pathname: canonicalPath,
     title: displayMovieTitle,
     description:
@@ -1794,7 +2283,7 @@ function injectMovieSeoIntoHtml(
           '@id': `${canonicalUrl}#tvseries`,
           name: movie.title,
           description: seriesDescription,
-          image: meta.openGraph.image,
+          image: ogImage,
           url: canonicalUrl,
           inLanguage: meta.inLanguage,
           numberOfEpisodes: episodes.length,
@@ -1816,7 +2305,7 @@ function injectMovieSeoIntoHtml(
           '@id': `${canonicalUrl}#movie`,
           name: movie.title,
           description: seriesDescription,
-          image: meta.openGraph.image,
+          image: ogImage,
           url: canonicalUrl,
           inLanguage: meta.inLanguage,
           dateCreated: movie.year || undefined,
@@ -1832,8 +2321,8 @@ function injectMovieSeoIntoHtml(
         };
 
   const movieBreadcrumbs: Array<Record<string, unknown>> = [
-    { '@type': 'ListItem', position: 1, name: 'Home', item: `${origin}/` },
-    { '@type': 'ListItem', position: 2, name: 'Movies', item: `${origin}/movies` },
+    { '@type': 'ListItem', position: 1, name: isId ? 'Beranda' : 'Home', item: `${brandOrigin}/` },
+    { '@type': 'ListItem', position: 2, name: isId ? 'Film' : 'Movies', item: `${brandOrigin}/movies` },
     { '@type': 'ListItem', position: 3, name: movie.title, item: canonicalUrl },
   ];
   if (isSeries && (isWatchRoute || safeEp > 1)) {
@@ -1857,7 +2346,13 @@ function injectMovieSeoIntoHtml(
   };
 
   const primaryImg = meta.openGraph.images[0];
-  const ogSecureUrl = primaryImg?.secureUrl || meta.openGraph.image.replace(/^http:\/\//i, 'https://');
+  const resolvedOgImg = buildOgImageEndpointUrl(
+    movie.poster || movie.cover || DEFAULT_OG_IMAGE_PATH,
+    origin,
+    pageTitle
+  );
+  const ogImageUrl = resolvedOgImg || primaryImg?.url || meta.openGraph.image;
+  const ogSecureUrl = ogImageUrl.replace(/^http:\/\//i, 'https://');
   const ogImgAlt = primaryImg?.alt || pageTitle;
 
   const seoHeadBlock = `
@@ -1873,7 +2368,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
     <meta property="og:title" content="${escapeHtmlAttr(pageTitle)}" />
     <meta property="og:description" content="${escapeHtmlAttr(desc)}" />
     <meta property="og:url" content="${escapeHtmlAttr(epWatchUrl)}" />
-    <meta property="og:image" content="${escapeHtmlAttr(meta.openGraph.image)}" />
+    <meta property="og:image" content="${escapeHtmlAttr(ogImageUrl)}" />
     <meta property="og:image:secure_url" content="${escapeHtmlAttr(ogSecureUrl)}" />
     <meta property="og:image:type" content="image/jpeg" />
     <meta property="og:image:width" content="${primaryImg?.width ?? 1200}" />
@@ -1882,7 +2377,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtmlAttr(pageTitle)}" />
     <meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />
-    <meta name="twitter:image" content="${escapeHtmlAttr(meta.twitter.image)}" />
+    <meta name="twitter:image" content="${escapeHtmlAttr(ogImageUrl)}" />
     <script type="application/ld+json" id="kano-drama-jsonld">${JSON.stringify(
       jsonLd
     ).replace(/<\/script>/gi, '<\\/script>')}</script>
@@ -1899,29 +2394,39 @@ ${buildHreflangLinksHtml(canonicalUrl)}
           .map((ep, idx) => {
             const epNum = Number(ep.order) || Number(ep.episode) || idx + 1;
             const epTitle = ep.title || `Episode ${epNum}`;
-            return `<li><a href="/movie/watch/${encodedMovieSlug}?ep=${epNum}">${escapeHtmlAttr(epTitle)}</a></li>`;
+            return `<li><a href="${brandOrigin}/movie/watch/${encodedMovieSlug}?ep=${epNum}">${escapeHtmlAttr(epTitle)}</a></li>`;
           })
           .join('')}</ul>`
       : '';
+  const movieGenreLinks = movie.genres
+    .slice(0, 6)
+    .map((g) => {
+      const gSlug = slugifyTitle(g);
+      return gSlug
+        ? `<a href="${brandOrigin}/tag/${encodeURIComponent(gSlug)}">${escapeHtmlAttr(g)}</a>`
+        : escapeHtmlAttr(g);
+    })
+    .join(' · ');
   const ssrRelatedMovieHtml =
     relatedItems.length > 0
-      ? `<section aria-label="Related Movies"><h2>Related Titles</h2><ul>${relatedItems
+      ? `<section aria-label="${isId ? 'Rekomendasi Film & Drama Terkait' : 'Related Movies & Dramas'}"><h2>${isId ? 'Rekomendasi Film & Drama Terkait' : 'Related Movies & Dramas'}</h2><ul>${relatedItems
           .map(
             (item) =>
-              `<li><a href="/${getProviderRouteSlug(item.provider)}/detail/${encodeURIComponent(item.slug)}">${escapeHtmlAttr(item.title)}</a></li>`
+              `<li><a href="${brandOrigin}/${getProviderRouteSlug(item.provider)}/detail/${encodeURIComponent(item.slug)}">${escapeHtmlAttr(item.title)}</a></li>`
           )
           .join('')}</ul></section>`
       : '';
   const ssrMovieRootHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
-    <nav aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/movies">Movies</a> / <span>${escapeHtmlAttr(displayMovieTitle)}</span></nav>
+    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${isId ? 'Beranda' : 'Home'}</a> / <a href="${brandOrigin}/movies">${isId ? 'Film' : 'Movies'}</a> / <span>${escapeHtmlAttr(displayMovieTitle)}</span></nav>
     <article itemscope itemtype="${isSeries ? 'https://schema.org/TVSeries' : 'https://schema.org/Movie'}">
-      <img itemprop="image" src="${escapeHtmlAttr(meta.openGraph.image)}" alt="${escapeHtmlAttr(displayMovieTitle)}" width="360" height="540" />
+      <img itemprop="image" src="${escapeHtmlAttr(ogImageUrl)}" alt="${escapeHtmlAttr(displayMovieTitle)}" width="360" height="540" />
       <h1 itemprop="name">${escapeHtmlAttr(displayMovieTitle)}</h1>
-      <p>${[movie.quality || 'HD', movie.year, movie.area, movie.genres.join(', ')].filter(Boolean).map(escapeHtmlAttr).join(' · ')}</p>
-      ${movie.director ? `<p>Director: ${escapeHtmlAttr(movie.director)}</p>` : ''}
-      ${movie.actors?.length ? `<p>Cast: ${escapeHtmlAttr(movie.actors.slice(0, 8).join(', '))}</p>` : ''}
+      <p>${[movieProviderLabel, movie.quality || 'HD', 'duration' in movie && typeof movie.duration === 'string' ? movie.duration : '', movie.year, movie.area, isId ? 'Subtitle Indonesia & Multi-Bahasa' : 'Indonesian & Multi-Language Subtitles'].filter((v): v is string => Boolean(v)).map((v) => escapeHtmlAttr(v)).join(' · ')}</p>
+      ${movieGenreLinks ? `<p>${isId ? 'Genre' : 'Genres'}: ${movieGenreLinks}</p>` : ''}
+      ${movie.director ? `<p>${isId ? 'Sutradara' : 'Director'}: ${escapeHtmlAttr(movie.director)}</p>` : ''}
+      ${movie.actors?.length ? `<p>${isId ? 'Pemeran' : 'Cast'}: ${escapeHtmlAttr(movie.actors.slice(0, 8).join(', '))}</p>` : ''}
       <p itemprop="description">${escapeHtmlAttr(seriesDescription)}</p>
-      <p><a href="${escapeHtmlAttr(watchPath)}">Watch Free Now</a></p>
+      <p><a href="${brandOrigin}${escapeHtmlAttr(watchPath)}">${isId ? 'Nonton Gratis Sekarang' : 'Watch Free Now'}</a></p>
       ${movieEpLinks}
       ${ssrRelatedMovieHtml}
     </article>
@@ -1941,7 +2446,8 @@ function injectProgrammaticSeoIntoHtml(
   items: Array<Record<string, unknown>>,
   ssrLang: LanguageCode = 'en'
 ): string {
-  const canonicalUrl = `${origin}${landing.canonicalPath}`;
+  const brandOrigin = DEFAULT_SITE_ORIGIN;
+  const canonicalUrl = `${brandOrigin}${landing.canonicalPath}`;
   const ogImage = buildOgImageEndpointUrl(DEFAULT_OG_IMAGE_PATH, origin, landing.title);
   const ogSecureUrl = ogImage.replace(/^http:\/\//i, 'https://');
   const htmlLang = getHtmlLangTag(ssrLang);
@@ -1955,7 +2461,7 @@ function injectProgrammaticSeoIntoHtml(
       '@type': 'ListItem',
       position: idx + 1,
       name: title,
-      url: `${origin}/${provSlug}/detail/${encodeURIComponent(slug)}`,
+      url: `${brandOrigin}/${provSlug}/detail/${encodeURIComponent(slug)}`,
     };
   });
 
@@ -1971,7 +2477,7 @@ function injectProgrammaticSeoIntoHtml(
         isPartOf: {
           '@type': 'WebSite',
           name: 'KanoDrama',
-          url: `${origin}/`,
+          url: `${brandOrigin}/`,
         },
         mainEntity: {
           '@type': 'ItemList',
@@ -1982,12 +2488,12 @@ function injectProgrammaticSeoIntoHtml(
       {
         '@type': 'BreadcrumbList',
         itemListElement: [
-          { '@type': 'ListItem', position: 1, name: 'Home', item: `${origin}/` },
+          { '@type': 'ListItem', position: 1, name: 'Home', item: `${brandOrigin}/` },
           {
             '@type': 'ListItem',
             position: 2,
             name: landing.basePath === 'tag' ? 'Tags' : 'Genres',
-            item: `${origin}/explore`,
+            item: `${brandOrigin}/explore`,
           },
           { '@type': 'ListItem', position: 3, name: landing.h1, item: canonicalUrl },
         ],
@@ -2034,10 +2540,104 @@ ${buildHreflangLinksHtml(canonicalUrl)}
     ).replace(/<\/script>/gi, '<\\/script>')}</script>
   `;
 
-  return applyHtmlLangTag(stripStaticSeoHeadTags(html), ssrLang).replace(
+  const ssrLinksHtml =
+    itemListElements.length > 0
+      ? `<ul>${itemListElements
+          .map(
+            (el) =>
+              `<li><a href="${escapeHtmlAttr(el.url)}">${escapeHtmlAttr(el.name)}</a></li>`
+          )
+          .join('')}</ul>`
+      : '';
+  const ssrLandingHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
+    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <a href="${brandOrigin}/explore">Explore</a> / <span>${escapeHtmlAttr(landing.h1)}</span></nav>
+    <h1>${escapeHtmlAttr(landing.h1)}</h1>
+    <p>${escapeHtmlAttr(landing.description)}</p>
+    ${ssrLinksHtml}
+  </main>`;
+
+  const withHead = applyHtmlLangTag(stripStaticSeoHeadTags(html), ssrLang).replace(
     '</head>',
     `${seoHeadBlock}\n  </head>`
   );
+  return injectRootSsrMarkup(withHead, ssrLandingHtml);
+}
+
+interface HomeSsrFeaturedData {
+  dramas: SsrRelatedLink[];
+  movies: SsrRelatedLink[];
+}
+
+function buildSsrHomeRootHtml(
+  ssrLang: LanguageCode,
+  description: string,
+  featured?: HomeSsrFeaturedData
+): string {
+  const brandOrigin = DEFAULT_SITE_ORIGIN;
+  const isId = ssrLang === 'id';
+  const topProviders = [
+    { name: 'DramaBox', slug: 'dramabox' },
+    { name: 'NetShort', slug: 'netshort' },
+    { name: 'Melolo', slug: 'melolo' },
+    { name: 'AnyReel', slug: 'anyreel' },
+    { name: 'ReelShort', slug: 'reelshort' },
+    { name: 'GoodShort', slug: 'goodshort' },
+    { name: 'DramaWave', slug: 'dramawave' },
+    { name: 'FreeReels', slug: 'freereels' },
+  ];
+  const featuredItemsHtml =
+    featured && (featured.dramas.length > 0 || featured.movies.length > 0)
+      ? `<section aria-label="${isId ? 'Drama Pendek & Film Populer' : 'Popular Short Dramas & Movies'}"><h2>${isId ? 'Drama Pendek &amp; Film Populer di KanoDrama' : 'Popular Short Dramas &amp; Movies on KanoDrama'}</h2><ul>${featured.dramas
+          .slice(0, 12)
+          .map(
+            (d) =>
+              `<li><a href="${brandOrigin}/${getProviderRouteSlug(d.provider)}/detail/${encodeURIComponent(d.slug)}">${escapeHtmlAttr(d.title)}</a></li>`
+          )
+          .join('')}${featured.movies
+          .slice(0, 6)
+          .map(
+            (m) =>
+              `<li><a href="${brandOrigin}/movie/detail/${encodeURIComponent(m.slug)}">${escapeHtmlAttr(m.title)}</a></li>`
+          )
+          .join('')}</ul></section>`
+      : '';
+
+  return `<main class="max-w-6xl mx-auto px-4 py-8 text-[#FAFAFA]">
+    <header>
+      <h1>${isId ? 'KanoDrama — Platform Streaming Drama Pendek, Serial Asia &amp; Film Sub Indo Gratis' : 'KanoDrama — Free Short Dramas, Asian Series &amp; HD Movies Streaming'}</h1>
+      <p>${escapeHtmlAttr(description)}</p>
+    </header>
+    <nav aria-label="Main Categories">
+      <ul>
+        <li><a href="${brandOrigin}/">${isId ? 'Beranda KanoDrama' : 'KanoDrama Home'}</a></li>
+        <li><a href="${brandOrigin}/explore">${isId ? 'Jelajahi Semua Drama' : 'Explore All Dramas'}</a></li>
+        <li><a href="${brandOrigin}/movies">${isId ? 'Film &amp; Serial HD' : 'HD Movies &amp; Cinema'}</a></li>
+        <li><a href="${brandOrigin}/providers">${isId ? 'Direktori Provider' : 'Providers Directory'}</a></li>
+        <li><a href="${brandOrigin}/trending">${isId ? 'Drama Trending' : 'Trending Short Dramas'}</a></li>
+        <li><a href="${brandOrigin}/latest">${isId ? 'Rilis Terbaru' : 'Latest Releases'}</a></li>
+        <li><a href="${brandOrigin}/vip">${isId ? 'Koleksi VIP' : 'VIP Selection'}</a></li>
+      </ul>
+    </nav>
+    <nav aria-label="Drama Providers">
+      <h2>${isId ? 'Platform &amp; Provider Populer' : 'Popular Drama Providers'}</h2>
+      <ul>${topProviders
+        .map(
+          (p) =>
+            `<li><a href="${brandOrigin}/provider/${p.slug}">${escapeHtmlAttr(p.name)}</a></li>`
+        )
+        .join('')}</ul>
+    </nav>
+    <nav aria-label="Genres">
+      <h2>${isId ? 'Genre &amp; Koleksi Pilihan' : 'Curated Genres &amp; Collections'}</h2>
+      <ul>${CURATED_PROGRAMMATIC_PAGES.slice(0, 8)
+        .map(
+          (g) =>
+            `<li><a href="${brandOrigin}/genre/${encodeURIComponent(g.slug)}">${escapeHtmlAttr(g.label)}</a></li>`
+        )
+        .join('')}</ul>
+    </nav>
+    ${featuredItemsHtml}
+  </main>`;
 }
 
 function injectPageMetadataIntoHtml(
@@ -2054,13 +2654,15 @@ function injectPageMetadataIntoHtml(
     | 'watchlist'
     | 'dashboard',
   pathname: string,
-  ssrLang: LanguageCode
+  ssrLang: LanguageCode,
+  homeFeatured?: HomeSsrFeaturedData
 ): string {
+  const brandOrigin = DEFAULT_SITE_ORIGIN;
   const ogImage = `${origin}${DEFAULT_OG_IMAGE_PATH}`;
   const meta = generateMetadata({
     page,
     lang: ssrLang,
-    origin,
+    origin: brandOrigin,
     pathname,
     image: ogImage,
   });
@@ -2087,16 +2689,37 @@ function injectPageMetadataIntoHtml(
     page === 'home'
       ? {
           '@context': 'https://schema.org',
-          '@type': 'WebSite',
-          name: 'KanoDrama',
-          inLanguage: meta.inLanguage,
-          url: `${origin}/`,
-          description: meta.description,
-          potentialAction: {
-            '@type': 'SearchAction',
-            target: `${origin}/?q={search_term_string}`,
-            'query-input': 'required name=search_term_string',
-          },
+          '@graph': [
+            {
+              '@type': 'Organization',
+              '@id': `${brandOrigin}/#organization`,
+              name: 'KanoDrama',
+              alternateName: 'Kano Drama',
+              url: `${brandOrigin}/`,
+              logo: {
+                '@type': 'ImageObject',
+                url: `${brandOrigin}${BRAND_LOGO_ICON_PATH}`,
+              },
+              description: meta.description,
+              sameAs: ['https://t.me/kanodrama'],
+            },
+            {
+              '@type': 'WebSite',
+              '@id': `${brandOrigin}/#website`,
+              name: 'KanoDrama',
+              inLanguage: meta.inLanguage,
+              url: `${brandOrigin}/`,
+              publisher: {
+                '@id': `${brandOrigin}/#organization`,
+              },
+              description: meta.description,
+              potentialAction: {
+                '@type': 'SearchAction',
+                target: `${brandOrigin}/?q={search_term_string}`,
+                'query-input': 'required name=search_term_string',
+              },
+            },
+          ],
         }
       : {
           '@context': 'https://schema.org',
@@ -2110,13 +2733,13 @@ function injectPageMetadataIntoHtml(
               isPartOf: {
                 '@type': 'WebSite',
                 name: 'KanoDrama',
-                url: `${origin}/`,
+                url: `${brandOrigin}/`,
               },
             },
             {
               '@type': 'BreadcrumbList',
               itemListElement: [
-                { '@type': 'ListItem', position: 1, name: 'Home', item: `${origin}/` },
+                { '@type': 'ListItem', position: 1, name: 'Home', item: `${brandOrigin}/` },
                 {
                   '@type': 'ListItem',
                   position: 2,
@@ -2129,7 +2752,9 @@ function injectPageMetadataIntoHtml(
         };
 
   const primaryImg = meta.openGraph.images[0];
-  const ogSecureUrl = primaryImg?.secureUrl || meta.openGraph.image.replace(/^http:\/\//i, 'https://');
+  const resolvedOgImg = buildOgImageEndpointUrl(DEFAULT_OG_IMAGE_PATH, origin, meta.openGraph.title);
+  const ogImgUrl = resolvedOgImg || primaryImg?.url || meta.openGraph.image;
+  const ogSecureUrl = ogImgUrl.replace(/^http:\/\//i, 'https://');
   const ogImgAlt = primaryImg?.alt || meta.openGraph.title;
 
   const isPrivatePage = page === 'watchlist' || page === 'dashboard';
@@ -2146,7 +2771,7 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
     <meta property="og:title" content="${escapeHtmlAttr(meta.openGraph.title)}" />
     <meta property="og:description" content="${escapeHtmlAttr(meta.openGraph.description)}" />
     <meta property="og:url" content="${escapeHtmlAttr(meta.openGraph.url)}" />
-    <meta property="og:image" content="${escapeHtmlAttr(meta.openGraph.image)}" />
+    <meta property="og:image" content="${escapeHtmlAttr(ogImgUrl)}" />
     <meta property="og:image:secure_url" content="${escapeHtmlAttr(ogSecureUrl)}" />
     <meta property="og:image:type" content="image/jpeg" />
     <meta property="og:image:width" content="${primaryImg?.width ?? 1200}" />
@@ -2155,16 +2780,33 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtmlAttr(meta.twitter.title)}" />
     <meta name="twitter:description" content="${escapeHtmlAttr(meta.twitter.description)}" />
-    <meta name="twitter:image" content="${escapeHtmlAttr(meta.twitter.image)}" />
+    <meta name="twitter:image" content="${escapeHtmlAttr(ogImgUrl)}" />
     <script type="application/ld+json" id="kano-drama-jsonld">${JSON.stringify(
       jsonLd
     ).replace(/<\/script>/gi, '<\\/script>')}</script>
   `;
 
-  return applyHtmlLangTag(stripStaticSeoHeadTags(html), ssrLang).replace(
+  const withHead = applyHtmlLangTag(stripStaticSeoHeadTags(html), ssrLang).replace(
     '</head>',
     `${seoHeadBlock}\n  </head>`
   );
+
+  if (page === 'home') {
+    return injectRootSsrMarkup(
+      withHead,
+      buildSsrHomeRootHtml(ssrLang, meta.description, homeFeatured)
+    );
+  }
+  if (!isPrivatePage) {
+    const ssrSectionRootHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
+      <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <span>${escapeHtmlAttr(sectionLabelMap[page] || 'Browse')}</span></nav>
+      <h1>${escapeHtmlAttr(meta.title)}</h1>
+      <p>${escapeHtmlAttr(meta.description)}</p>
+      <nav aria-label="Navigation"><a href="${brandOrigin}/">Home</a> · <a href="${brandOrigin}/explore">Explore</a> · <a href="${brandOrigin}/movies">Movies</a> · <a href="${brandOrigin}/providers">Providers</a> · <a href="${brandOrigin}/trending">Trending</a></nav>
+    </main>`;
+    return injectRootSsrMarkup(withHead, ssrSectionRootHtml);
+  }
+  return withHead;
 }
 
 function injectProviderSeoIntoHtml(
@@ -2175,13 +2817,14 @@ function injectProviderSeoIntoHtml(
   ssrLang: LanguageCode,
   items: Array<Record<string, unknown>> = []
 ): string {
+  const brandOrigin = DEFAULT_SITE_ORIGIN;
   const ogImage = `${origin}${DEFAULT_OG_IMAGE_PATH}`;
   const provSlug = getProviderRouteSlug(provider);
   const canonicalPath = `/provider/${provSlug}`;
   const meta = generateMetadata({
     page: 'provider',
     lang: ssrLang,
-    origin,
+    origin: brandOrigin,
     pathname: pathname || canonicalPath,
     providerName: provider,
     image: ogImage,
@@ -2189,7 +2832,7 @@ function injectProviderSeoIntoHtml(
       provider,
       `${provider} Short Drama`,
       'KanoDrama',
-      'Kano Drama',
+      'kano-drama.xyz',
       'Watch Free Vertical Drama Online',
     ],
   });
@@ -2202,7 +2845,7 @@ function injectProviderSeoIntoHtml(
       '@type': 'ListItem',
       position: idx + 1,
       name: title,
-      url: `${origin}/${itemProvSlug}/detail/${encodeURIComponent(slug)}`,
+      url: `${brandOrigin}/${itemProvSlug}/detail/${encodeURIComponent(slug)}`,
     };
   });
 
@@ -2218,7 +2861,7 @@ function injectProviderSeoIntoHtml(
         isPartOf: {
           '@type': 'WebSite',
           name: 'KanoDrama',
-          url: `${origin}/`,
+          url: `${brandOrigin}/`,
         },
         ...(itemListElements.length > 0
           ? {
@@ -2233,8 +2876,8 @@ function injectProviderSeoIntoHtml(
       {
         '@type': 'BreadcrumbList',
         itemListElement: [
-          { '@type': 'ListItem', position: 1, name: 'Home', item: `${origin}/` },
-          { '@type': 'ListItem', position: 2, name: 'Providers', item: `${origin}/providers` },
+          { '@type': 'ListItem', position: 1, name: 'Home', item: `${brandOrigin}/` },
+          { '@type': 'ListItem', position: 2, name: 'Providers', item: `${brandOrigin}/providers` },
           { '@type': 'ListItem', position: 3, name: provider, item: meta.canonicalUrl },
         ],
       },
@@ -2242,7 +2885,9 @@ function injectProviderSeoIntoHtml(
   };
 
   const primaryImg = meta.openGraph.images[0];
-  const ogSecureUrl = primaryImg?.secureUrl || meta.openGraph.image.replace(/^http:\/\//i, 'https://');
+  const resolvedOgImg = buildOgImageEndpointUrl(DEFAULT_OG_IMAGE_PATH, origin, meta.openGraph.title);
+  const ogImgUrl = resolvedOgImg || primaryImg?.url || meta.openGraph.image;
+  const ogSecureUrl = ogImgUrl.replace(/^http:\/\//i, 'https://');
   const ogImgAlt = primaryImg?.alt || meta.openGraph.title;
 
   const seoHeadBlock = `
@@ -2258,7 +2903,7 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
     <meta property="og:title" content="${escapeHtmlAttr(meta.openGraph.title)}" />
     <meta property="og:description" content="${escapeHtmlAttr(meta.openGraph.description)}" />
     <meta property="og:url" content="${escapeHtmlAttr(meta.openGraph.url)}" />
-    <meta property="og:image" content="${escapeHtmlAttr(meta.openGraph.image)}" />
+    <meta property="og:image" content="${escapeHtmlAttr(ogImgUrl)}" />
     <meta property="og:image:secure_url" content="${escapeHtmlAttr(ogSecureUrl)}" />
     <meta property="og:image:type" content="image/jpeg" />
     <meta property="og:image:width" content="${primaryImg?.width ?? 1200}" />
@@ -2267,7 +2912,7 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtmlAttr(meta.twitter.title)}" />
     <meta name="twitter:description" content="${escapeHtmlAttr(meta.twitter.description)}" />
-    <meta name="twitter:image" content="${escapeHtmlAttr(meta.twitter.image)}" />
+    <meta name="twitter:image" content="${escapeHtmlAttr(ogImgUrl)}" />
     <script type="application/ld+json" id="kano-drama-jsonld">${JSON.stringify(
       jsonLd
     ).replace(/<\/script>/gi, '<\\/script>')}</script>
@@ -2278,13 +2923,13 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
       ? `<ul>${itemListElements
           .map(
             (el) =>
-              `<li><a href="${escapeHtmlAttr(el.url.replace(origin, ''))}">${escapeHtmlAttr(el.name)}</a></li>`
+              `<li><a href="${escapeHtmlAttr(el.url)}">${escapeHtmlAttr(el.name)}</a></li>`
           )
           .join('')}</ul>`
       : '';
 
   const ssrProviderBodyHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
-    <nav aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/providers">Providers</a> / <span>${escapeHtmlAttr(provider)}</span></nav>
+    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <a href="${brandOrigin}/providers">Providers</a> / <span>${escapeHtmlAttr(provider)}</span></nav>
     <h1>${escapeHtmlAttr(provider)} Short Dramas on KanoDrama</h1>
     <p>${escapeHtmlAttr(meta.description)}</p>
     ${ssrItemsHtml}
@@ -2299,6 +2944,7 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
 
 async function startServer() {
   const app = express();
+  app.set('trust proxy', 1);
   app.use(
     compression({
       threshold: 1024,
@@ -3489,83 +4135,370 @@ async function startServer() {
     }
   });
 
-  app.post('/api/users/sync', async (req: Request, res: Response) => {
+  app.get('/api/auth/config', (_req: Request, res: Response) => {
+    const googleClientId = getPrimaryGoogleClientId();
+    const hasOAuthCodeFlow = Boolean(googleClientId && getGoogleClientSecret());
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ok: true,
+      googleClientId,
+      hasOAuthCodeFlow,
+    });
+  });
+
+  app.get('/api/auth/session', async (req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const { session } = extractAuthSessionFromRequest(req);
+    if (!session) {
+      res.json({ ok: true, authenticated: false, user: null });
+      return;
+    }
+
+    const dbUser = await getUserFromDb(session.uid).catch(() => null);
+    const dbCount = await getUniqueGmailLoginCountFromDb().catch(() => null);
+    const gmailLoginCount =
+      dbCount !== null
+        ? Math.max(dbCount, memoryGmailTotalLogins)
+        : memoryGmailTotalLogins;
+
+    res.json({
+      ok: true,
+      authenticated: true,
+      gmailLoginCount,
+      user: {
+        uid: session.uid,
+        email: dbUser?.email || session.email,
+        displayName: dbUser?.displayName || session.displayName,
+        photoURL: dbUser?.photoURL ?? session.photoURL,
+        bio: dbUser?.bio || '',
+        preferredLanguage: dbUser?.preferredLanguage || 'en',
+        preferences: dbUser?.preferences || {},
+        streakCount: dbUser?.streakCount || 1,
+        lastVisitDate: dbUser?.lastVisitDate || getJakartaDateKey(),
+        isVip: Boolean(dbUser?.isVip),
+      },
+    });
+  });
+
+  app.post('/api/auth/google', async (req: Request, res: Response) => {
     try {
-      let uid = cleanText(req.body?.uid);
-      let email = cleanText(req.body?.email).toLowerCase();
-      let emailVerified = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-      const isLoginEvent = Boolean(req.body?.isLoginEvent);
-
-      const authHeader = req.get('authorization') || '';
-      const bearerToken = authHeader.startsWith('Bearer ')
-        ? authHeader.slice(7).trim()
-        : '';
-
-      if (bearerToken) {
-        const verified = await verifyFirebaseGoogleIdToken(bearerToken);
-        if (verified.status === 'invalid') {
-          res.status(401).json({ ok: false, error: 'Invalid Firebase ID token' });
-          return;
-        }
-        if (verified.status === 'verified' && verified.uid) {
-          uid = verified.uid;
-          if (verified.email) {
-            email = verified.email;
-          }
-          emailVerified = Boolean(verified.emailVerified || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
-        }
-      }
-
-      if (!uid) {
-        res.status(400).json({ ok: false, error: 'Missing uid' });
+      res.setHeader('Cache-Control', 'no-store');
+      const googleClientId = getPrimaryGoogleClientId();
+      if (!googleClientId) {
+        res.status(503).json({
+          ok: false,
+          error:
+            'Google Sign-In is not configured on the server. Set GOOGLE_CLIENT_ID in .env.',
+        });
         return;
       }
 
-      const synced = await syncUserInDb({
+      const credential = cleanText(req.body?.credential);
+      const accessToken = cleanText(req.body?.accessToken);
+      if (!credential && !accessToken) {
+        res.status(400).json({
+          ok: false,
+          error: 'Missing Google credential or access token.',
+        });
+        return;
+      }
+
+      const verified = credential
+        ? await verifyGoogleIdToken(credential)
+        : await verifyGoogleAccessToken(accessToken);
+
+      if (verified.status === 'unavailable') {
+        res.status(503).json({
+          ok: false,
+          error: 'Google verification service is temporarily unavailable.',
+        });
+        return;
+      }
+      if (verified.status !== 'verified' || !verified.sub || !verified.email) {
+        res.status(401).json({
+          ok: false,
+          error: 'Invalid or unverified Google account credential.',
+        });
+        return;
+      }
+
+      const uid = `google_${verified.sub}`;
+      const email = verified.email;
+      const displayName =
+        cleanText(verified.name) || email.split('@')[0] || 'Kano Viewer';
+      const photoURL = verified.picture || null;
+
+      const { synced, gmailLoginCount } = await recordGmailAccountAndSync({
         uid,
         email,
-        displayName: cleanText(req.body?.displayName, 'Kano Viewer'),
-        photoURL: cleanText(req.body?.photoURL) || null,
-        avatarInitials: cleanText(req.body?.avatarInitials, 'KD'),
-        avatarColor: cleanText(req.body?.avatarColor, '#EF4444'),
-        visitDate: cleanText(req.body?.visitDate) || undefined,
+        displayName,
+        photoURL,
+        isLoginEvent: true,
       });
 
-      const accountKey = buildGmailAccountKey(uid, email);
-      const dbCount = await recordGmailLoginInDb({
+      const secHashes = extractClientSecurityHashes(req);
+      await recordUserSecuritySignalInDb({
+        userId: uid,
+        ...secHashes,
+        displayName: synced?.displayName || displayName,
+      }).catch(() => null);
+
+      const pendingRefCode = cleanText(req.body?.referralCode);
+      if (pendingRefCode) {
+        await bindReferralForUserInDb({
+          refereeUid: uid,
+          referralCode: pendingRefCode,
+          ...secHashes,
+          displayName: synced?.displayName || displayName,
+        }).catch(() => null);
+      }
+
+      const sessionToken = signAuthSessionToken({
         uid,
         email,
-        emailVerified,
+        displayName: synced?.displayName || displayName,
+        photoURL: synced?.photoURL ?? photoURL,
+      });
+      setAuthSessionCookie(req, res, sessionToken);
+
+      res.json({
+        ok: true,
+        sessionToken,
+        gmailLoginCount,
+        user: {
+          uid,
+          email,
+          displayName: synced?.displayName || displayName,
+          photoURL: synced?.photoURL ?? photoURL,
+          bio: synced?.bio || '',
+          preferredLanguage: synced?.preferredLanguage || 'en',
+          preferences: synced?.preferences || {},
+          streakCount: synced?.streakCount || 1,
+          lastVisitDate: synced?.lastVisitDate || getJakartaDateKey(),
+          isVip: Boolean(synced?.isVip),
+        },
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Google authentication failed.',
+      });
+    }
+  });
+
+  app.get('/api/auth/google/url', (req: Request, res: Response) => {
+    const clientId = getPrimaryGoogleClientId();
+    const clientSecret = getGoogleClientSecret();
+    if (!clientId || !clientSecret) {
+      res.status(503).json({
+        ok: false,
+        error: 'Google OAuth code flow is not configured.',
+      });
+      return;
+    }
+    const baseOrigin = (
+      process.env.APP_URL ||
+      process.env.SITE_URL ||
+      resolveOrigin(req)
+    )
+      .trim()
+      .replace(/\/+$/, '');
+    const redirectUri = `${baseOrigin}/api/auth/google/callback`;
+    const state = signOAuthStateToken(baseOrigin);
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'openid email profile',
+      prompt: 'select_account',
+      access_type: 'online',
+      state,
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ok: true,
+      url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
+    });
+  });
+
+  app.get(
+    ['/api/auth/google/callback', '/api/auth/google/callback/'],
+    async (req: Request, res: Response) => {
+      const code = cleanText(req.query.code);
+      const stateRaw = cleanText(req.query.state);
+      const parsedState = verifyOAuthStateToken(stateRaw);
+      const clientId = getPrimaryGoogleClientId();
+      const clientSecret = getGoogleClientSecret();
+
+      if (!code || !parsedState || !clientId || !clientSecret) {
+        res
+          .status(400)
+          .type('text/html; charset=utf-8')
+          .send('<p>Google sign-in request was invalid or expired.</p>');
+        return;
+      }
+
+      try {
+        const redirectUri = `${parsedState.origin}/api/auth/google/callback`;
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            code,
+            client_id: clientId,
+            client_secret: clientSecret,
+            redirect_uri: redirectUri,
+            grant_type: 'authorization_code',
+          }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!tokenRes.ok) {
+          res
+            .status(401)
+            .type('text/html; charset=utf-8')
+            .send('<p>Failed to exchange Google OAuth authorization code.</p>');
+          return;
+        }
+        const tokenJson = (await tokenRes.json()) as {
+          id_token?: string;
+          access_token?: string;
+        };
+        const verified = tokenJson.id_token
+          ? await verifyGoogleIdToken(tokenJson.id_token)
+          : tokenJson.access_token
+          ? await verifyGoogleAccessToken(tokenJson.access_token)
+          : { status: 'invalid' as const };
+
+        if (verified.status !== 'verified' || !verified.sub || !verified.email) {
+          res
+            .status(401)
+            .type('text/html; charset=utf-8')
+            .send('<p>Google account could not be verified.</p>');
+          return;
+        }
+
+        const uid = `google_${verified.sub}`;
+        const email = verified.email;
+        const displayName =
+          cleanText(verified.name) || email.split('@')[0] || 'Kano Viewer';
+        const photoURL = verified.picture || null;
+
+        const { synced, gmailLoginCount } = await recordGmailAccountAndSync({
+          uid,
+          email,
+          displayName,
+          photoURL,
+          isLoginEvent: true,
+        });
+
+        const secHashes = extractClientSecurityHashes(req);
+        await recordUserSecuritySignalInDb({
+          userId: uid,
+          ...secHashes,
+          displayName: synced?.displayName || displayName,
+        }).catch(() => null);
+
+        const sessionToken = signAuthSessionToken({
+          uid,
+          email,
+          displayName: synced?.displayName || displayName,
+          photoURL: synced?.photoURL ?? photoURL,
+        });
+        setAuthSessionCookie(req, res, sessionToken);
+
+        const safePayload = JSON.stringify({
+          type: 'KD_GOOGLE_AUTH_SUCCESS',
+          sessionToken,
+          gmailLoginCount,
+          user: {
+            uid,
+            email,
+            displayName: synced?.displayName || displayName,
+            photoURL: synced?.photoURL ?? photoURL,
+            bio: synced?.bio || '',
+            preferredLanguage: synced?.preferredLanguage || 'en',
+            preferences: synced?.preferences || {},
+            streakCount: synced?.streakCount || 1,
+            lastVisitDate: synced?.lastVisitDate || getJakartaDateKey(),
+            isVip: Boolean(synced?.isVip),
+          },
+        }).replace(/</g, '\\u003c');
+
+        res.setHeader('Cache-Control', 'no-store');
+        res.type('text/html; charset=utf-8').send(
+          `<!doctype html><html><body><script>
+            if (window.opener) {
+              window.opener.postMessage(${safePayload}, '*');
+              window.close();
+            } else {
+              window.location.replace('/account');
+            }
+          </script><p>Authentication complete. You can close this window.</p></body></html>`
+        );
+      } catch {
+        res
+          .status(500)
+          .type('text/html; charset=utf-8')
+          .send('<p>Google sign-in encountered an unexpected error.</p>');
+      }
+    }
+  );
+
+  app.post('/api/auth/logout', (req: Request, res: Response) => {
+    const { viaCookie } = extractAuthSessionFromRequest(req);
+    if (viaCookie && !isTrustedSameOriginMutation(req)) {
+      res.status(403).json({ ok: false, error: 'Cross-origin logout rejected' });
+      return;
+    }
+    clearAuthSessionCookie(req, res);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true });
+  });
+
+  app.post('/api/users/sync', async (req: Request, res: Response) => {
+    try {
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
+        return;
+      }
+      if (viaCookie && !isTrustedSameOriginMutation(req)) {
+        res.status(403).json({ ok: false, error: 'Untrusted origin' });
+        return;
+      }
+
+      const uid = session.uid;
+      const email = session.email;
+      const isLoginEvent = Boolean(req.body?.isLoginEvent);
+      const displayName = cleanText(
+        req.body?.displayName,
+        session.displayName || 'Kano Viewer'
+      );
+      const { synced, gmailLoginCount } = await recordGmailAccountAndSync({
+        uid,
+        email,
+        displayName,
+        photoURL: cleanText(req.body?.photoURL) || session.photoURL || null,
+        visitDate: cleanText(req.body?.visitDate) || undefined,
         isLoginEvent,
       });
 
-      if (accountKey) {
-        const prevAccountCount = memoryGmailAccountCounts.get(accountKey) || 0;
-        if (isLoginEvent) {
-          memoryGmailAccountCounts.set(accountKey, prevAccountCount + 1);
-          memoryGmailTotalLogins =
-            dbCount !== null
-              ? Math.max(dbCount, memoryGmailTotalLogins + 1)
-              : memoryGmailTotalLogins + 1;
-        } else if (!memoryGmailAccountCounts.has(accountKey)) {
-          memoryGmailAccountCounts.set(accountKey, 1);
-          memoryGmailTotalLogins =
-            dbCount !== null
-              ? Math.max(dbCount, memoryGmailTotalLogins + 1)
-              : memoryGmailTotalLogins + 1;
-        } else if (dbCount !== null && dbCount > memoryGmailTotalLogins) {
-          memoryGmailTotalLogins = dbCount;
-        }
-        saveFallbackGmailLoginsToDisk();
-      } else if (dbCount !== null && dbCount > memoryGmailTotalLogins) {
-        memoryGmailTotalLogins = dbCount;
-        saveFallbackGmailLoginsToDisk();
-      }
+      const secHashes = extractClientSecurityHashes(req);
+      await recordUserSecuritySignalInDb({
+        userId: uid,
+        ...secHashes,
+        displayName: synced?.displayName || displayName,
+      }).catch(() => null);
 
-      const gmailLoginCount =
-        dbCount !== null
-          ? Math.max(dbCount, memoryGmailTotalLogins)
-          : memoryGmailTotalLogins;
+      const pendingRefCode = cleanText(req.body?.referralCode);
+      if (pendingRefCode) {
+        await bindReferralForUserInDb({
+          refereeUid: uid,
+          referralCode: pendingRefCode,
+          ...secHashes,
+          displayName: synced?.displayName || displayName,
+        }).catch(() => null);
+      }
 
       res.setHeader('Cache-Control', 'no-store');
       res.json({ ok: true, user: synced, gmailLoginCount });
@@ -3579,13 +4512,23 @@ async function startServer() {
 
   app.patch('/api/users/profile', async (req: Request, res: Response) => {
     try {
-      const uid = cleanText(req.body?.uid);
-      if (!uid) {
-        res.status(400).json({ ok: false, error: 'Missing uid' });
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
         return;
       }
+      if (viaCookie && !isTrustedSameOriginMutation(req)) {
+        res.status(403).json({ ok: false, error: 'Untrusted origin' });
+        return;
+      }
+      const requestedUid = cleanText(req.body?.uid);
+      if (requestedUid && requestedUid !== session.uid) {
+        res.status(403).json({ ok: false, error: 'Forbidden' });
+        return;
+      }
+
       const updated = await updateUserProfileInDb({
-        uid,
+        uid: session.uid,
         displayName:
           typeof req.body?.displayName === 'string' ? req.body.displayName : undefined,
         bio: typeof req.body?.bio === 'string' ? req.body.bio : undefined,
@@ -3609,9 +4552,14 @@ async function startServer() {
 
   app.get('/api/users/:uid', async (req: Request, res: Response) => {
     try {
+      const { session } = extractAuthSessionFromRequest(req);
       const uid = cleanText(String(req.params.uid || ''));
       if (!uid) {
         res.status(400).json({ ok: false, error: 'Missing uid' });
+        return;
+      }
+      if (!session || session.uid !== uid) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
         return;
       }
       const user = await getUserFromDb(uid);
@@ -3624,6 +4572,596 @@ async function startServer() {
       res.status(500).json({
         ok: false,
         error: err instanceof Error ? err.message : 'Failed to load user',
+      });
+    }
+  });
+
+  // --- Points, Rewards & Payout Requests (USD & IDR) ---
+
+  function validatePayoutDestinationAccount(
+    method: PayoutMethod,
+    rawDestination: string
+  ): { valid: boolean; normalized: string; error?: string } {
+    const trimmed = rawDestination.trim();
+    if (!trimmed) {
+      return { valid: false, normalized: '', error: 'Destination account is required' };
+    }
+    if (trimmed.length > 160) {
+      return { valid: false, normalized: '', error: 'Destination account is too long' };
+    }
+
+    switch (method) {
+      case 'dana':
+      case 'ovo':
+      case 'gopay': {
+        const digitsOnly = trimmed.replace(/[\s\-().]/g, '');
+        if (!/^(\+?62|0)8[0-9]{7,13}$/.test(digitsOnly)) {
+          return {
+            valid: false,
+            normalized: trimmed,
+            error: 'Masukkan nomor HP/e-wallet Indonesia yang valid (contoh: 0812xxxxxxxx).',
+          };
+        }
+        return { valid: true, normalized: digitsOnly };
+      }
+      case 'bank_transfer': {
+        const digits = trimmed.replace(/[^0-9]/g, '');
+        if (trimmed.length < 6 || digits.length < 6) {
+          return {
+            valid: false,
+            normalized: trimmed,
+            error: 'Masukkan nama bank & nomor rekening valid (contoh: BCA - 1234567890).',
+          };
+        }
+        return { valid: true, normalized: trimmed };
+      }
+      case 'paypal': {
+        if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
+          return {
+            valid: false,
+            normalized: trimmed,
+            error: 'Please enter a valid PayPal email address.',
+          };
+        }
+        return { valid: true, normalized: trimmed.toLowerCase() };
+      }
+      case 'wise': {
+        const isEmail = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed);
+        const isWiseTagOrIban = /^[@a-zA-Z0-9._-]{4,80}$/.test(trimmed);
+        if (!isEmail && !isWiseTagOrIban) {
+          return {
+            valid: false,
+            normalized: trimmed,
+            error: 'Please enter a valid Wise email, @wisetag, or account ID.',
+          };
+        }
+        return { valid: true, normalized: isEmail ? trimmed.toLowerCase() : trimmed };
+      }
+      case 'usdt_polygon': {
+        if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
+          return {
+            valid: false,
+            normalized: trimmed,
+            error: 'Please enter a valid Polygon (0x...) wallet address.',
+          };
+        }
+        return { valid: true, normalized: trimmed };
+      }
+      case 'usdt_trc20': {
+        if (!/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(trimmed)) {
+          return {
+            valid: false,
+            normalized: trimmed,
+            error: 'Please enter a valid TRON TRC20 (T...) wallet address.',
+          };
+        }
+        return { valid: true, normalized: trimmed };
+      }
+    }
+  }
+
+  function verifyAdminPayoutAuth(req: Request, res: Response): boolean {
+    const configuredSecret = (process.env.ADMIN_PAYOUT_SECRET || '').trim();
+    if (!configuredSecret) {
+      res.status(503).json({
+        ok: false,
+        error: 'Admin payout secret is not configured on the server',
+      });
+      return false;
+    }
+
+    const headerSecret = cleanText(req.headers['x-admin-secret']);
+    const authHeader = cleanText(req.headers.authorization);
+    const bearerSecret = authHeader.toLowerCase().startsWith('bearer ')
+      ? authHeader.slice(7).trim()
+      : '';
+    const candidate = headerSecret || bearerSecret;
+
+    if (!candidate) {
+      res.status(401).json({ ok: false, error: 'Missing admin authorization' });
+      return false;
+    }
+
+    const expectedDigest = crypto
+      .createHash('sha256')
+      .update(configuredSecret)
+      .digest();
+    const candidateDigest = crypto
+      .createHash('sha256')
+      .update(candidate)
+      .digest();
+
+    if (!crypto.timingSafeEqual(expectedDigest, candidateDigest)) {
+      res.status(401).json({ ok: false, error: 'Invalid admin secret' });
+      return false;
+    }
+    return true;
+  }
+
+  app.get('/api/points/config', (_req: Request, res: Response) => {
+    const config = getPayoutRuntimeConfig();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ok: true, config });
+  });
+
+  app.get('/api/payouts/live', async (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(30, Math.max(1, Number(req.query.limit) || 12));
+      const items = await listLivePayoutFeedFromDb(limit);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ ok: true, items });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to load live payouts',
+      });
+    }
+  });
+
+  app.get('/api/points/me', async (req: Request, res: Response) => {
+    try {
+      const { session } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
+        return;
+      }
+      const config = getPayoutRuntimeConfig();
+      const summary = await getUserPointsSummaryFromDb(session.uid);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ ok: true, summary, config });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to load points summary',
+      });
+    }
+  });
+
+  app.post('/api/points/claim', async (req: Request, res: Response) => {
+    try {
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
+        return;
+      }
+      if (viaCookie && !isTrustedSameOriginMutation(req)) {
+        res.status(403).json({ ok: false, error: 'Untrusted origin' });
+        return;
+      }
+
+      const cfg = getPayoutRuntimeConfig();
+      const action = cleanText(req.body?.action, 'daily_checkin');
+      const dayKey = getJakartaDateKey();
+
+      let amount = 0;
+      let description = '';
+      let referenceId = '';
+
+      if (action === 'daily_checkin') {
+        amount = cfg.dailyCheckinPoints;
+        description = `Daily Check-In Reward (${dayKey})`;
+        referenceId = `checkin:${session.uid}:${dayKey}`;
+      } else if (action === 'watch_episode') {
+        const dramaId = cleanText(req.body?.dramaId).slice(0, 80);
+        const provider = cleanText(req.body?.provider, 'DramaBox').slice(0, 40);
+        const episodeNumber = Math.floor(Number(req.body?.episodeNumber) || 0);
+        if (!dramaId || episodeNumber < 1 || episodeNumber > 5000) {
+          res.status(400).json({
+            ok: false,
+            error: 'Valid dramaId and episodeNumber are required',
+          });
+          return;
+        }
+        amount = cfg.watchEpisodePoints;
+        description = `Watch Reward: ${provider} #${dramaId} EP ${episodeNumber}`;
+        referenceId = `watch:${session.uid}:${provider}:${dramaId}:ep${episodeNumber}:${dayKey}`;
+      } else {
+        res.status(400).json({ ok: false, error: 'Unsupported claim action' });
+        return;
+      }
+
+      const result = await claimPointsInDb({
+        userId: session.uid,
+        amount,
+        description,
+        referenceId,
+        displayName: session.displayName,
+      });
+
+      res.setHeader('Cache-Control', 'no-store');
+      if (!result.ok) {
+        const statusCode =
+          result.reason === 'cooldown_active' || result.reason === 'daily_cap_reached'
+            ? 429
+            : result.reason === 'duplicate_claim'
+            ? 409
+            : 400;
+        const message =
+          result.reason === 'duplicate_claim'
+            ? 'Reward already claimed for this item today'
+            : result.reason === 'cooldown_active'
+            ? `Please wait ${result.cooldownSecondsRemaining || cfg.claimCooldownSeconds}s before the next claim`
+            : result.reason === 'daily_cap_reached'
+            ? `Daily earn limit (${cfg.maxDailyEarnPoints} pts) reached for today`
+            : 'Unable to claim points';
+        res.status(statusCode).json({
+          ok: false,
+          reason: result.reason,
+          cooldownSecondsRemaining: result.cooldownSecondsRemaining,
+          error: message,
+          summary: result.summary,
+          config: cfg,
+        });
+        return;
+      }
+
+      res.json({
+        ok: true,
+        awardedPoints: amount,
+        entry: result.entry,
+        summary: result.summary,
+        config: cfg,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to claim points',
+      });
+    }
+  });
+
+  app.post('/api/points/redeem', async (req: Request, res: Response) => {
+    try {
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
+        return;
+      }
+      if (viaCookie && !isTrustedSameOriginMutation(req)) {
+        res.status(403).json({ ok: false, error: 'Untrusted origin' });
+        return;
+      }
+
+      const methodRaw = cleanText(req.body?.method).toLowerCase() as PayoutMethod;
+      if (!ALLOWED_PAYOUT_METHODS.has(methodRaw)) {
+        res.status(400).json({ ok: false, error: 'Unsupported payout method' });
+        return;
+      }
+
+      const pointsSpent = Math.floor(Number(req.body?.pointsSpent) || 0);
+      if (!Number.isFinite(pointsSpent) || pointsSpent <= 0 || pointsSpent > 10_000_000) {
+        res.status(400).json({ ok: false, error: 'Invalid points amount' });
+        return;
+      }
+
+      const accountHolderName = cleanText(req.body?.accountHolderName).slice(0, 100);
+      if (accountHolderName.length < 2) {
+        res.status(400).json({
+          ok: false,
+          error: 'Account holder / recipient name is required (min 2 chars)',
+        });
+        return;
+      }
+
+      const destCheck = validatePayoutDestinationAccount(
+        methodRaw,
+        String(req.body?.destinationAccount || '')
+      );
+      if (!destCheck.valid) {
+        res.status(400).json({
+          ok: false,
+          error: destCheck.error || 'Invalid destination account',
+        });
+        return;
+      }
+
+      const cfg = getPayoutRuntimeConfig();
+      const result = await createPayoutRequestInDb({
+        userId: session.uid,
+        pointsSpent,
+        method: methodRaw,
+        destinationAccount: destCheck.normalized,
+        accountHolderName,
+        displayName: session.displayName,
+      });
+
+      res.setHeader('Cache-Control', 'no-store');
+      if (!result.ok) {
+        const isIdrMethod = ['dana', 'ovo', 'gopay', 'bank_transfer'].includes(
+          methodRaw
+        );
+        const message =
+          result.reason === 'below_minimum'
+            ? isIdrMethod
+              ? `Minimum penarikan Rupiah adalah Rp ${cfg.minPayoutIdr.toLocaleString('id-ID')} (${result.minRequiredPoints} poin)`
+              : `Minimum Global withdrawal is $${cfg.minPayoutUsd.toFixed(2)} USD (${result.minRequiredPoints} points)`
+            : result.reason === 'insufficient_balance'
+            ? 'Insufficient points balance'
+            : 'Unable to submit payout request';
+        res.status(400).json({
+          ok: false,
+          reason: result.reason,
+          minRequiredPoints: result.minRequiredPoints,
+          minPayoutIdr: cfg.minPayoutIdr,
+          minPayoutUsd: cfg.minPayoutUsd,
+          error: message,
+          summary: result.summary,
+          config: cfg,
+        });
+        return;
+      }
+
+      res.status(201).json({
+        ok: true,
+        payout: result.payout,
+        summary: result.summary,
+        config: cfg,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to create payout request',
+      });
+    }
+  });
+
+  // --- Referral Program (1-Hour Verified Active Watch) & Watch Heartbeat ---
+
+  app.get('/api/referrals/me', async (req: Request, res: Response) => {
+    try {
+      const { session } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
+        return;
+      }
+      const config = getPayoutRuntimeConfig();
+      const referralSummary = await getUserReferralSummaryFromDb(session.uid);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ ok: true, referralSummary, config });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error:
+          err instanceof Error ? err.message : 'Failed to load referral summary',
+      });
+    }
+  });
+
+  app.post('/api/referrals/bind', async (req: Request, res: Response) => {
+    try {
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
+        return;
+      }
+      if (viaCookie && !isTrustedSameOriginMutation(req)) {
+        res.status(403).json({ ok: false, error: 'Untrusted origin' });
+        return;
+      }
+
+      if (isEndpointRateLimited(`refbind:${session.uid}`, 10, 60_000)) {
+        res.status(429).json({
+          ok: false,
+          error: 'Too many referral bind attempts. Please wait a minute.',
+        });
+        return;
+      }
+
+      const referralCode = cleanText(req.body?.referralCode);
+      if (!referralCode) {
+        res.status(400).json({ ok: false, error: 'Referral code is required' });
+        return;
+      }
+
+      const secHashes = extractClientSecurityHashes(req);
+      await recordUserSecuritySignalInDb({
+        userId: session.uid,
+        ...secHashes,
+        displayName: session.displayName,
+      }).catch(() => null);
+
+      const result = await bindReferralForUserInDb({
+        refereeUid: session.uid,
+        referralCode,
+        ...secHashes,
+        displayName: session.displayName,
+      });
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: result.bound,
+        bound: result.bound,
+        status: result.status,
+        reason: result.reason,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to bind referral',
+      });
+    }
+  });
+
+  app.post('/api/watch/heartbeat', async (req: Request, res: Response) => {
+    try {
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
+        return;
+      }
+      if (viaCookie && !isTrustedSameOriginMutation(req)) {
+        res.status(403).json({ ok: false, error: 'Untrusted origin' });
+        return;
+      }
+
+      if (isEndpointRateLimited(`hb:${session.uid}`, 12, 60_000)) {
+        res.status(429).json({
+          ok: false,
+          reason: 'heartbeat_too_fast',
+          error: 'Watch heartbeat rate limit exceeded',
+        });
+        return;
+      }
+
+      const streamSessionId = cleanText(req.body?.streamSessionId).slice(0, 80);
+      const dramaId = cleanText(req.body?.dramaId).slice(0, 80);
+      const provider = cleanText(req.body?.provider, 'DramaBox').slice(0, 40);
+      const episodeNumber = Math.max(
+        1,
+        Math.min(5000, Math.floor(Number(req.body?.episodeNumber) || 1))
+      );
+      if (!streamSessionId || !dramaId) {
+        res.status(400).json({
+          ok: false,
+          error: 'streamSessionId and dramaId are required',
+        });
+        return;
+      }
+
+      const mediaKey = `${provider}:${dramaId}:ep${episodeNumber}`;
+      const currentTimeSec = Math.max(0, Number(req.body?.currentTimeSec) || 0);
+      const isPlaying = Boolean(req.body?.isPlaying);
+      const tabVisible = Boolean(req.body?.tabVisible);
+      const playbackRate = Number(req.body?.playbackRate) || 1;
+      const secHashes = extractClientSecurityHashes(req);
+
+      const hbRes = await recordWatchHeartbeatInDb({
+        userId: session.uid,
+        streamSessionId,
+        mediaKey,
+        currentTimeSec,
+        isPlaying,
+        tabVisible,
+        playbackRate,
+        ...secHashes,
+        displayName: session.displayName,
+      });
+
+      res.setHeader('Cache-Control', 'no-store');
+      if (
+        !hbRes.ok &&
+        (hbRes.reason === 'concurrent_stream_detected' ||
+          hbRes.reason === 'heartbeat_too_fast')
+      ) {
+        res.status(429).json({
+          ...hbRes,
+          error:
+            hbRes.reason === 'concurrent_stream_detected'
+              ? 'Only one active playback stream per account is allowed'
+              : 'Heartbeat frequency is too fast',
+        });
+        return;
+      }
+
+      res.json(hbRes);
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error:
+          err instanceof Error ? err.message : 'Failed to record watch heartbeat',
+      });
+    }
+  });
+
+  app.get('/api/admin/payouts', async (req: Request, res: Response) => {
+    if (!verifyAdminPayoutAuth(req, res)) return;
+    try {
+      const status = cleanText(req.query.status, 'all').toLowerCase();
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
+      const data = await listAdminPayoutRequestsFromDb({ status, limit, offset });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ ok: true, items: data.items, total: data.total });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to list payout requests',
+      });
+    }
+  });
+
+  app.patch('/api/admin/payouts/:id', async (req: Request, res: Response) => {
+    if (!verifyAdminPayoutAuth(req, res)) return;
+    try {
+      const payoutId = cleanText(String(req.params.id || ''));
+      if (!payoutId) {
+        res.status(400).json({ ok: false, error: 'Missing payout id' });
+        return;
+      }
+
+      const nextStatus = cleanText(req.body?.status).toLowerCase();
+      if (!['approved', 'paid', 'rejected'].includes(nextStatus)) {
+        res.status(400).json({
+          ok: false,
+          error: 'status must be approved, paid, or rejected',
+        });
+        return;
+      }
+
+      const adminNote =
+        typeof req.body?.adminNote === 'string'
+          ? req.body.adminNote
+          : typeof req.body?.admin_note === 'string'
+          ? req.body.admin_note
+          : '';
+
+      const result = await updateAdminPayoutStatusInDb({
+        payoutId,
+        status: nextStatus as 'approved' | 'paid' | 'rejected',
+        adminNote,
+      });
+
+      res.setHeader('Cache-Control', 'no-store');
+      if (!result.ok) {
+        const statusCode =
+          result.reason === 'not_found'
+            ? 404
+            : result.reason === 'already_finalized'
+            ? 409
+            : 400;
+        res.status(statusCode).json({
+          ok: false,
+          reason: result.reason,
+          payout: result.payout,
+          error:
+            result.reason === 'not_found'
+              ? 'Payout request not found'
+              : result.reason === 'already_finalized'
+              ? 'Payout request is already finalized (paid or rejected)'
+              : 'Unable to update payout request',
+        });
+        return;
+      }
+
+      res.json({
+        ok: true,
+        payout: result.payout,
+        refunded: Boolean(result.refunded),
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to update payout status',
       });
     }
   });
@@ -4477,34 +6015,43 @@ async function startServer() {
     }
   );
 
-  app.get('/llms.txt', (req: Request, res: Response) => {
-    const origin = resolveOrigin(req);
+  app.get('/llms.txt', (_req: Request, res: Response) => {
+    const siteOrigin = DEFAULT_SITE_ORIGIN;
     const curatedLinks = CURATED_PROGRAMMATIC_PAGES.slice(0, 12).map(
-      (p) => `- [${p.label}](${origin}/genre/${encodeURIComponent(p.slug)}): ${p.description}`
+      (p) => `- [${p.label}](${siteOrigin}/genre/${encodeURIComponent(p.slug)}): ${p.description}`
     );
 
     const markdown = [
       '# KanoDrama',
       '',
-      '> Watch free trending HD vertical short dramas, billionaire romance, revenge sagas, Asian mini-series, and full-length movies online on KanoDrama.',
+      '> KanoDrama (https://kano-drama.xyz) adalah platform streaming drama pendek (short drama), serial Asia, drama China dan Korea, serta film gratis dengan dukungan subtitle Bahasa Indonesia (Sub Indo) maupun pilihan bahasa lainnya.',
+      '> KanoDrama (https://kano-drama.xyz) is a free streaming platform for vertical short dramas, Asian series, Chinese & Korean dramas, and full-length movies with Indonesian subtitles (Sub Indo) and multilingual options.',
       '',
       '## Primary Sections',
-      `- [Home](${origin}/): Watch free featured spotlights, trending vertical short dramas, and latest releases.`,
-      `- [Explore Catalog](${origin}/explore): Browse and watch free from the full multi-provider vertical drama catalog.`,
-      `- [Providers Directory](${origin}/providers): Full directory of 49+ short drama providers to watch free across dedicated platform catalogs.`,
-      `- [Trending Series](${origin}/trending): Watch free daily most-watched and top-ranked short dramas.`,
-      `- [Latest Releases](${origin}/latest): Watch free newly added episodes and recent drama premieres.`,
-      `- [VIP Selection](${origin}/vip): Watch free premium vertical drama series and complete boxsets.`,
-      `- [Movies](${origin}/movies): Watch free full-length Asian & international cinema online in HD.`,
+      `- [Home](${siteOrigin}/): Beranda KanoDrama — streaming drama pendek, serial Asia, drama China/Korea, dan film gratis Sub Indo.`,
+      `- [Explore Catalog](${siteOrigin}/explore): Browse and watch free from the full multi-provider short drama catalog.`,
+      `- [Providers Directory](${siteOrigin}/providers): Full directory of 49+ short drama providers including DramaBox, NetShort, Melolo, AnyReel, ReelShort, GoodShort, and DramaWave.`,
+      `- [Trending Series](${siteOrigin}/trending): Watch free daily most-watched and top-ranked short dramas.`,
+      `- [Latest Releases](${siteOrigin}/latest): Watch free newly added episodes and recent drama premieres.`,
+      `- [VIP Selection](${siteOrigin}/vip): Watch free premium vertical drama series and complete boxsets.`,
+      `- [Movies](${siteOrigin}/movies): Watch free full-length Asian & international movies online in HD with Indonesian and English subtitles.`,
+      `- [My Account](${siteOrigin}/account): User profile, Gmail login counter, saved watchlist, and watch history.`,
+      '',
+      '## Canonical Route Patterns',
+      `- Detail Page: ${siteOrigin}/<provider>/detail/<slug>`,
+      `- Episode Player: ${siteOrigin}/<provider>/watch/<slug>`,
+      `- Provider Hub: ${siteOrigin}/provider/<provider-slug>`,
+      `- Movie Detail: ${siteOrigin}/movie/detail/<slug>`,
+      `- Movie Player: ${siteOrigin}/movie/watch/<slug>`,
       '',
       '## Providers & Curated Collections',
-      `- [Multi-Provider Hub](${origin}/providers): Streaming aggregation across ${Object.keys(PROVIDER_LOGO_PATHS).length}+ short drama providers including DramaBox, NetShort, Melolo, AnyReel, ReelShort, GoodShort, DramaWave, LK21 Movies, and LookSeries Movies.`,
+      `- [Multi-Provider Hub](${siteOrigin}/providers): Streaming aggregation across ${Object.keys(PROVIDER_LOGO_PATHS).length}+ short drama providers including DramaBox, NetShort, Melolo, AnyReel, ReelShort, GoodShort, DramaWave, LK21 Movies, and LookSeries Movies.`,
       ...curatedLinks,
       '',
       '## Machine-Readable Catalog & Site Info',
-      `- [AI Catalog JSON](${origin}/ai-catalog.json): Structured JSON metadata, collections, providers, and featured catalog index.`,
-      `- [XML Sitemap](${origin}/sitemap.xml): Standard sitemap index for dramas, movies, and curated genres.`,
-      `- [Robots Policy](${origin}/robots.txt): Crawler access rules and sitemap declarations.`,
+      `- [AI Catalog JSON](${siteOrigin}/ai-catalog.json): Structured JSON metadata, collections, providers, and featured catalog index.`,
+      `- [XML Sitemap](${siteOrigin}/sitemap.xml): Standard sitemap index for homepage, categories, providers, dramas, and movies.`,
+      `- [Robots Policy](${siteOrigin}/robots.txt): Crawler access rules and sitemap declarations.`,
       '',
     ].join('\n');
 
@@ -4517,6 +6064,7 @@ async function startServer() {
 
   app.get('/ai-catalog.json', async (req: Request, res: Response) => {
     const origin = resolveOrigin(req);
+    const siteOrigin = DEFAULT_SITE_ORIGIN;
     let featuredItems: Array<{
       id: string;
       title: string;
@@ -4536,9 +6084,9 @@ async function startServer() {
         id: item.bookId,
         title: item.title,
         provider: item.provider,
-        url: `${origin}/${getProviderRouteSlug(item.provider)}/detail/${encodeURIComponent(item.slug)}`,
+        url: `${siteOrigin}/${getProviderRouteSlug(item.provider)}/detail/${encodeURIComponent(item.slug)}`,
         cover: item.cover
-          ? buildOgImageEndpointUrl(item.cover, origin, item.title)
+          ? buildOgImageEndpointUrl(item.cover, siteOrigin, item.title)
           : undefined,
         chapterCount: item.chapterCount,
         description: item.description,
@@ -4547,7 +6095,7 @@ async function startServer() {
         id: m.slug,
         title: m.title,
         provider: /^ls-/i.test(m.slug) ? 'LookSeries' : 'LK21',
-        url: `${origin}/movie/detail/${encodeURIComponent(m.slug)}`,
+        url: `${siteOrigin}/movie/detail/${encodeURIComponent(m.slug)}`,
         chapterCount: 1,
       }));
       if (movieEntries.length === 0) {
@@ -4563,7 +6111,7 @@ async function startServer() {
             id: slug,
             title,
             provider: 'LK21',
-            url: `${origin}/movie/detail/${encodeURIComponent(slug)}`,
+            url: `${siteOrigin}/movie/detail/${encodeURIComponent(slug)}`,
             chapterCount: 1,
           });
           if (movieEntries.length >= 6) break;
@@ -4588,31 +6136,36 @@ async function startServer() {
       })
       .map((entry) => ({
         ...entry,
-        url: `${origin}/provider/${entry.slug}`,
+        url: `${siteOrigin}/provider/${entry.slug}`,
       }));
 
     const payload = {
       schemaVersion: '1.0',
       name: 'KanoDrama',
-      url: origin,
+      url: siteOrigin,
       description:
-        'Watch free trending HD vertical short dramas, billionaire romance, revenge sagas, and Asian mini-series across 49+ top platforms on KanoDrama.',
-      language: 'en',
+        'KanoDrama (https://kano-drama.xyz) is a free streaming platform for short dramas (drama pendek), Asian series, Chinese & Korean dramas, and HD movies with Indonesian subtitles (Sub Indo) and multilingual options.',
+      language: 'id, en',
+      supportedLanguages: ['id', 'en'],
       generatedAt: new Date().toISOString(),
       endpoints: {
-        home: `${origin}/`,
-        explore: `${origin}/explore`,
-        providersHub: `${origin}/providers`,
-        trending: `${origin}/trending`,
-        latest: `${origin}/latest`,
-        vip: `${origin}/vip`,
-        movies: `${origin}/movies`,
-        lookseriesForYouApi: `${origin}/api/lookseries/foryou`,
-        llmsTxt: `${origin}/llms.txt`,
-        homeCatalogApi: `${origin}/api/home`,
-        catalogFilterApi: `${origin}/api/catalog/filter`,
-        sitemap: `${origin}/sitemap.xml`,
-        robotsTxt: `${origin}/robots.txt`,
+        home: `${siteOrigin}/`,
+        explore: `${siteOrigin}/explore`,
+        providersHub: `${siteOrigin}/providers`,
+        trending: `${siteOrigin}/trending`,
+        latest: `${siteOrigin}/latest`,
+        vip: `${siteOrigin}/vip`,
+        movies: `${siteOrigin}/movies`,
+        account: `${siteOrigin}/account`,
+        detailPattern: `${siteOrigin}/<provider>/detail/<slug>`,
+        watchPattern: `${siteOrigin}/<provider>/watch/<slug>`,
+        providerPattern: `${siteOrigin}/provider/<slug>`,
+        lookseriesForYouApi: `${siteOrigin}/api/lookseries/foryou`,
+        llmsTxt: `${siteOrigin}/llms.txt`,
+        homeCatalogApi: `${siteOrigin}/api/home`,
+        catalogFilterApi: `${siteOrigin}/api/catalog/filter`,
+        sitemap: `${siteOrigin}/sitemap.xml`,
+        robotsTxt: `${siteOrigin}/robots.txt`,
       },
       providers: Object.keys(PROVIDER_LOGO_PATHS),
       providerDirectory,
@@ -4620,7 +6173,7 @@ async function startServer() {
         slug: p.slug,
         title: p.label,
         description: p.description,
-        url: `${origin}/genre/${encodeURIComponent(p.slug)}`,
+        url: `${siteOrigin}/genre/${encodeURIComponent(p.slug)}`,
       })),
       featuredItems,
     };
@@ -4632,8 +6185,8 @@ async function startServer() {
       .send(JSON.stringify(payload, null, 2));
   });
 
-  app.get('/robots.txt', (req: Request, res: Response) => {
-    const origin = resolveOrigin(req);
+  app.get('/robots.txt', (_req: Request, res: Response) => {
+    const siteOrigin = DEFAULT_SITE_ORIGIN;
     res
       .status(200)
       .type('text/plain; charset=utf-8')
@@ -4679,7 +6232,7 @@ async function startServer() {
           'Disallow: /*?st=*',
           'Disallow: /*&st=*',
           '',
-          `Sitemap: ${origin}/sitemap.xml`,
+          `Sitemap: ${siteOrigin}/sitemap.xml`,
           '',
         ].join('\n')
       );
@@ -4703,12 +6256,13 @@ async function startServer() {
   const sitemapBuildInFlight = new Map<string, Promise<SitemapUrlEntry[]>>();
 
   async function collectAllSitemapEntries(origin: string): Promise<SitemapUrlEntry[]> {
-    const cached = sitemapEntriesCache.get(origin);
+    const siteOrigin = DEFAULT_SITE_ORIGIN;
+    const cached = sitemapEntriesCache.get(siteOrigin);
     if (cached && Date.now() < cached.expiresAt) {
       return cached.entries;
     }
 
-    const existingPromise = sitemapBuildInFlight.get(origin);
+    const existingPromise = sitemapBuildInFlight.get(siteOrigin);
     if (existingPromise) {
       return existingPromise;
     }
@@ -4729,46 +6283,29 @@ async function startServer() {
       };
 
       const todayIso = new Date().toISOString().split('T')[0];
-      pushEntry(`${origin}/`, 'hourly', '1.0', todayIso);
-      pushEntry(`${origin}/movies`, 'hourly', '0.95', todayIso);
-      pushEntry(`${origin}/explore`, 'hourly', '0.9', todayIso);
-      pushEntry(`${origin}/providers`, 'daily', '0.9', todayIso);
-      pushEntry(`${origin}/trending`, 'hourly', '0.9', todayIso);
-      pushEntry(`${origin}/latest`, 'hourly', '0.9', todayIso);
-      pushEntry(`${origin}/vip`, 'daily', '0.8', todayIso);
+
+      // 1) Homepage, primary categories & provider hubs first
+      pushEntry(`${siteOrigin}/`, 'hourly', '1.0', todayIso);
+      pushEntry(`${siteOrigin}/movies`, 'hourly', '0.95', todayIso);
+      pushEntry(`${siteOrigin}/explore`, 'hourly', '0.95', todayIso);
+      pushEntry(`${siteOrigin}/providers`, 'daily', '0.95', todayIso);
+      pushEntry(`${siteOrigin}/trending`, 'hourly', '0.9', todayIso);
+      pushEntry(`${siteOrigin}/latest`, 'hourly', '0.9', todayIso);
+      pushEntry(`${siteOrigin}/vip`, 'daily', '0.85', todayIso);
 
       for (const provName of Object.keys(PROVIDER_SLUG_MAP)) {
         if (provName === 'LK21' || provName === 'LookSeries') continue;
         const provSlug = getProviderRouteSlug(provName);
-        pushEntry(`${origin}/provider/${provSlug}`, 'daily', '0.85', todayIso);
+        pushEntry(`${siteOrigin}/provider/${provSlug}`, 'daily', '0.85', todayIso);
       }
 
       for (const preset of CURATED_PROGRAMMATIC_PAGES) {
-        pushEntry(`${origin}/genre/${preset.slug}`, 'daily', '0.9', todayIso);
+        pushEntry(`${siteOrigin}/genre/${preset.slug}`, 'daily', '0.85', todayIso);
       }
 
-      const coreGenreSlugs = [
-        'ceo',
-        'romance',
-        'billionaire',
-        'revenge',
-        'fantasy',
-        'historical',
-        'action',
-        'dubbed',
-      ];
-      for (const slug of coreGenreSlugs) {
-        pushEntry(`${origin}/tag/${slug}`, 'daily', '0.85', todayIso);
-      }
-
-      // 1) Instantaneous read from PostgreSQL / L1 memory cache (/<provider>/detail/<slug>)
+      // 2) Popular & newest valid dramas with complete metadata (/<provider>/detail/<slug>)
       const cachedSitemap = await getCachedDramasForSitemap(100000);
-      for (const tag of cachedSitemap.tags) {
-        const slug = slugifyTitle(tag);
-        if (slug) {
-          pushEntry(`${origin}/tag/${slug}`, 'daily', '0.9');
-        }
-      }
+      let validDramaIndex = 0;
       for (const item of cachedSitemap.dramas) {
         const cleanTitle = cleanText(item.title);
         const cleanSlug = (item.slug || slugifyTitle(cleanTitle)).trim().toLowerCase();
@@ -4777,20 +6314,23 @@ async function startServer() {
           cleanTitle.length < 2 ||
           !isValidSitemapSlug(cleanSlug) ||
           (item.chapterCount ?? 0) < 1 ||
-          (!cleanText(item.cover) && !cleanText(item.description))
+          !cleanText(item.cover)
         ) {
           continue;
         }
         const provSlug = getProviderRouteSlug(item.provider);
-        const loc = `${origin}/${provSlug}/detail/${encodeURIComponent(cleanSlug)}`;
+        const loc = `${siteOrigin}/${provSlug}/detail/${encodeURIComponent(cleanSlug)}`;
         const lastmod = item.updatedAt
           ? new Date(item.updatedAt).toISOString().split('T')[0]
           : todayIso;
-        pushEntry(loc, 'daily', '0.8', lastmod);
+        const priority = validDramaIndex < 150 ? '0.9' : '0.8';
+        validDramaIndex++;
+        pushEntry(loc, 'daily', priority, lastmod);
       }
 
-      // 1b) Dedicated Movies catalog from PostgreSQL `movies` table (/movie/detail/<slug>)
+      // 3) Valid movies from PostgreSQL `movies` table (/movie/detail/<slug>)
       const cachedMovies = await listMoviesForSitemapFromDb(100000);
+      let validMovieIndex = 0;
       for (const m of cachedMovies) {
         const cleanTitle = cleanText(m.title);
         const cleanSlug = cleanText(m.slug).toLowerCase();
@@ -4798,15 +6338,17 @@ async function startServer() {
           !cleanTitle ||
           cleanTitle.length < 2 ||
           !isValidSitemapSlug(cleanSlug) ||
-          (!cleanText(m.cover) && !cleanText(m.description))
+          !cleanText(m.cover)
         ) {
           continue;
         }
-        const loc = `${origin}/movie/detail/${encodeURIComponent(cleanSlug)}`;
+        const loc = `${siteOrigin}/movie/detail/${encodeURIComponent(cleanSlug)}`;
         const lastmod = m.updatedAt
           ? new Date(m.updatedAt).toISOString().split('T')[0]
           : todayIso;
-        pushEntry(loc, 'daily', '0.85', lastmod);
+        const priority = validMovieIndex < 50 ? '0.9' : '0.85';
+        validMovieIndex++;
+        pushEntry(loc, 'daily', priority, lastmod);
       }
 
       if (cachedMovies.length === 0) {
@@ -4820,12 +6362,12 @@ async function startServer() {
               !cleanTitle ||
               cleanTitle.length < 2 ||
               !isValidSitemapSlug(cleanSlug) ||
-              (!cleanText(m.cover || m.coverHz || m.coverVt) && !cleanText(m.description))
+              !cleanText(m.cover || m.coverHz || m.coverVt)
             ) {
               continue;
             }
             pushEntry(
-              `${origin}/movie/detail/${encodeURIComponent(cleanSlug)}`,
+              `${siteOrigin}/movie/detail/${encodeURIComponent(cleanSlug)}`,
               'daily',
               '0.85',
               todayIso
@@ -4836,7 +6378,7 @@ async function startServer() {
         }
       }
 
-      // 2) Upstream fallback only if cache has zero dramas yet (e.g. cold boot)
+      // 4) Upstream fallback only if cache has zero dramas yet (cold boot)
       if (cachedSitemap.dramas.length === 0) {
         try {
           const token = getMolaToken();
@@ -4891,11 +6433,10 @@ async function startServer() {
                 const cover = cleanText(
                   item.cover ?? item.coverUrl ?? item.bookCover ?? item.coverWap ?? item.poster
                 );
-                const desc = cleanText(item.description ?? item.introduction ?? item.synopsis);
                 const slug = slugifyTitle(title);
-                if (title.length >= 2 && isValidSitemapSlug(slug) && (cover || desc)) {
+                if (title.length >= 2 && isValidSitemapSlug(slug) && cover) {
                   pushEntry(
-                    `${origin}/${provSlug}/detail/${encodeURIComponent(slug)}`,
+                    `${siteOrigin}/${provSlug}/detail/${encodeURIComponent(slug)}`,
                     'daily',
                     '0.8',
                     todayIso
@@ -4917,26 +6458,49 @@ async function startServer() {
         }
       }
 
+      // 5) Curated and dynamic /tag/* pages placed after core content URLs
+      const coreGenreSlugs = [
+        'ceo',
+        'romance',
+        'billionaire',
+        'revenge',
+        'fantasy',
+        'historical',
+        'action',
+        'dubbed',
+      ];
+      for (const slug of coreGenreSlugs) {
+        pushEntry(`${siteOrigin}/tag/${slug}`, 'daily', '0.8', todayIso);
+      }
+
+      for (const tag of cachedSitemap.tags) {
+        const slug = slugifyTitle(tag);
+        if (slug) {
+          pushEntry(`${siteOrigin}/tag/${slug}`, 'daily', '0.75');
+        }
+      }
+
       const ttl =
         cachedSitemap.dramas.length > 0
           ? SITEMAP_CACHE_TTL_MS
           : SITEMAP_COLD_CACHE_TTL_MS;
-      sitemapEntriesCache.set(origin, {
+      sitemapEntriesCache.set(siteOrigin, {
         expiresAt: Date.now() + ttl,
         entries,
       });
 
       return entries;
     })().finally(() => {
-      sitemapBuildInFlight.delete(origin);
+      sitemapBuildInFlight.delete(siteOrigin);
     });
 
-    sitemapBuildInFlight.set(origin, buildPromise);
+    sitemapBuildInFlight.set(siteOrigin, buildPromise);
     return buildPromise;
   }
 
   const handleSitemapIndexXml = async (req: Request, res: Response) => {
     const origin = resolveOrigin(req);
+    const siteOrigin = DEFAULT_SITE_ORIGIN;
     const entries = await collectAllSitemapEntries(origin);
     const totalParts = Math.max(
       1,
@@ -4958,7 +6522,7 @@ async function startServer() {
       if (!partLastmod) {
         partLastmod = todayIso;
       }
-      const partLoc = `${origin}/sitemap-part-${part}.xml`;
+      const partLoc = `${siteOrigin}/sitemap-part-${part}.xml`;
       sitemapsXml.push(
         `  <sitemap>\n    <loc>${escapeXml(partLoc)}</loc>\n    <lastmod>${escapeXml(partLastmod)}</lastmod>\n  </sitemap>`
       );
@@ -5199,6 +6763,14 @@ async function startServer() {
         return;
       }
 
+      const emptySlugScopedMatch = cleanPath.match(
+        /^\/([a-z0-9_]+)\/(detail|watch)$/i
+      );
+      const isEmptyDramaOrMovieRoute =
+        lowerCleanPath === '/drama' ||
+        lowerCleanPath === '/movie' ||
+        Boolean(emptySlugScopedMatch && isKnownProviderRouteSlug(emptySlugScopedMatch[1]));
+
       const rawScopedMatch = cleanPath.match(
         /^\/([a-z0-9_]+)\/(detail|watch)\/([^/]+)(?:\/(\d+))?$/i
       );
@@ -5276,7 +6848,24 @@ async function startServer() {
       let isNotFoundResponse = false;
       let isPrivateResponse = false;
 
-      if (scopedMatch) {
+      if (isEmptyDramaOrMovieRoute && !queryBookId) {
+        const emptyProvSlug = emptySlugScopedMatch?.[1]?.toLowerCase() || '';
+        const isMovieKind =
+          lowerCleanPath === '/movie' ||
+          emptyProvSlug === 'movie' ||
+          emptyProvSlug === 'movies' ||
+          emptyProvSlug === 'lk21' ||
+          emptyProvSlug === 'lookseries';
+        ssrHttpStatus = 404;
+        isNotFoundResponse = true;
+        html = injectNotFoundSeoIntoHtml(
+          html,
+          origin,
+          req.path,
+          isMovieKind ? 'movie' : 'drama',
+          ssrLang
+        );
+      } else if (scopedMatch) {
         const routeProvSlug = scopedMatch[1].toLowerCase();
         const isWatchRoute = scopedMatch[2].toLowerCase() === 'watch';
         const segment = decodeURIComponent(scopedMatch[3]);
@@ -5906,12 +7495,47 @@ async function startServer() {
           ssrLang
         );
       } else {
+        let homeFeatured: HomeSsrFeaturedData | undefined;
+        try {
+          const [cachedDramasRes, cachedMoviesRes] = await Promise.race([
+            Promise.all([
+              getCachedDramasForSitemap(12).catch(() => ({ dramas: [], tags: [] })),
+              listMoviesForSitemapFromDb(6).catch(() => []),
+            ]),
+            new Promise<[{ dramas: Array<{ title: string; slug: string; provider: string }>; tags: string[] }, Array<{ title: string; slug: string }>]>(
+              (resolve) => setTimeout(() => resolve([{ dramas: [], tags: [] }, []]), 400)
+            ),
+          ]);
+          const dramaLinks: SsrRelatedLink[] = cachedDramasRes.dramas
+            .filter((d) => cleanText(d.title) && isValidSitemapSlug(d.slug))
+            .slice(0, 12)
+            .map((d) => ({
+              title: cleanText(d.title),
+              slug: d.slug,
+              provider: d.provider,
+            }));
+          const movieLinks: SsrRelatedLink[] = cachedMoviesRes
+            .filter((m) => cleanText(m.title) && isValidSitemapSlug(m.slug))
+            .slice(0, 6)
+            .map((m) => ({
+              title: cleanText(m.title),
+              slug: m.slug,
+              provider: /^ls-/i.test(m.slug) ? 'LookSeries' : 'LK21',
+            }));
+          if (dramaLinks.length > 0 || movieLinks.length > 0) {
+            homeFeatured = { dramas: dramaLinks, movies: movieLinks };
+          }
+        } catch {
+          // Proceed cleanly without featured SSR links on timeout
+        }
+
         html = injectPageMetadataIntoHtml(
           html,
           origin,
           'home',
           cleanPath === '/' ? '/' : cleanPath,
-          ssrLang
+          ssrLang,
+          homeFeatured
         );
       }
 

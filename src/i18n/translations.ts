@@ -225,6 +225,7 @@ export interface Translations {
     title: string;
     subtitle: string;
     tabProfile: string;
+    tabRewards: string;
     tabWatchlist: string;
     tabHistory: string;
     tabComments: string;
@@ -246,6 +247,63 @@ export interface Translations {
     statsHistory: string;
     statsLiked: string;
     statsComments: string;
+  };
+  rewards: {
+    tabLabel: string;
+    balanceTitle: string;
+    pointsUnit: string;
+    estimatedValue: string;
+    dailyProgress: string;
+    dailyCheckinBtn: string;
+    dailyCheckinDone: string;
+    cooldownWait: string;
+    loginRequiredTitle: string;
+    loginRequiredDesc: string;
+    rulesTitle: string;
+    ruleWatch: string;
+    ruleCheckin: string;
+    ruleMinIdr: string;
+    ruleMinUsd: string;
+    ruleReview: string;
+    withdrawTitle: string;
+    regionIdrLabel: string;
+    regionUsdLabel: string;
+    methodLabel: string;
+    pointsAmountLabel: string;
+    destinationLabel: string;
+    accountHolderLabel: string;
+    accountHolderPlaceholder: string;
+    estimatedReceive: string;
+    submitWithdraw: string;
+    submittingWithdraw: string;
+    withdrawSuccess: string;
+    historyPayoutsTitle: string;
+    historyLedgerTitle: string;
+    noPayouts: string;
+    noLedger: string;
+    liveFeedTitle: string;
+    liveFeedSubtitle: string;
+    statusPending: string;
+    statusApproved: string;
+    statusPaid: string;
+    statusRejected: string;
+    referralTitle: string;
+    referralSubtitle: string;
+    referralCodeLabel: string;
+    referralLinkLabel: string;
+    copyReferralLink: string;
+    referralCopied: string;
+    referralRule1h: string;
+    referralTotalInvited: string;
+    referralPendingCount: string;
+    referralQualifiedCount: string;
+    referralBonusEarned: string;
+    referralEmpty: string;
+    referralStatusPending: string;
+    referralStatusQualified: string;
+    referralStatusRejected: string;
+    verifiedWatchProgress: string;
+    minutesUnit: string;
   };
   retention: {
     streakBadge: string;
@@ -340,6 +398,12 @@ export interface Translations {
     shareToUnlock: string;
     vipShareAria: string;
     watchPrefix: string;
+    durationLabel: string;
+    shortEpDuration: string;
+    languageLabel: string;
+    subIndoLabel: string;
+    providerLabel: string;
+    relatedDramasTitle: string;
   };
   languageSwitcher: {
     label: string;
@@ -633,6 +697,7 @@ const EN_TRANSLATIONS: Translations = {
       title: 'Member Dashboard',
       subtitle: 'Manage your profile, cloud-synced watch progress, watchlist, and reactions.',
       tabProfile: 'Profile & Settings',
+      tabRewards: 'Points & Payout',
       tabWatchlist: 'My Watchlist',
       tabHistory: 'Watch History',
       tabComments: 'My Comments',
@@ -654,6 +719,63 @@ const EN_TRANSLATIONS: Translations = {
       statsHistory: 'Watched Titles',
       statsLiked: 'Liked Series',
       statsComments: 'Comments',
+    },
+    rewards: {
+      tabLabel: 'Points & Payout',
+      balanceTitle: 'Active Points Balance',
+      pointsUnit: 'pts',
+      estimatedValue: 'Estimated Value',
+      dailyProgress: 'Daily Earn Cap',
+      dailyCheckinBtn: 'Claim Daily Check-In (+50 pts)',
+      dailyCheckinDone: 'Daily Check-In Claimed',
+      cooldownWait: 'Cooldown active — wait',
+      loginRequiredTitle: 'Sign in with Google to Earn & Withdraw',
+      loginRequiredDesc: 'Earn KanoDrama points automatically while watching episodes or claiming daily check-in, then withdraw to DANA, OVO, GoPay, Bank Transfer, PayPal, USDT, or Wise.',
+      rulesTitle: 'Earning & Redemption Rules',
+      ruleWatch: 'Watch any episode/movie (15s+) to earn +25 pts automatically.',
+      ruleCheckin: 'Daily check-in awards +50 pts once per day (WIB).',
+      ruleMinIdr: 'Indonesia IDR minimum withdrawal (Rp 50.000)',
+      ruleMinUsd: 'Global USD / USDT minimum withdrawal ($5.00 USD)',
+      ruleReview: 'Requests enter Pending review; rejected payouts refund points automatically.',
+      withdrawTitle: 'Request Payout Withdrawal',
+      regionIdrLabel: 'Indonesia (IDR)',
+      regionUsdLabel: 'Global (USD / Crypto)',
+      methodLabel: 'Payout Method',
+      pointsAmountLabel: 'Points to Redeem',
+      destinationLabel: 'Destination Account / Wallet',
+      accountHolderLabel: 'Recipient Full Name',
+      accountHolderPlaceholder: 'Full name matching your account',
+      estimatedReceive: 'Estimated Payout',
+      submitWithdraw: 'Submit Withdrawal Request',
+      submittingWithdraw: 'Submitting...',
+      withdrawSuccess: 'Payout request submitted! Status is now Pending review.',
+      historyPayoutsTitle: 'My Withdrawal Requests',
+      historyLedgerTitle: 'Points Transaction Ledger',
+      noPayouts: 'No withdrawal requests submitted yet.',
+      noLedger: 'No points transactions yet. Watch an episode or claim daily check-in!',
+      liveFeedTitle: 'Live Payout History',
+      liveFeedSubtitle: 'Recent verified withdrawals processed on KanoDrama',
+      statusPending: 'Pending',
+      statusApproved: 'Approved',
+      statusPaid: 'Paid',
+      statusRejected: 'Rejected',
+      referralTitle: 'Invite Friends & Earn Referral Bonus',
+      referralSubtitle: 'Share your unique link. Bonus points are credited once your friend completes 60 minutes (1 hour) of verified active watching.',
+      referralCodeLabel: 'Referral Code',
+      referralLinkLabel: 'Your Unique Referral Link',
+      copyReferralLink: 'Copy Link',
+      referralCopied: 'Referral link copied!',
+      referralRule1h: 'Requires 60 mins verified active watching (1x speed, active tab, anti-cheat protected).',
+      referralTotalInvited: 'Invited',
+      referralPendingCount: 'Pending 1h',
+      referralQualifiedCount: 'Qualified',
+      referralBonusEarned: 'Bonus Earned',
+      referralEmpty: 'No invited friends yet. Share your link to start earning!',
+      referralStatusPending: 'Waiting 1h Watch',
+      referralStatusQualified: 'Valid / Completed',
+      referralStatusRejected: 'Rejected (Anti-Cheat)',
+      verifiedWatchProgress: 'My Verified Active Watch Time',
+      minutesUnit: 'min',
     },
     retention: {
       streakBadge: 'Streak',
@@ -734,7 +856,7 @@ const EN_TRANSLATIONS: Translations = {
     },
     footer: {
       tagline:
-        'A refined dark-cinema streaming destination for vertical short dramas, Asian series, and feature films.',
+        'KanoDrama (kano-drama.xyz) is a free streaming platform for vertical short dramas, Asian series, Chinese & Korean dramas, and HD movies with Indonesian and multi-language subtitles.',
       onlineNow: 'Online Now',
       todayVisitors: "Today's Visitors",
       totalVisitors: 'Total Visitors',
@@ -749,15 +871,15 @@ const EN_TRANSLATIONS: Translations = {
       contact: 'Contact & Support',
       helpCenter: 'Help Center & FAQ',
       rights:
-        '© 2026 KanoDrama. All rights reserved. Powered by Advanced Streaming Architecture.',
+        '© 2026 KanoDrama (kano-drama.xyz). All rights reserved. Powered by Advanced Streaming Architecture.',
     },
     legal: {
       about: {
         title: 'About KanoDrama',
-        subtitle: 'Luxury Vertical Cinema & Multi-Provider Drama Hub',
+        subtitle: 'Free Streaming Platform for Short Dramas, Asian Series & Movies',
         paragraphs: [
-          'KanoDrama curates vertical short dramas, billionaire romance, revenge sagas, and donghua shorts into a unified dark-obsidian streaming theater.',
-          'Our unified adapter engine seamlessly normalizes live catalogs from DramaBox and NetShort with synchronized multi-language feeds, adaptive HLS playback, and instant cross-device PWA installation.',
+          'KanoDrama (https://kano-drama.xyz) is a free streaming platform uniting vertical short dramas, Asian series, Chinese and Korean dramas, and feature films with Indonesian subtitles and multi-language options.',
+          'Our unified adapter engine connects 49+ global drama and movie catalogs including DramaBox, NetShort, Melolo, ReelShort, LK21, and LookSeries with adaptive HD playback and instant cross-device PWA installation.',
         ],
       },
       privacy: {
@@ -814,6 +936,12 @@ const EN_TRANSLATIONS: Translations = {
       shareToUnlock: 'Share to unlock',
       vipShareAria: 'VIP episode — share to unlock',
       watchPrefix: 'Watch',
+      durationLabel: 'Duration',
+      shortEpDuration: '~1-2 min/ep',
+      languageLabel: 'Subtitles',
+      subIndoLabel: 'Indonesian & Multi-Lang Sub',
+      providerLabel: 'Provider',
+      relatedDramasTitle: 'Related Dramas & Movies',
     },
     languageSwitcher: {
       label: 'Language',
@@ -1066,6 +1194,7 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       title: 'Dasbor Pengguna',
       subtitle: 'Kelola profil, sinkronisasi riwayat tontonan, daftar saya, dan komentar Anda.',
       tabProfile: 'Profil & Preferensi',
+      tabRewards: 'Poin & Penarikan',
       tabWatchlist: 'Daftar Saya',
       tabHistory: 'Riwayat Tontonan',
       tabComments: 'Riwayat Komentar',
@@ -1087,6 +1216,63 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       statsHistory: 'Ditonton',
       statsLiked: 'Disukai',
       statsComments: 'Komentar',
+    },
+    rewards: {
+      tabLabel: 'Poin & Penarikan',
+      balanceTitle: 'Saldo Poin Aktif',
+      pointsUnit: 'poin',
+      estimatedValue: 'Estimasi Nilai Tukar',
+      dailyProgress: 'Batas Klaim Harian',
+      dailyCheckinBtn: 'Klaim Check-In Harian (+50 poin)',
+      dailyCheckinDone: 'Check-In Hari Ini Terklaim',
+      cooldownWait: 'Jeda anti-spam aktif — tunggu',
+      loginRequiredTitle: 'Masuk dengan Google untuk Kumpulkan & Cairkan Poin',
+      loginRequiredDesc: 'Kumpulkan poin KanoDrama otomatis saat menonton episode atau klaim check-in harian, lalu tarik ke DANA, OVO, GoPay, Transfer Bank, PayPal, USDT, atau Wise.',
+      rulesTitle: 'Aturan Pengumpulan & Penarikan',
+      ruleWatch: 'Tonton episode drama atau film (15 detik+) untuk dapat +25 poin otomatis.',
+      ruleCheckin: 'Check-in harian memberi +50 poin (1x per hari WIB).',
+      ruleMinIdr: 'Minimum penarikan Rupiah (Rp 50.000)',
+      ruleMinUsd: 'Minimum penarikan Global ($5.00 USD)',
+      ruleReview: 'Pengajuan masuk status Pending; jika ditolak admin, poin dikembalikan otomatis.',
+      withdrawTitle: 'Ajukan Penarikan Dana',
+      regionIdrLabel: 'Indonesia (IDR)',
+      regionUsdLabel: 'Global (USD / Kripto)',
+      methodLabel: 'Metode Pencairan',
+      pointsAmountLabel: 'Jumlah Poin Ditukar',
+      destinationLabel: 'Nomor Tujuan / Alamat Wallet',
+      accountHolderLabel: 'Nama Pemilik Rekening / Akun',
+      accountHolderPlaceholder: 'Nama lengkap sesuai akun tujuan',
+      estimatedReceive: 'Estimasi Nominal Terima',
+      submitWithdraw: 'Kirim Permintaan Penarikan',
+      submittingWithdraw: 'Mengirim...',
+      withdrawSuccess: 'Permintaan penarikan terkirim! Status saat ini Pending.',
+      historyPayoutsTitle: 'Riwayat Penarikan Saya',
+      historyLedgerTitle: 'Riwayat Transaksi Poin',
+      noPayouts: 'Belum ada pengajuan penarikan dana.',
+      noLedger: 'Belum ada riwayat poin. Tonton episode atau klaim check-in harian!',
+      liveFeedTitle: 'Live Payout History',
+      liveFeedSubtitle: 'Feed penarikan sukses terbaru di KanoDrama (privasi terjaga)',
+      statusPending: 'Pending',
+      statusApproved: 'Approved',
+      statusPaid: 'Paid',
+      statusRejected: 'Rejected',
+      referralTitle: 'Undang Teman & Bonus Referral',
+      referralSubtitle: 'Bagikan tautan unik Anda. Bonus poin otomatis masuk setelah teman yang diundang menonton aktif minimal 60 menit (1 jam) terverifikasi.',
+      referralCodeLabel: 'Kode Referral',
+      referralLinkLabel: 'Tautan Referral Unik Anda',
+      copyReferralLink: 'Salin Link',
+      referralCopied: 'Tautan referral disalin!',
+      referralRule1h: 'Wajib 60 menit tonton aktif terverifikasi (kecepatan 1x, tab aktif, dilindungi anti-cheat).',
+      referralTotalInvited: 'Diundang',
+      referralPendingCount: 'Menunggu 1 Jam',
+      referralQualifiedCount: 'Valid / Selesai',
+      referralBonusEarned: 'Total Bonus',
+      referralEmpty: 'Belum ada teman yang diundang. Bagikan tautan Anda untuk mulai dapat bonus!',
+      referralStatusPending: 'Menunggu 1 Jam Tonton',
+      referralStatusQualified: 'Valid / Selesai',
+      referralStatusRejected: 'Ditolak (Anti-Cheat)',
+      verifiedWatchProgress: 'Waktu Tonton Aktif Terverifikasi',
+      minutesUnit: 'menit',
     },
     retention: {
       streakBadge: 'Streak',
@@ -1167,7 +1353,7 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
     },
     footer: {
       tagline:
-        'Destinasi streaming sinematik gelap untuk drama pendek vertikal, serial Asia, dan film layar lebar pilihan.',
+        'KanoDrama (kano-drama.xyz) adalah platform streaming gratis untuk drama pendek (short drama), serial Asia, drama China/Korea, dan film HD dengan subtitle Bahasa Indonesia maupun bahasa lainnya.',
       onlineNow: 'Sedang Online',
       todayVisitors: 'Pengunjung Hari Ini',
       totalVisitors: 'Total Pengunjung',
@@ -1182,15 +1368,15 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       contact: 'Kontak & Dukungan',
       helpCenter: 'Pusat Bantuan & FAQ',
       rights:
-        '© 2026 KanoDrama. All rights reserved. Powered by Advanced Streaming Architecture.',
+        '© 2026 KanoDrama (kano-drama.xyz). All rights reserved. Powered by Advanced Streaming Architecture.',
     },
     legal: {
       about: {
         title: 'Tentang KanoDrama',
-        subtitle: 'Bioskop Vertikal Mewah & Hub Drama Multi-Provider',
+        subtitle: 'Platform Streaming Gratis Drama Pendek, Serial Asia & Film Sub Indo',
         paragraphs: [
-          'KanoDrama menghadirkan drama pendek vertikal, romansa CEO, kisah balas dendam, hingga donghua pendek dalam satu antarmuka bioskop gelap yang nyaman.',
-          'Mesin adaptor kami menyinkronkan katalog langsung dari DramaBox dan NetShort dengan pilihan bahasa otomatis, pemutaran adaptif HLS, dan dukungan aplikasi PWA.',
+          'KanoDrama (https://kano-drama.xyz) adalah platform streaming gratis untuk menonton drama pendek vertikal (short drama), serial Asia, drama China/Korea, hingga film layar lebar dengan dukungan subtitle Bahasa Indonesia maupun pilihan bahasa lainnya.',
+          'Mesin adaptor terpadu kami menghubungkan lebih dari 49 platform seperti DramaBox, NetShort, Melolo, ReelShort, LK21, dan LookSeries dengan pemutaran adaptif HD serta dukungan aplikasi PWA.',
         ],
       },
       privacy: {
@@ -1247,6 +1433,12 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       shareToUnlock: 'Bagikan untuk buka',
       vipShareAria: 'Episode VIP — bagikan untuk membuka gratis',
       watchPrefix: 'Nonton',
+      durationLabel: 'Durasi',
+      shortEpDuration: '~1-2 mnt/ep',
+      languageLabel: 'Bahasa / Subtitle',
+      subIndoLabel: 'Sub Indo & Multi-Bahasa',
+      providerLabel: 'Provider',
+      relatedDramasTitle: 'Rekomendasi Drama & Film Terkait',
     },
     languageSwitcher: {
       label: 'Bahasa',
@@ -1491,6 +1683,7 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       title: '用户中心',
       subtitle: '管理个人资料、云端观影进度、追剧片单与历史评论。',
       tabProfile: '资料与偏好',
+      tabRewards: '积分与提现',
       tabWatchlist: '我的追剧',
       tabHistory: '观看历史',
       tabComments: '我的评论',
@@ -1512,6 +1705,63 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       statsHistory: '观看记录',
       statsLiked: '点赞剧集',
       statsComments: '评论数',
+    },
+    rewards: {
+      tabLabel: '积分与提现',
+      balanceTitle: '当前可用积分',
+      pointsUnit: '积分',
+      estimatedValue: '预估兑换价值',
+      dailyProgress: '今日积分上限',
+      dailyCheckinBtn: '每日签到领取 (+50 积分)',
+      dailyCheckinDone: '今日已签到',
+      cooldownWait: '冷却保护中 — 请稍候',
+      loginRequiredTitle: '使用 Google 登录即可赚取积分并提现',
+      loginRequiredDesc: '观看剧集或每日签到自动累计 KanoDrama 积分，支持提现至 PayPal、USDT、Wise 或印尼 DANA/OVO/GoPay/银行转账。',
+      rulesTitle: '积分与提现规则',
+      ruleWatch: '观看任意剧集或电影满 15 秒自动获得 +25 积分。',
+      ruleCheckin: '每日签到可领取 +50 积分（按 WIB 时区每日一次）。',
+      ruleMinIdr: '印尼盾 (IDR) 最低提现门槛 (Rp 50.000)',
+      ruleMinUsd: '全球美元 / USDT 最低提现门槛 ($5.00 USD)',
+      ruleReview: '提交后进入待审核状态；若被驳回，积分将自动全额退回。',
+      withdrawTitle: '申请提现',
+      regionIdrLabel: '印尼盾 (IDR)',
+      regionUsdLabel: '全球 (USD / 加密货币)',
+      methodLabel: '提现方式',
+      pointsAmountLabel: '兑换积分数',
+      destinationLabel: '收款账号 / 钱包地址',
+      accountHolderLabel: '收款人姓名',
+      accountHolderPlaceholder: '填写与收款账号一致的姓名',
+      estimatedReceive: '预计到账金额',
+      submitWithdraw: '提交提现申请',
+      submittingWithdraw: '提交中...',
+      withdrawSuccess: '提现申请已提交，当前状态为待审核。',
+      historyPayoutsTitle: '我的提现记录',
+      historyLedgerTitle: '积分明细账本',
+      noPayouts: '暂无提现申请记录。',
+      noLedger: '暂无积分记录，快去观影或每日签到吧！',
+      liveFeedTitle: '实时提现动态',
+      liveFeedSubtitle: 'KanoDrama 近期已处理的隐私脱敏提现记录',
+      statusPending: '待审核',
+      statusApproved: '已批准',
+      statusPaid: '已打款',
+      statusRejected: '已驳回',
+      referralTitle: '邀请好友赚取奖励积分',
+      referralSubtitle: '分享您的专属链接。受邀好友累计完成 60 分钟（1 小时）真实有效观影后，奖励积分自动到账。',
+      referralCodeLabel: '邀请码',
+      referralLinkLabel: '专属邀请链接',
+      copyReferralLink: '复制链接',
+      referralCopied: '邀请链接已复制！',
+      referralRule1h: '需完成 60 分钟有效观影（正常 1x 倍速、前台活跃标签页、反作弊校验）。',
+      referralTotalInvited: '已邀请',
+      referralPendingCount: '待满 1 小时',
+      referralQualifiedCount: '已生效',
+      referralBonusEarned: '累计奖励',
+      referralEmpty: '暂无受邀好友记录，快分享链接邀请好友吧！',
+      referralStatusPending: '等待满 1 小时观影',
+      referralStatusQualified: '有效 / 已完成',
+      referralStatusRejected: '已拒绝 (反作弊)',
+      verifiedWatchProgress: '我的有效观影时长',
+      minutesUnit: '分钟',
     },
     retention: {
       streakBadge: '连看',
@@ -1671,6 +1921,12 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       shareToUnlock: '分享解锁',
       vipShareAria: 'VIP 剧集 — 分享即可免费解锁',
       watchPrefix: '观看',
+      durationLabel: '时长',
+      shortEpDuration: '~1-2 分钟/集',
+      languageLabel: '字幕语言',
+      subIndoLabel: '印尼语及多语字幕',
+      providerLabel: '片源平台',
+      relatedDramasTitle: '相关推荐短剧与电影',
     },
     languageSwitcher: {
       label: '语言',
@@ -1918,6 +2174,7 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       title: 'Bảng điều khiển',
       subtitle: 'Quản lý hồ sơ, lịch sử xem đồng bộ đám mây, danh sách và bình luận.',
       tabProfile: 'Hồ sơ & Cài đặt',
+      tabRewards: 'Điểm & Rút tiền',
       tabWatchlist: 'Danh sách xem',
       tabHistory: 'Lịch sử xem',
       tabComments: 'Bình luận của tôi',
@@ -1939,6 +2196,63 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       statsHistory: 'Đã xem',
       statsLiked: 'Đã thích',
       statsComments: 'Bình luận',
+    },
+    rewards: {
+      tabLabel: 'Điểm & Rút tiền',
+      balanceTitle: 'Số dư điểm hiện có',
+      pointsUnit: 'điểm',
+      estimatedValue: 'Giá trị ước tính',
+      dailyProgress: 'Giới hạn nhận hôm nay',
+      dailyCheckinBtn: 'Điểm danh hàng ngày (+50 điểm)',
+      dailyCheckinDone: 'Đã điểm danh hôm nay',
+      cooldownWait: 'Đang chờ hồi chiêu — vui lòng đợi',
+      loginRequiredTitle: 'Đăng nhập Google để tích điểm & rút tiền',
+      loginRequiredDesc: 'Tự động nhận điểm KanoDrama khi xem phim hoặc điểm danh mỗi ngày, rút qua PayPal, USDT, Wise, DANA, OVO, GoPay hoặc chuyển khoản.',
+      rulesTitle: 'Quy định tích điểm & rút tiền',
+      ruleWatch: 'Xem bất kỳ tập phim nào (15s+) để nhận tự động +25 điểm.',
+      ruleCheckin: 'Điểm danh hàng ngày nhận +50 điểm mỗi ngày (WIB).',
+      ruleMinIdr: 'Mức rút tối thiểu Indonesia (Rp 50.000)',
+      ruleMinUsd: 'Mức rút tối thiểu Quốc tế ($5.00 USD)',
+      ruleReview: 'Yêu cầu sẽ ở trạng thái Chờ duyệt; nếu bị từ chối, điểm được hoàn lại tự động.',
+      withdrawTitle: 'Yêu cầu rút tiền',
+      regionIdrLabel: 'Indonesia (IDR)',
+      regionUsdLabel: 'Quốc tế (USD / Crypto)',
+      methodLabel: 'Phương thức rút',
+      pointsAmountLabel: 'Số điểm muốn đổi',
+      destinationLabel: 'Tài khoản / Ví nhận',
+      accountHolderLabel: 'Họ tên người nhận',
+      accountHolderPlaceholder: 'Họ tên khớp với tài khoản nhận',
+      estimatedReceive: 'Số tiền ước tính nhận',
+      submitWithdraw: 'Gửi yêu cầu rút tiền',
+      submittingWithdraw: 'Đang gửi...',
+      withdrawSuccess: 'Đã gửi yêu cầu rút tiền! Trạng thái hiện là Pending.',
+      historyPayoutsTitle: 'Lịch sử rút tiền của tôi',
+      historyLedgerTitle: 'Sổ cái giao dịch điểm',
+      noPayouts: 'Chưa có yêu cầu rút tiền nào.',
+      noLedger: 'Chưa có giao dịch điểm. Hãy xem phim hoặc điểm danh ngay!',
+      liveFeedTitle: 'Lịch sử rút tiền trực tiếp',
+      liveFeedSubtitle: 'Các giao dịch rút tiền gần đây trên KanoDrama (ẩn danh)',
+      statusPending: 'Chờ duyệt',
+      statusApproved: 'Đã duyệt',
+      statusPaid: 'Đã thanh toán',
+      statusRejected: 'Từ chối',
+      referralTitle: 'Mời bạn bè & Nhận thưởng Referral',
+      referralSubtitle: 'Chia sẻ liên kết của bạn. Điểm thưởng sẽ được cộng sau khi người được mời xem phim xác thực tối thiểu 60 phút (1 giờ).',
+      referralCodeLabel: 'Mã giới thiệu',
+      referralLinkLabel: 'Liên kết giới thiệu của bạn',
+      copyReferralLink: 'Sao chép',
+      referralCopied: 'Đã sao chép liên kết!',
+      referralRule1h: 'Yêu cầu xem xác thực 60 phút (tốc độ 1x, tab đang mở, bảo vệ chống gian lận).',
+      referralTotalInvited: 'Đã mời',
+      referralPendingCount: 'Chờ 1 giờ',
+      referralQualifiedCount: 'Hợp lệ',
+      referralBonusEarned: 'Thưởng đã nhận',
+      referralEmpty: 'Chưa có bạn bè nào được mời. Hãy chia sẻ liên kết ngay!',
+      referralStatusPending: 'Đang chờ xem 1 giờ',
+      referralStatusQualified: 'Hợp lệ / Hoàn tất',
+      referralStatusRejected: 'Bị từ chối (Anti-Cheat)',
+      verifiedWatchProgress: 'Thời lượng xem xác thực',
+      minutesUnit: 'phút',
     },
     retention: {
       streakBadge: 'Chuỗi',
@@ -2101,6 +2415,12 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       shareToUnlock: 'Chia sẻ để mở',
       vipShareAria: 'Tập VIP — chia sẻ để mở khóa miễn phí',
       watchPrefix: 'Xem',
+      durationLabel: 'Thời lượng',
+      shortEpDuration: '~1-2 phút/tập',
+      languageLabel: 'Phụ đề',
+      subIndoLabel: 'Phụ đề Indonesia & Đa ngôn ngữ',
+      providerLabel: 'Nguồn phim',
+      relatedDramasTitle: 'Phim & Phim ngắn Liên quan',
     },
     languageSwitcher: {
       label: 'Ngôn ngữ',

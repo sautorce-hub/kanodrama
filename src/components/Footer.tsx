@@ -12,6 +12,7 @@ import { CoffeeDramaLogo } from './CoffeeDramaLogo';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { PWAInstallButton } from './PWAInstallBanner';
 import { useDramaContext } from '../context/DramaContext';
+import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import type { LegalModalTopic } from '../types/drama';
 
 interface VisitorStats {
@@ -228,8 +229,9 @@ export const Footer: React.FC = () => {
                 {COLLECTION_PATHS.map((link) => (
                   <li key={link.path}>
                     <a
-                      href={link.path}
+                      href={`${DEFAULT_SITE_ORIGIN}${link.path}`}
                       onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                         e.preventDefault();
                         window.dispatchEvent(
                           new CustomEvent('hd:navigate-path', {
@@ -271,8 +273,9 @@ export const Footer: React.FC = () => {
                 ))}
                 <li>
                   <a
-                    href="/providers"
+                    href={`${DEFAULT_SITE_ORIGIN}/providers`}
                     onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                       e.preventDefault();
                       window.dispatchEvent(
                         new CustomEvent('hd:navigate-path', {
@@ -283,6 +286,57 @@ export const Footer: React.FC = () => {
                     className="inline-flex items-center min-h-[36px] text-xs text-[#8E8E93] hover:text-white transition-colors"
                   >
                     {t.nav.providers}
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href={`${DEFAULT_SITE_ORIGIN}/movies`}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                      e.preventDefault();
+                      window.dispatchEvent(
+                        new CustomEvent('hd:navigate-path', {
+                          detail: { path: '/movies' },
+                        })
+                      );
+                    }}
+                    className="inline-flex items-center min-h-[36px] text-xs text-[#8E8E93] hover:text-white transition-colors"
+                  >
+                    {t.nav.movies}
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href={`${DEFAULT_SITE_ORIGIN}/explore`}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                      e.preventDefault();
+                      window.dispatchEvent(
+                        new CustomEvent('hd:navigate-path', {
+                          detail: { path: '/explore' },
+                        })
+                      );
+                    }}
+                    className="inline-flex items-center min-h-[36px] text-xs text-[#8E8E93] hover:text-white transition-colors"
+                  >
+                    {t.nav.explore}
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href={`${DEFAULT_SITE_ORIGIN}/trending`}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                      e.preventDefault();
+                      window.dispatchEvent(
+                        new CustomEvent('hd:navigate-path', {
+                          detail: { path: '/trending' },
+                        })
+                      );
+                    }}
+                    className="inline-flex items-center min-h-[36px] text-xs text-[#8E8E93] hover:text-white transition-colors"
+                  >
+                    {t.nav.trending}
                   </a>
                 </li>
                 <li>

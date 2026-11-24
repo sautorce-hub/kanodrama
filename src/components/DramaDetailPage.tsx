@@ -29,7 +29,8 @@ import { useDramaContext } from '../context/DramaContext';
 import { ProviderBadge } from './ProviderBadge';
 import { ShareDramaModal } from './ShareDramaModal';
 import { ChevronRight } from 'lucide-react';
-import { buildOgImageEndpointUrl } from '../i18n/helpers';
+import { getProviderRouteSlug } from '../constants/providerLogos';
+import { buildOgImageEndpointUrl, DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import {
   buildDramaFallbackDescription,
   cleanSeoDescription,
@@ -120,6 +121,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
   const [posterSrc, setPosterSrc] = useState<string>(initialDrama?.cover ?? '');
   const [hoverStar, setHoverStar] = useState<number>(0);
   const [failedRecCovers, setFailedRecCovers] = useState<Record<string, number>>({});
+  const [fallbackRelated, setFallbackRelated] = useState<DramaItem[]>([]);
 
   const [shareModalState, setShareModalState] = useState<{
     open: boolean;
@@ -425,8 +427,79 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
 
   const activeBatchItems = batches[selectedBatch]?.items ?? [];
 
+  useEffect(() => {
+    if (!detail || relatedDramas.length >= 6) return;
+    let active = true;
+    const isMovie =
+      detail.mediaType === 'movie' ||
+      detail.provider === 'LK21' ||
+      detail.provider === 'LookSeries';
+    const genreParam = detail.tags?.[0]
+      ? `&genre=${encodeURIComponent(detail.tags[0])}`
+      : '';
+    const endpoint = isMovie
+      ? '/api/lk21/home'
+      : `/api/catalog/filter?limit=12${genreParam}`;
+    fetch(endpoint)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (!active || !json) return;
+        const collected: DramaItem[] = [];
+        if (isMovie && Array.isArray(json.rows)) {
+          for (const row of json.rows as Array<{ items?: Array<Record<string, unknown>> }>) {
+            for (const m of row.items || []) {
+              const slug = String(m.slug || '').trim();
+              const title = String(m.title || '').trim();
+              if (!slug || !title) continue;
+              collected.push({
+                bookId: slug,
+                slug,
+                title,
+                cover: String(m.poster || m.cover || m.coverHz || ''),
+                description: String(m.synopsis || m.description || ''),
+                chapterCount: Number(m.chapterCount) || 1,
+                tags: Array.isArray(m.genres) ? (m.genres as string[]) : [],
+                isVip: false,
+                provider: /^ls-/i.test(slug) ? 'LookSeries' : 'LK21',
+                mediaType: 'movie',
+                year: m.year ? String(m.year) : undefined,
+                quality: m.quality ? String(m.quality) : 'HD',
+              });
+              if (collected.length >= 12) break;
+            }
+            if (collected.length >= 12) break;
+          }
+        } else if (Array.isArray(json.items)) {
+          for (const item of json.items as Array<Record<string, unknown>>) {
+            const id = String(item.bookId || item.dramaId || '').trim();
+            const title = String(item.title || item.bookName || '').trim();
+            if (!id || !title) continue;
+            collected.push({
+              bookId: id,
+              slug: item.slug ? String(item.slug) : undefined,
+              title,
+              cover: String(item.cover || ''),
+              description: String(item.description || ''),
+              chapterCount: Number(item.chapterCount) || 1,
+              tags: Array.isArray(item.tags) ? (item.tags as string[]) : [],
+              isVip: Boolean(item.isVip),
+              provider: (String(item.provider || 'DramaBox') as MediaProviderName),
+            });
+          }
+        }
+        if (collected.length > 0) {
+          setFallbackRelated(collected);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [detail?.bookId, detail?.provider, relatedDramas.length]);
+
   const recommendedDramas = useMemo(() => {
-    if (!detail || !Array.isArray(relatedDramas) || relatedDramas.length === 0) {
+    const pool = [...relatedDramas, ...fallbackRelated];
+    if (!detail || pool.length === 0) {
       return [];
     }
     const detailTags = new Set(
@@ -434,7 +507,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
     );
     const seen = new Set<string>();
     const scored: { item: DramaItem; score: number }[] = [];
-    for (const candidate of relatedDramas) {
+    for (const candidate of pool) {
       if (!candidate?.bookId || !candidate?.title) continue;
       if (
         candidate.bookId === detail.bookId &&
@@ -459,7 +532,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
     }
     scored.sort((a, b) => b.score - a.score);
     return scored.slice(0, 6).map((s) => s.item);
-  }, [detail, relatedDramas]);
+  }, [detail, relatedDramas, fallbackRelated]);
   const resumePoint = detail
     ? getResumePoint(detail.bookId, detail.provider)
     : null;
@@ -552,8 +625,11 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
   const effectivePosterSrc =
     detail.cover && !coverFailed && posterSrc ? posterSrc : fallbackOgPoster;
   const backHref = isMovieItem ? '/movies' : '/';
-  const sectionCrumbHref = isMovieItem ? '/movies' : '/explore';
+  const provRouteSlug = getProviderRouteSlug(detail.provider);
+  const sectionCrumbHref = isMovieItem ? '/movies' : `/provider/${provRouteSlug}`;
   const sectionCrumbLabel = isMovieItem ? 'Movies' : detail.provider;
+  const durationLabelText =
+    detail.duration || (!isSingleMovie ? t.detail.shortEpDuration : '');
   const watchEp = isSingleMovie ? 1 : resumePoint?.episode ?? 1;
   const watchHref = getWatchPath(
     detail.bookId,
@@ -588,7 +664,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div className="flex flex-wrap items-center gap-3 min-w-0">
           <a
-            href={backHref}
+            href={`${DEFAULT_SITE_ORIGIN}${backHref}`}
             onClick={(e) => {
               if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
                 return;
@@ -607,7 +683,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
             className="hidden sm:flex items-center gap-1.5 text-xs text-[#A1A1AA] min-w-0"
           >
             <a
-              href="/"
+              href={`${DEFAULT_SITE_ORIGIN}/`}
               onClick={(e) => {
                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
                   return;
@@ -621,13 +697,17 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
             </a>
             <ChevronRight className="w-3.5 h-3.5 opacity-60 shrink-0" />
             <a
-              href={sectionCrumbHref}
+              href={`${DEFAULT_SITE_ORIGIN}${sectionCrumbHref}`}
               onClick={(e) => {
                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
                   return;
                 }
                 e.preventDefault();
-                onBackHome();
+                window.dispatchEvent(
+                  new CustomEvent('hd:navigate-path', {
+                    detail: { path: sectionCrumbHref },
+                  })
+                );
               }}
               className="text-[#D4AF37] hover:underline whitespace-nowrap"
             >
@@ -739,6 +819,38 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                   ? detail.quality || t.detail.hdMovie
                   : `${totalEpisodeCount} ${t.detail.episodeUnit}`}
               </span>
+              {durationLabelText && (
+                <>
+                  <span aria-hidden="true" className="text-[#71717A]">
+                    ·
+                  </span>
+                  <span>{durationLabelText}</span>
+                </>
+              )}
+              <span aria-hidden="true" className="text-[#71717A]">
+                ·
+              </span>
+              <span>{t.detail.subIndoLabel}</span>
+              <span aria-hidden="true" className="text-[#71717A]">
+                ·
+              </span>
+              <a
+                href={`${DEFAULT_SITE_ORIGIN}${sectionCrumbHref}`}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+                    return;
+                  }
+                  e.preventDefault();
+                  window.dispatchEvent(
+                    new CustomEvent('hd:navigate-path', {
+                      detail: { path: sectionCrumbHref },
+                    })
+                  );
+                }}
+                className="text-[#D4AF37] hover:underline font-medium"
+              >
+                {detail.provider}
+              </a>
               {detail.year && (
                 <>
                   <span aria-hidden="true" className="text-[#71717A]">
@@ -761,7 +873,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                     ·
                   </span>
                   <a
-                    href={`/tag/${encodeURIComponent(slugifyDramaTitle(tag))}`}
+                    href={`${DEFAULT_SITE_ORIGIN}/tag/${encodeURIComponent(slugifyDramaTitle(tag))}`}
                     itemProp="genre"
                     onClick={(e) => {
                       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
@@ -1262,11 +1374,11 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
 
       {recommendedDramas.length > 0 && (
         <section
-          aria-label={t.sections.recommended}
+          aria-label={t.detail.relatedDramasTitle}
           className="mt-6 sm:mt-8 rounded-2xl sm:rounded-3xl bg-[#111115] border border-[var(--cd-border)] p-4 sm:p-8"
         >
           <h2 className="text-lg sm:text-2xl font-bold text-white mb-4">
-            {t.sections.recommended}
+            {t.detail.relatedDramasTitle}
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 sm:gap-4">
             {recommendedDramas.map((rec) => {
@@ -1287,7 +1399,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
               return (
                 <a
                   key={recKey}
-                  href={recHref}
+                  href={`${DEFAULT_SITE_ORIGIN}${recHref}`}
                   onClick={(e) => {
                     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
                       return;

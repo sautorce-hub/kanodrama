@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   X,
   Heart,
@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   Mail,
 } from 'lucide-react';
+import { renderGoogleCredentialButton } from '../config/auth';
 import { useDramaContext } from '../context/DramaContext';
 
 function GoogleGIcon({ className = 'w-5 h-5' }: { className?: string }) {
@@ -51,6 +52,7 @@ export const AuthProfileModal: React.FC = () => {
     authPromptReason,
     closeAuthModal,
     signInWithGoogle,
+    completeGoogleSignIn,
     signOut,
     streak,
     likedDramaIds,
@@ -62,13 +64,18 @@ export const AuthProfileModal: React.FC = () => {
   } = useDramaContext();
 
   const [avatarBroken, setAvatarBroken] = useState(false);
+  const [gsiFallbackError, setGsiFallbackError] = useState<string | null>(null);
+  const gsiBtnContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setAvatarBroken(false);
   }, [user?.photoURL]);
 
   useEffect(() => {
-    if (!authModalOpen) return;
+    if (!authModalOpen) {
+      setGsiFallbackError(null);
+      return;
+    }
     void refreshGmailLoginCount();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeAuthModal();
@@ -76,6 +83,23 @@ export const AuthProfileModal: React.FC = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [authModalOpen, closeAuthModal, refreshGmailLoginCount]);
+
+  useEffect(() => {
+    if (!authModalOpen || user || !authError || !gsiBtnContainerRef.current) return;
+    let active = true;
+    void renderGoogleCredentialButton(
+      gsiBtnContainerRef.current,
+      (result) => {
+        if (active) completeGoogleSignIn(result);
+      },
+      (errMsg) => {
+        if (active) setGsiFallbackError(errMsg);
+      }
+    );
+    return () => {
+      active = false;
+    };
+  }, [authModalOpen, user, authError, completeGoogleSignIn]);
 
   if (!authModalOpen) return null;
 
@@ -147,10 +171,13 @@ export const AuthProfileModal: React.FC = () => {
               </div>
             </div>
 
-            {authError && (
-              <div className="p-3 rounded-xl bg-red-500/15 border border-red-500/35 flex items-start gap-2 text-xs text-red-200">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                <span className="leading-relaxed">{authError}</span>
+            {(authError || gsiFallbackError) && (
+              <div className="space-y-2.5">
+                <div className="p-3 rounded-xl bg-red-500/15 border border-red-500/35 flex items-start gap-2 text-xs text-red-200">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                  <span className="leading-relaxed">{gsiFallbackError || authError}</span>
+                </div>
+                <div ref={gsiBtnContainerRef} className="flex justify-center min-h-[42px]" />
               </div>
             )}
 
@@ -158,6 +185,7 @@ export const AuthProfileModal: React.FC = () => {
               type="button"
               disabled={authLoading}
               onClick={() => {
+                setGsiFallbackError(null);
                 void signInWithGoogle();
               }}
               className="w-full min-h-[48px] py-3 px-4 rounded-full bg-white hover:bg-[#F4F4F5] disabled:opacity-60 text-[#09090B] text-sm font-bold flex items-center justify-center gap-2.5 shadow-xl transition-all active:scale-[0.98]"

@@ -7,11 +7,17 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import {
-  auth,
+  captureReferralCodeFromUrl,
+  clearPendingReferralCode,
+  fetchCurrentAuthSession,
+  getClientDeviceFingerprint,
+  getPendingReferralCode,
+  preloadGoogleAuth,
   signInWithRealGoogle,
   signOutRealGoogle,
+  type GoogleAuthResult,
+  type ServerAuthenticatedUser,
 } from '../config/auth';
 import { setActiveAppLanguage } from '../services/dramaProviders';
 import { TRANSLATIONS, type Translations } from '../i18n/translations';
@@ -101,31 +107,30 @@ function getYesterdayDateKey(): string {
   return getLocalDateKey(d);
 }
 
-function mapFirebaseUser(fbUser: FirebaseUser): GoogleUser {
-  const email =
-    fbUser.email?.trim() ||
-    fbUser.providerData?.find((p) => Boolean(p?.email))?.email?.trim() ||
-    '';
+function mapServerUser(srvUser: ServerAuthenticatedUser): GoogleUser {
+  const email = (srvUser.email || '').trim();
   const displayName =
-    fbUser.displayName?.trim() ||
+    (srvUser.displayName || '').trim() ||
     email.split('@')[0] ||
     'Kano Viewer';
   const color =
     AVATAR_COLORS[
       Math.abs(
-        (email || fbUser.uid)
+        (email || srvUser.uid)
           .split('')
           .reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
       ) % AVATAR_COLORS.length
     ];
   return {
-    uid: fbUser.uid,
+    uid: srvUser.uid,
     displayName,
     email,
-    photoURL: fbUser.photoURL || null,
+    photoURL: srvUser.photoURL || null,
     avatarInitials: buildInitials(displayName),
     avatarColor: color,
     signedInAt: Date.now(),
+    bio: srvUser.bio,
+    preferredLanguage: srvUser.preferredLanguage,
   };
 }
 
@@ -166,10 +171,14 @@ interface DramaContextValue {
   openAuthModal: (reason?: string, onSuccess?: (u: GoogleUser) => void) => void;
   closeAuthModal: () => void;
   signInWithGoogle: () => Promise<GoogleUser | null>;
+  completeGoogleSignIn: (result: GoogleAuthResult) => GoogleUser;
   signOut: () => Promise<void>;
   requireAuth: (reason: string, action: (u: GoogleUser) => void) => Promise<void>;
   gmailLoginCount: number;
   refreshGmailLoginCount: () => Promise<number>;
+  pointsBalance: number | null;
+  refreshPointsBalance: () => Promise<number | null>;
+  getAuthHeaders: (extra?: Record<string, string>) => Record<string, string>;
   visitorId: string;
   updateUserProfile: (patch: {
     displayName?: string;
@@ -450,8 +459,54 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     gmailLoginCountRef.current = gmailLoginCount;
   }, [gmailLoginCount]);
+  const sessionTokenRef = useRef<string | null>(null);
   const popupLoginInFlightRef = useRef<boolean>(false);
+  const [pointsBalance, setPointsBalance] = useState<number | null>(null);
+  const claimedWatchRewardRef = useRef<Set<string>>(new Set());
+  const lastWatchClaimAttemptRef = useRef<number>(0);
+  const watchStreamSessionIdRef = useRef<string>(
+    `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  );
+  const lastWatchHeartbeatSentAtRef = useRef<number>(0);
+  const lastWatchHeartbeatMediaRef = useRef<string>('');
   const [helpModalOpen, setHelpModalOpen] = useState(false);
+
+  const getAuthHeaders = useCallback((extra?: Record<string, string>): Record<string, string> => {
+    const deviceFp = getClientDeviceFingerprint();
+    const headers: Record<string, string> = {
+      'X-Requested-With': 'KanoDrama',
+      ...(deviceFp ? { 'X-Device-Fingerprint': deviceFp } : {}),
+      ...(extra || {}),
+    };
+    if (sessionTokenRef.current) {
+      headers.Authorization = `Bearer ${sessionTokenRef.current}`;
+    }
+    return headers;
+  }, []);
+
+  const refreshPointsBalance = useCallback(async (): Promise<number | null> => {
+    try {
+      const res = await fetch('/api/points/me', {
+        method: 'GET',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+        cache: 'no-store',
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as {
+        ok?: boolean;
+        summary?: { balance?: number } | null;
+      };
+      if (data.ok && typeof data.summary?.balance === 'number') {
+        const nextBal = Math.max(0, Math.floor(data.summary.balance));
+        setPointsBalance(nextBal);
+        return nextBal;
+      }
+    } catch {
+      // Ignore transient network errors
+    }
+    return null;
+  }, [getAuthHeaders]);
 
   const [accentTheme, setAccentThemeState] = useState<AccentThemeId>(() => {
     const saved = readJsonStorage<{ accent?: AccentThemeId; contrast?: boolean }>(
@@ -750,38 +805,36 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       const isLoginEvent = Boolean(options?.isLoginEvent);
 
       try {
-        const sendSyncRequest = async (forceRefreshToken: boolean) => {
-          const idToken =
-            auth.currentUser && auth.currentUser.uid === mappedUser.uid
-              ? await auth.currentUser.getIdToken(forceRefreshToken).catch(() => null)
-              : null;
-          const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-          };
-          if (idToken) {
-            headers.Authorization = `Bearer ${idToken}`;
-          }
-          return fetch('/api/users/sync', {
-            method: 'POST',
-            cache: 'no-store',
-            headers,
-            body: JSON.stringify({
-              uid: mappedUser.uid,
-              email: mappedUser.email,
-              displayName: mappedUser.displayName,
-              photoURL: mappedUser.photoURL,
-              avatarInitials: mappedUser.avatarInitials,
-              avatarColor: mappedUser.avatarColor,
-              visitDate: getLocalDateKey(),
-              isLoginEvent,
-            }),
-          });
+        const deviceFingerprint = getClientDeviceFingerprint();
+        const pendingRefCode = getPendingReferralCode();
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'KanoDrama',
         };
-
-        let res = await sendSyncRequest(false);
-        if (res.status === 401 && auth.currentUser && auth.currentUser.uid === mappedUser.uid) {
-          res = await sendSyncRequest(true);
+        if (deviceFingerprint) {
+          headers['X-Device-Fingerprint'] = deviceFingerprint;
         }
+        if (sessionTokenRef.current) {
+          headers.Authorization = `Bearer ${sessionTokenRef.current}`;
+        }
+        const res = await fetch('/api/users/sync', {
+          method: 'POST',
+          credentials: 'include',
+          cache: 'no-store',
+          headers,
+          body: JSON.stringify({
+            uid: mappedUser.uid,
+            email: mappedUser.email,
+            displayName: mappedUser.displayName,
+            photoURL: mappedUser.photoURL,
+            avatarInitials: mappedUser.avatarInitials,
+            avatarColor: mappedUser.avatarColor,
+            visitDate: getLocalDateKey(),
+            isLoginEvent,
+            ...(deviceFingerprint ? { deviceFingerprint } : {}),
+            ...(pendingRefCode ? { referralCode: pendingRefCode } : {}),
+          }),
+        });
 
         if (res.ok) {
           const data = (await res.json()) as {
@@ -1116,54 +1169,111 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-  // Hydrate guest watch history, global likes & Gmail login count once on mount
+  const bindPendingReferralIfAny = useCallback(async () => {
+    const pendingRef = getPendingReferralCode();
+    if (!pendingRef) return;
+    try {
+      const res = await fetch('/api/referrals/bind', {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          referralCode: pendingRef,
+          deviceFingerprint: getClientDeviceFingerprint(),
+        }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => null)) as {
+        bound?: boolean;
+        reason?: string;
+      } | null;
+      if (data && (data.bound || data.reason)) {
+        clearPendingReferralCode();
+        if (data.bound && typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('kd:points-updated', { detail: { referralBound: true } }));
+        }
+      }
+    } catch {
+      // Retry on next session check
+    }
+  }, [getAuthHeaders]);
+
+  // Capture ?ref= query parameter + hydrate guest watch history, global likes & Gmail login count once on mount
   useEffect(() => {
+    captureReferralCodeFromUrl();
     void hydrateWatchHistoryFromPostgres(visitorId);
     void hydrateLikesFromPostgres(visitorId);
     void refreshGmailLoginCount();
   }, [visitorId, hydrateWatchHistoryFromPostgres, hydrateLikesFromPostgres, refreshGmailLoginCount]);
 
-  // Real Firebase Auth State Listener synced to PostgreSQL
+  // Preload Google Identity Services config & hydrate Express session from backend
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
-      if (fbUser) {
-        const mapped = mapFirebaseUser(fbUser);
-        setUser(mapped);
-        setAuthError(null);
-        const cachedUserMovies = readJsonStorage<DramaItem[]>(
-          movieWatchlistStorageKey(mapped.uid),
-          []
-        ).filter((d) => d && d.bookId && isMovieMedia(d));
-        if (cachedUserMovies.length > 0) {
-          setMovieListItemsRaw(cachedUserMovies);
-        }
+    let cancelled = false;
+    void preloadGoogleAuth();
 
-        if (!popupLoginInFlightRef.current) {
-          const fbSignInTime = fbUser.metadata?.lastSignInTime || '';
-          const lastSignInStorageKey = `hd_last_gmail_signin_v1:${fbUser.uid}`;
-          let isFreshLoginEvent = false;
-          try {
-            const prevRecorded = localStorage.getItem(lastSignInStorageKey) || '';
-            if (fbSignInTime && prevRecorded !== fbSignInTime) {
-              isFreshLoginEvent = true;
-              localStorage.setItem(lastSignInStorageKey, fbSignInTime);
-            }
-          } catch {
-            // Ignore storage errors
+    void fetchCurrentAuthSession(sessionTokenRef.current)
+      .then((sessionState) => {
+        if (cancelled) return;
+        if (sessionState.authenticated && sessionState.user) {
+          const srvUser = sessionState.user;
+          const mapped = mapServerUser(srvUser);
+          setUser(mapped);
+          setAuthError(null);
+          if (typeof sessionState.gmailLoginCount === 'number') {
+            setGmailLoginCount(Math.max(0, Math.floor(sessionState.gmailLoginCount)));
           }
-          void syncUserStreak(mapped, { isLoginEvent: isFreshLoginEvent });
+          const prefs = srvUser.preferences;
+          if (prefs) {
+            if (
+              prefs.accentTheme &&
+              ['crimson', 'gold', 'rose', 'emerald'].includes(prefs.accentTheme)
+            ) {
+              setAccentThemeState(prefs.accentTheme);
+            }
+            if (typeof prefs.highContrast === 'boolean') {
+              setHighContrastState(prefs.highContrast);
+            }
+            if (prefs.subtitleStyle && typeof prefs.subtitleStyle === 'object') {
+              setSubtitleStyleState(prefs.subtitleStyle);
+            }
+          }
+          const cachedUserMovies = readJsonStorage<DramaItem[]>(
+            movieWatchlistStorageKey(mapped.uid),
+            []
+          ).filter((d) => d && d.bookId && isMovieMedia(d));
+          if (cachedUserMovies.length > 0) {
+            setMovieListItemsRaw(cachedUserMovies);
+          }
+          if (!popupLoginInFlightRef.current) {
+            void syncUserStreak(mapped, { isLoginEvent: false });
+          }
+          void bindPendingReferralIfAny();
+          void hydrateUserLibraryFromPostgres(mapped.uid);
+          void refreshPointsBalance();
+        } else {
+          setUser(null);
+          setPointsBalance(null);
+          setStreak(EMPTY_STREAK);
+          setMovieListItemsRaw([]);
+          void hydrateLikesFromPostgres(visitorId);
         }
-        void hydrateUserLibraryFromPostgres(mapped.uid);
-      } else {
-        setUser(null);
-        setStreak(EMPTY_STREAK);
-        setMovieListItemsRaw([]);
-        void hydrateLikesFromPostgres(visitorId);
-      }
-      setAuthLoading(false);
-    });
-    return () => unsubscribe();
-  }, [visitorId, syncUserStreak, hydrateUserLibraryFromPostgres, hydrateLikesFromPostgres]);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUser(null);
+          setStreak(EMPTY_STREAK);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAuthLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visitorId, syncUserStreak, bindPendingReferralIfAny, hydrateUserLibraryFromPostgres, hydrateLikesFromPostgres, refreshPointsBalance]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -1443,33 +1553,81 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     pendingAuthCallbackRef.current = null;
   }, []);
 
+  const completeGoogleSignIn = useCallback(
+    (result: GoogleAuthResult): GoogleUser => {
+      if (result.sessionToken) {
+        sessionTokenRef.current = result.sessionToken;
+      }
+      const mapped = mapServerUser(result.user);
+      setUser(mapped);
+      setAuthError(null);
+      setAuthModalOpen(false);
+      setAuthPromptReason(null);
+
+      if (typeof result.gmailLoginCount === 'number') {
+        setGmailLoginCount(Math.max(0, Math.floor(result.gmailLoginCount)));
+      } else {
+        void refreshGmailLoginCount();
+      }
+
+      const prefs = result.user.preferences;
+      if (prefs) {
+        if (
+          prefs.accentTheme &&
+          ['crimson', 'gold', 'rose', 'emerald'].includes(prefs.accentTheme)
+        ) {
+          setAccentThemeState(prefs.accentTheme);
+        }
+        if (typeof prefs.highContrast === 'boolean') {
+          setHighContrastState(prefs.highContrast);
+        }
+        if (prefs.subtitleStyle && typeof prefs.subtitleStyle === 'object') {
+          setSubtitleStyleState(prefs.subtitleStyle);
+        }
+      }
+
+      const localKey = streakStorageKey(mapped.uid);
+      const baseStreak = readJsonStorage<DailyStreakState>(
+        localKey,
+        EMPTY_STREAK,
+        legacyStreakStorageKey(mapped.uid)
+      );
+      const resolvedStreak: DailyStreakState =
+        typeof result.user.streakCount === 'number'
+          ? {
+              count: Math.max(1, result.user.streakCount),
+              lastVisitDate: result.user.lastVisitDate || getLocalDateKey(),
+              isVipCoffeeLover:
+                Boolean(result.user.isVip) || result.user.streakCount >= 3,
+            }
+          : computeNextStreak(baseStreak);
+      setStreak(resolvedStreak);
+      try {
+        localStorage.setItem(localKey, JSON.stringify(resolvedStreak));
+      } catch {
+        // Ignore storage errors
+      }
+
+      void bindPendingReferralIfAny();
+      void hydrateUserLibraryFromPostgres(mapped.uid);
+      void refreshPointsBalance();
+      pushToast(`Signed in as ${mapped.displayName}`, 'gold');
+
+      const cb = pendingAuthCallbackRef.current;
+      pendingAuthCallbackRef.current = null;
+      if (cb) cb(mapped);
+      return mapped;
+    },
+    [pushToast, refreshGmailLoginCount, bindPendingReferralIfAny, hydrateUserLibraryFromPostgres, refreshPointsBalance]
+  );
+
   const signInWithGoogle = useCallback(async (): Promise<GoogleUser | null> => {
     setAuthError(null);
     setAuthLoading(true);
     popupLoginInFlightRef.current = true;
     try {
-      const fbUser = await signInWithRealGoogle();
-      const mapped = mapFirebaseUser(fbUser);
-      try {
-        if (fbUser.metadata?.lastSignInTime) {
-          localStorage.setItem(
-            `hd_last_gmail_signin_v1:${fbUser.uid}`,
-            fbUser.metadata.lastSignInTime
-          );
-        }
-      } catch {
-        // Ignore storage errors
-      }
-      setUser(mapped);
-      setAuthModalOpen(false);
-      setAuthPromptReason(null);
-      await syncUserStreak(mapped, { isLoginEvent: true });
-      void hydrateUserLibraryFromPostgres(mapped.uid);
-      pushToast(`Signed in as ${mapped.displayName}`, 'gold');
-      const cb = pendingAuthCallbackRef.current;
-      pendingAuthCallbackRef.current = null;
-      if (cb) cb(mapped);
-      return mapped;
+      const result = await signInWithRealGoogle();
+      return completeGoogleSignIn(result);
     } catch (err) {
       const msg =
         err instanceof Error
@@ -1481,15 +1639,19 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       popupLoginInFlightRef.current = false;
       setAuthLoading(false);
     }
-  }, [language, pushToast, syncUserStreak, hydrateUserLibraryFromPostgres]);
+  }, [language, completeGoogleSignIn]);
 
   const signOut = useCallback(async () => {
+    const activeToken = sessionTokenRef.current;
+    sessionTokenRef.current = null;
     try {
-      await signOutRealGoogle();
+      await signOutRealGoogle(activeToken);
     } catch {
       // Ignore
     }
     setUser(null);
+    setPointsBalance(null);
+    claimedWatchRewardRef.current.clear();
     setMovieListItemsRaw([]);
     setStreak(EMPTY_STREAK);
     setAuthModalOpen(false);
@@ -1502,38 +1664,27 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         action(user);
         return;
       }
-      // Immediately trigger real Google Sign-In popup; fall back cleanly to modal if blocked
       setAuthError(null);
       setAuthLoading(true);
       popupLoginInFlightRef.current = true;
       try {
-        const fbUser = await signInWithRealGoogle();
-        const mapped = mapFirebaseUser(fbUser);
-        try {
-          if (fbUser.metadata?.lastSignInTime) {
-            localStorage.setItem(
-              `hd_last_gmail_signin_v1:${fbUser.uid}`,
-              fbUser.metadata.lastSignInTime
-            );
-          }
-        } catch {
-          // Ignore storage errors
-        }
-        setUser(mapped);
-        await syncUserStreak(mapped, { isLoginEvent: true });
-        void hydrateUserLibraryFromPostgres(mapped.uid);
-        pushToast(`Signed in as ${mapped.displayName}`, 'gold');
+        const result = await signInWithRealGoogle();
+        const mapped = completeGoogleSignIn(result);
         action(mapped);
-      } catch {
+      } catch (err) {
         setAuthLoading(false);
         openAuthModal(reason, (signedInUser) => action(signedInUser));
-        setAuthError(TRANSLATIONS[language].auth.authErrorPopupBlocked);
+        setAuthError(
+          err instanceof Error
+            ? err.message
+            : TRANSLATIONS[language].auth.authErrorPopupBlocked
+        );
       } finally {
         popupLoginInFlightRef.current = false;
         setAuthLoading(false);
       }
     },
-    [user, language, openAuthModal, pushToast, syncUserStreak, hydrateUserLibraryFromPostgres]
+    [user, language, openAuthModal, completeGoogleSignIn]
   );
 
   const setAccentTheme = useCallback((theme: AccentThemeId) => {
@@ -1568,9 +1719,17 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       try {
+        const profileHeaders: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'KanoDrama',
+        };
+        if (sessionTokenRef.current) {
+          profileHeaders.Authorization = `Bearer ${sessionTokenRef.current}`;
+        }
         const res = await fetch('/api/users/profile', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          headers: profileHeaders,
           body: JSON.stringify({
             uid: user.uid,
             displayName: patch.displayName,
@@ -2217,8 +2376,120 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           }),
         }).catch(() => {});
       }
+
+      // Verified active watch heartbeat (~30s interval, foreground visible tab, 1x speed, playing)
+      if (user && !immediate && typeof document !== 'undefined') {
+        const tabVisible = !document.hidden;
+        const videos = Array.from(document.querySelectorAll('video'));
+        const activeVideo =
+          videos.find((v) => !v.paused && !v.ended) || videos[0] || null;
+        const isPlaying = activeVideo
+          ? !activeVideo.paused && !activeVideo.ended
+          : true;
+        const playbackRate = activeVideo ? Number(activeVideo.playbackRate) || 1 : 1;
+        const isNewMedia = lastWatchHeartbeatMediaRef.current !== epSessionKey;
+        const elapsedSinceHb = nowMs - lastWatchHeartbeatSentAtRef.current;
+
+        if (
+          tabVisible &&
+          isPlaying &&
+          playbackRate >= 0.75 &&
+          playbackRate <= 1.15 &&
+          (isNewMedia || elapsedSinceHb >= 30_000)
+        ) {
+          lastWatchHeartbeatMediaRef.current = epSessionKey;
+          lastWatchHeartbeatSentAtRef.current = nowMs;
+          void fetch('/api/watch/heartbeat', {
+            method: 'POST',
+            credentials: 'include',
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({
+              streamSessionId: watchStreamSessionIdRef.current,
+              dramaId: drama.bookId,
+              provider: drama.provider,
+              episodeNumber: episode,
+              currentTimeSec: resolvedTime,
+              isPlaying,
+              tabVisible,
+              playbackRate,
+              deviceFingerprint: getClientDeviceFingerprint(),
+            }),
+          })
+            .then(async (res) => {
+              const hb = (await res.json().catch(() => null)) as {
+                ok?: boolean;
+                verifiedWatchSeconds?: number;
+                referralQualified?: boolean;
+              } | null;
+              if (hb && typeof hb.verifiedWatchSeconds === 'number') {
+                if (hb.referralQualified) {
+                  void refreshPointsBalance();
+                }
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(
+                    new CustomEvent('kd:points-updated', {
+                      detail: {
+                        verifiedWatchSeconds: hb.verifiedWatchSeconds,
+                        referralQualified: Boolean(hb.referralQualified),
+                      },
+                    })
+                  );
+                }
+              }
+            })
+            .catch(() => {});
+        }
+      }
+
+      if (
+        user &&
+        (currentTime >= 15 || immediate) &&
+        !claimedWatchRewardRef.current.has(epSessionKey) &&
+        Date.now() - lastWatchClaimAttemptRef.current >= 46_000
+      ) {
+        lastWatchClaimAttemptRef.current = Date.now();
+        void fetch('/api/points/claim', {
+          method: 'POST',
+          credentials: 'include',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            action: 'watch_episode',
+            dramaId: drama.bookId,
+            provider: drama.provider,
+            episodeNumber: episode,
+          }),
+        })
+          .then(async (res) => {
+            if (res.status === 200 || res.status === 409) {
+              claimedWatchRewardRef.current.add(epSessionKey);
+            }
+            const data = (await res.json().catch(() => null)) as {
+              ok?: boolean;
+              summary?: { balance?: number } | null;
+            } | null;
+            if (typeof data?.summary?.balance === 'number') {
+              setPointsBalance(Math.max(0, Math.floor(data.summary.balance)));
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(
+                  new CustomEvent('kd:points-updated', {
+                    detail: { summary: data.summary },
+                  })
+                );
+              }
+            }
+          })
+          .catch(() => {});
+      }
     },
-    [user, visitorId, streak.lastVisitDate, syncUserStreak, refreshLiveBadges]
+    [
+      user,
+      visitorId,
+      streak.lastVisitDate,
+      syncUserStreak,
+      refreshLiveBadges,
+      getAuthHeaders,
+      refreshPointsBalance,
+    ]
   );
 
   const getDramaLiveStats = useCallback(
@@ -2464,10 +2735,12 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       };
 
       if (!user) {
+        let didCommit = false;
         await requireAuth(tCur.auth.gateCommentReason, (signedInUser) => {
+          didCommit = true;
           void commitComment(signedInUser);
         });
-        return Boolean(auth.currentUser);
+        return didCommit;
       }
 
       await commitComment(user);
@@ -2539,10 +2812,14 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       openAuthModal,
       closeAuthModal,
       signInWithGoogle,
+      completeGoogleSignIn,
       signOut,
       requireAuth,
       gmailLoginCount,
       refreshGmailLoginCount,
+      pointsBalance,
+      refreshPointsBalance,
+      getAuthHeaders,
       visitorId,
       updateUserProfile,
       loadUserCommentHistory,
@@ -2614,10 +2891,14 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       openAuthModal,
       closeAuthModal,
       signInWithGoogle,
+      completeGoogleSignIn,
       signOut,
       requireAuth,
       gmailLoginCount,
       refreshGmailLoginCount,
+      pointsBalance,
+      refreshPointsBalance,
+      getAuthHeaders,
       visitorId,
       updateUserProfile,
       loadUserCommentHistory,

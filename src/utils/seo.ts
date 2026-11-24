@@ -428,7 +428,8 @@ export function buildDramaJsonLd(
   episodeNumber = 1,
   lang: LanguageCode = 'en'
 ) {
-  const cleanOrigin = originUrl.replace(/\/$/, '');
+  const brandOrigin = DEFAULT_SITE_ORIGIN;
+  const imgOrigin = originUrl.replace(/\/$/, '') || brandOrigin;
   const safeEpisodeNumber = Math.max(1, Math.floor(Number(episodeNumber) || 1));
   const detailPath = getDramaPath(
     drama.bookId,
@@ -443,10 +444,10 @@ export function buildDramaJsonLd(
     drama.slug,
     safeEpisodeNumber
   );
-  const dramaUrl = `${cleanOrigin}${detailPath}`;
-  const epWatchUrl = `${cleanOrigin}${watchPath}`;
+  const dramaUrl = `${brandOrigin}${detailPath}`;
+  const epWatchUrl = `${brandOrigin}${watchPath}`;
   const episodeCount = Math.max(1, episodes.length || drama.chapterCount || 1);
-  const coverImage = buildOgImageEndpointUrl(drama.cover, cleanOrigin, drama.title);
+  const coverImage = buildOgImageEndpointUrl(drama.cover, imgOrigin, drama.title);
 
   const isMovie =
     drama.mediaType === 'movie' ||
@@ -479,13 +480,14 @@ export function buildDramaJsonLd(
         }))
     : [];
 
+  const provSlug = getProviderRouteSlug(drama.provider);
   const breadcrumbItems: Array<Record<string, unknown>> = [
-    { '@type': 'ListItem', position: 1, name: 'Home', item: `${cleanOrigin}/` },
+    { '@type': 'ListItem', position: 1, name: 'Home', item: `${brandOrigin}/` },
     {
       '@type': 'ListItem',
       position: 2,
-      name: isMovie ? 'Movies' : 'Explore',
-      item: `${cleanOrigin}/${isMovie ? 'movies' : 'explore'}`,
+      name: isMovie ? 'Movies' : drama.provider,
+      item: `${brandOrigin}/${isMovie ? 'movies' : `provider/${provSlug}`}`,
     },
     { '@type': 'ListItem', position: 3, name: drama.title, item: dramaUrl },
   ];
@@ -635,6 +637,7 @@ function applyMetadataToDocument(
 
 export function syncHomeDocumentSeo(lang: LanguageCode = 'en') {
   const origin = getSeoOrigin();
+  const brandOrigin = DEFAULT_SITE_ORIGIN;
   const meta = generateMetadata({
     page: 'home',
     lang,
@@ -644,16 +647,37 @@ export function syncHomeDocumentSeo(lang: LanguageCode = 'en') {
   applyMetadataToDocument(meta);
   upsertJsonLdScript({
     '@context': 'https://schema.org',
-    '@type': 'WebSite',
-    name: 'KanoDrama',
-    inLanguage: meta.inLanguage,
-    url: `${origin}/`,
-    description: meta.description,
-    potentialAction: {
-      '@type': 'SearchAction',
-      target: `${origin}/?q={search_term_string}`,
-      'query-input': 'required name=search_term_string',
-    },
+    '@graph': [
+      {
+        '@type': 'Organization',
+        '@id': `${brandOrigin}/#organization`,
+        name: 'KanoDrama',
+        alternateName: 'Kano Drama',
+        url: `${brandOrigin}/`,
+        logo: {
+          '@type': 'ImageObject',
+          url: `${brandOrigin}${BRAND_LOGO_ICON_PATH}`,
+        },
+        description: meta.description,
+        sameAs: ['https://t.me/kanodrama'],
+      },
+      {
+        '@type': 'WebSite',
+        '@id': `${brandOrigin}/#website`,
+        name: 'KanoDrama',
+        inLanguage: meta.inLanguage,
+        url: `${brandOrigin}/`,
+        publisher: {
+          '@id': `${brandOrigin}/#organization`,
+        },
+        description: meta.description,
+        potentialAction: {
+          '@type': 'SearchAction',
+          target: `${brandOrigin}/?q={search_term_string}`,
+          'query-input': 'required name=search_term_string',
+        },
+      },
+    ],
   });
 }
 

@@ -654,7 +654,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     );
   }, [drama, episodeNumber, episodeItems, language, syncLanguageFromContent]);
 
-  // Fetch Firestore comments for active episode
+  // Fetch PostgreSQL comments for active episode
   useEffect(() => {
     if (!drama) return;
     setNextEpCountdown(null);
