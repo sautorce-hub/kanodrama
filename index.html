@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+
+    <script async src="https://www.googletagmanager.com/gtm.js?id=GTM-W64R2K88"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+    </script>
+    <script>
+      (function () {
+        if (typeof window === 'undefined') return;
+        window.__deferredPwaPrompt = window.__deferredPwaPrompt || null;
+        if (!window.__pwaListenersRegistered) {
+          window.__pwaListenersRegistered = true;
+          window.addEventListener('beforeinstallprompt', function (e) {
+            e.preventDefault();
+            window.__deferredPwaPrompt = e;
+            window.dispatchEvent(new CustomEvent('pwa-prompt-available'));
+          });
+          window.addEventListener('appinstalled', function () {
+            window.__deferredPwaPrompt = null;
+            window.dispatchEvent(new CustomEvent('pwa-app-installed'));
+          });
+        }
+      })();
+    </script>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#090706" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="KanoDrama" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="/assets/aistudio/file_000000005860821188dbaf696e0dbfa6_1a485403.png" />
+    <link rel="shortcut icon" type="image/png" href="/assets/aistudio/file_000000005860821188dbaf696e0dbfa6_1a485403.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>KanoDrama — Watch Free HD Vertical Short Dramas &amp; Asian Series Online</title>
+    <meta
+      name="description"
+      content="Watch free trending HD vertical short dramas, billionaire romance, revenge sagas, and Asian mini-series across 49+ top platforms on KanoDrama."
+    />
+    <meta
+      name="keywords"
+      content="KanoDrama, Kano Drama, Short Drama, Vertical Drama, Chinese Drama, Watch Free Mini Series Online, Billionaire Romance, DramaBox, Melolo, NetShort, HD Streaming"
+    />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta property="og:site_name" content="KanoDrama" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="KanoDrama — Watch Free HD Vertical Short Dramas &amp; Asian Series Online" />
+    <meta
+      property="og:description"
+      content="Watch free trending HD vertical short dramas, billionaire romance, revenge sagas, and Asian mini-series across 49+ top platforms on KanoDrama."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://kano-drama.xyz/" />
+    <meta property="og:image" content="https://kano-drama.xyz/api/og" />
+    <meta property="og:image:secure_url" content="https://kano-drama.xyz/api/og" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="KanoDrama — Watch Free HD Vertical Short Dramas &amp; Asian Series Online" />
+    <link rel="canonical" href="https://kano-drama.xyz/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="KanoDrama — Watch Free HD Vertical Short Dramas &amp; Asian Series Online" />
+    <meta
+      name="twitter:description"
+      content="Watch free trending HD vertical short dramas, billionaire romance, revenge sagas, and Asian mini-series across 49+ top platforms on KanoDrama."
+    />
+    <meta name="twitter:image" content="https://kano-drama.xyz/api/og" />
+    <script type="application/ld+json" id="kano-drama-jsonld">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "KanoDrama",
+        "url": "https://kano-drama.xyz/",
+        "inLanguage": "en",
+        "description": "Watch free trending HD vertical short dramas, billionaire romance, revenge sagas, and Asian mini-series across 49+ top platforms on KanoDrama."
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
+  </head>
+  <body class="bg-[#090706] text-[#FAFAFA] antialiased selection:bg-[#EF4444]/30 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

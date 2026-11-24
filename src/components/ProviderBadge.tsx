@@ -1,0 +1,539 @@
+import React from 'react';
+import type { MediaProviderName } from '../types/drama';
+
+interface ProviderBadgeProps {
+  provider: MediaProviderName;
+  size?: 'xs' | 'sm';
+  className?: string;
+}
+
+interface BadgeTheme {
+  label: string;
+  mono: string;
+  bg: string;
+  text: string;
+  border: string;
+  badgeBg: string;
+  badgeText: string;
+}
+
+const PROVIDER_BADGE_THEMES: Record<MediaProviderName, BadgeTheme> = {
+  LK21: {
+    label: 'LK21',
+    mono: 'MV',
+    bg: '#B91C1C',
+    text: '#FEF08A',
+    border: 'border-red-400/55',
+    badgeBg: 'bg-[#09090B]/90',
+    badgeText: 'text-[#FEF08A]',
+  },
+  LookSeries: {
+    label: 'LookSeries',
+    mono: 'LS',
+    bg: '#0284C7',
+    text: '#FFFFFF',
+    border: 'border-sky-400/55',
+    badgeBg: 'bg-[#09090B]/90',
+    badgeText: 'text-sky-200',
+  },
+  DramaBox: {
+    label: 'DramaBox',
+    mono: 'DB',
+    bg: '#09090B',
+    text: '#EF4444',
+    border: 'border-white/20',
+    badgeBg: 'bg-white/95',
+    badgeText: 'text-[#09090B]',
+  },
+  NetShort: {
+    label: 'NetShort',
+    mono: 'NS',
+    bg: '#EF4444',
+    text: '#FFFFFF',
+    border: 'border-[#EF4444]/45',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  AnyReel: {
+    label: 'AnyReel',
+    mono: 'AR',
+    bg: '#10B981',
+    text: '#09090B',
+    border: 'border-emerald-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  Melolo: {
+    label: 'Melolo',
+    mono: 'ML',
+    bg: '#F59E0B',
+    text: '#09090B',
+    border: 'border-amber-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  DramaOra: {
+    label: 'DramaOra',
+    mono: 'DO',
+    bg: '#EC4899',
+    text: '#FFFFFF',
+    border: 'border-pink-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  MeloShort: {
+    label: 'MeloShort',
+    mono: 'MS',
+    bg: '#8B5CF6',
+    text: '#FFFFFF',
+    border: 'border-violet-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  PetaDrama: {
+    label: 'PetaDrama',
+    mono: 'PD',
+    bg: '#06B6D4',
+    text: '#09090B',
+    border: 'border-cyan-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  RadReels: {
+    label: 'RadReels',
+    mono: 'RR',
+    bg: '#F97316',
+    text: '#09090B',
+    border: 'border-orange-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  DramaVerse: {
+    label: 'DramaVerse',
+    mono: 'DV',
+    bg: '#6366F1',
+    text: '#FFFFFF',
+    border: 'border-indigo-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  KalosTV: {
+    label: 'KalosTV',
+    mono: 'KT',
+    bg: '#14B8A6',
+    text: '#09090B',
+    border: 'border-teal-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  StardustTV: {
+    label: 'StardustTV',
+    mono: 'SD',
+    bg: '#EAB308',
+    text: '#09090B',
+    border: 'border-yellow-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  StarShort: {
+    label: 'StarShort',
+    mono: 'SS',
+    bg: '#3B82F6',
+    text: '#FFFFFF',
+    border: 'border-blue-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  DramaBite: {
+    label: 'DramaBite',
+    mono: 'DB',
+    bg: '#FB7185',
+    text: '#09090B',
+    border: 'border-rose-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  LoveShots: {
+    label: 'LoveShots',
+    mono: 'LS',
+    bg: '#F43F5E',
+    text: '#FFFFFF',
+    border: 'border-rose-500/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  MyDrama: {
+    label: 'MyDrama',
+    mono: 'MD',
+    bg: '#A855F7',
+    text: '#FFFFFF',
+    border: 'border-purple-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  ShotShort: {
+    label: 'ShotShort',
+    mono: 'SH',
+    bg: '#84CC16',
+    text: '#09090B',
+    border: 'border-lime-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  MoboReels: {
+    label: 'MoboReels',
+    mono: 'MR',
+    bg: '#0EA5E9',
+    text: '#FFFFFF',
+    border: 'border-sky-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  BlinkDrama: {
+    label: 'BlinkDrama',
+    mono: 'BD',
+    bg: '#D946EF',
+    text: '#FFFFFF',
+    border: 'border-fuchsia-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  WeTV: {
+    label: 'WeTV',
+    mono: 'WT',
+    bg: '#F97316',
+    text: '#FFFFFF',
+    border: 'border-orange-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  CubeTV: {
+    label: 'CubeTV',
+    mono: 'CT',
+    bg: '#22D3EE',
+    text: '#09090B',
+    border: 'border-cyan-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  MicroDrama: {
+    label: 'MicroDrama',
+    mono: 'MD',
+    bg: '#38BDF8',
+    text: '#09090B',
+    border: 'border-sky-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  FlareFlow: {
+    label: 'FlareFlow',
+    mono: 'FF',
+    bg: '#FB923C',
+    text: '#09090B',
+    border: 'border-orange-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  FunDrama: {
+    label: 'FunDrama',
+    mono: 'FD',
+    bg: '#FACC15',
+    text: '#09090B',
+    border: 'border-yellow-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  FreeShort: {
+    label: 'FreeShort',
+    mono: 'FS',
+    bg: '#4ADE80',
+    text: '#09090B',
+    border: 'border-green-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  ToonShort: {
+    label: 'ToonShort',
+    mono: 'TS',
+    bg: '#C084FC',
+    text: '#09090B',
+    border: 'border-purple-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  HappyShort: {
+    label: 'HappyShort',
+    mono: 'HS',
+    bg: '#FDE047',
+    text: '#09090B',
+    border: 'border-yellow-300/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  DramaDash: {
+    label: 'DramaDash',
+    mono: 'DD',
+    bg: '#F87171',
+    text: '#09090B',
+    border: 'border-red-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  StoryReel: {
+    label: 'StoryReel',
+    mono: 'SR',
+    bg: '#818CF8',
+    text: '#09090B',
+    border: 'border-indigo-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  StoryReelV2: {
+    label: 'StoryReel V2',
+    mono: 'S2',
+    bg: '#6366F1',
+    text: '#FFFFFF',
+    border: 'border-indigo-500/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  VibeShort: {
+    label: 'VibeShort',
+    mono: 'VS',
+    bg: '#E879F9',
+    text: '#09090B',
+    border: 'border-fuchsia-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  VibeShortV2: {
+    label: 'VibeShort V2',
+    mono: 'V2',
+    bg: '#C026D3',
+    text: '#FFFFFF',
+    border: 'border-fuchsia-500/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  FlickReels: {
+    label: 'FlickReels',
+    mono: 'FR',
+    bg: '#F43F5E',
+    text: '#FFFFFF',
+    border: 'border-rose-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  DramaWave: {
+    label: 'DramaWave',
+    mono: 'DW',
+    bg: '#2DD4BF',
+    text: '#09090B',
+    border: 'border-teal-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  FreeReels: {
+    label: 'FreeReels',
+    mono: 'FE',
+    bg: '#34D399',
+    text: '#09090B',
+    border: 'border-emerald-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  PineDrama: {
+    label: 'PineDrama',
+    mono: 'PN',
+    bg: '#16A34A',
+    text: '#FFFFFF',
+    border: 'border-green-500/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  ShortMax: {
+    label: 'ShortMax',
+    mono: 'SM',
+    bg: '#EF4444',
+    text: '#FFFFFF',
+    border: 'border-red-500/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  ShortMaxV2: {
+    label: 'ShortMax V2',
+    mono: 'M2',
+    bg: '#DC2626',
+    text: '#FFFFFF',
+    border: 'border-red-600/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  FlexTV: {
+    label: 'FlexTV',
+    mono: 'FX',
+    bg: '#2563EB',
+    text: '#FFFFFF',
+    border: 'border-blue-500/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  Vigloo: {
+    label: 'Vigloo',
+    mono: 'VG',
+    bg: '#7C3AED',
+    text: '#FFFFFF',
+    border: 'border-violet-500/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  DotDrama: {
+    label: 'DotDrama',
+    mono: 'DT',
+    bg: '#EC4899',
+    text: '#FFFFFF',
+    border: 'border-pink-500/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  iDrama: {
+    label: 'iDrama',
+    mono: 'ID',
+    bg: '#0284C7',
+    text: '#FFFFFF',
+    border: 'border-sky-500/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  iDramaV2: {
+    label: 'iDrama V2',
+    mono: 'I2',
+    bg: '#0369A1',
+    text: '#FFFFFF',
+    border: 'border-sky-600/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  GoodShort: {
+    label: 'GoodShort',
+    mono: 'GS',
+    bg: '#D97706',
+    text: '#FFFFFF',
+    border: 'border-amber-500/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  ReelShort: {
+    label: 'ReelShort',
+    mono: 'RS',
+    bg: '#E11D48',
+    text: '#FFFFFF',
+    border: 'border-rose-500/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  ReelShortV2: {
+    label: 'ReelShort V2',
+    mono: 'R2',
+    bg: '#BE123C',
+    text: '#FFFFFF',
+    border: 'border-rose-600/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  JoyReels: {
+    label: 'JoyReels',
+    mono: 'JR',
+    bg: '#F43F5E',
+    text: '#FFFFFF',
+    border: 'border-rose-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  SodaReels: {
+    label: 'SodaReels',
+    mono: 'SR',
+    bg: '#06B6D4',
+    text: '#09090B',
+    border: 'border-cyan-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  BonusTV: {
+    label: 'BonusTV',
+    mono: 'BT',
+    bg: '#F59E0B',
+    text: '#09090B',
+    border: 'border-amber-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+  iQIYI: {
+    label: 'iQIYI',
+    mono: 'IQ',
+    bg: '#00BE06',
+    text: '#09090B',
+    border: 'border-green-400/50',
+    badgeBg: 'bg-[#09090B]/85',
+    badgeText: 'text-white',
+  },
+};
+
+export const ProviderBadge: React.FC<ProviderBadgeProps> = ({
+  provider,
+  size = 'xs',
+  className = '',
+}) => {
+  const padding = size === 'sm' ? 'px-2.5 py-1 text-[11px]' : 'px-2 py-0.5 text-[10px]';
+  const theme = PROVIDER_BADGE_THEMES[provider] ?? PROVIDER_BADGE_THEMES.DramaBox;
+
+  if (provider === 'DramaBox') {
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-md bg-white/95 backdrop-blur-md border border-white/20 font-bold tracking-wide text-[#09090B] shadow-sm whitespace-nowrap ${padding} ${className}`}
+      >
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+          className="shrink-0"
+        >
+          <rect width="24" height="24" rx="6" fill="#09090B" />
+          <path d="M8.5 7.2L17.2 12L8.5 16.8V7.2Z" fill="#EF4444" />
+        </svg>
+        <span>DramaBox</span>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md ${theme.badgeBg} backdrop-blur-md border ${theme.border} font-bold tracking-wide ${theme.badgeText} shadow-sm whitespace-nowrap ${padding} ${className}`}
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        className="shrink-0"
+      >
+        <rect width="24" height="24" rx="6" fill={theme.bg} />
+        <text
+          x="12"
+          y="16"
+          textAnchor="middle"
+          fill={theme.text}
+          fontSize="10.5"
+          fontWeight="800"
+          fontFamily="system-ui, -apple-system, sans-serif"
+        >
+          {theme.mono}
+        </text>
+      </svg>
+      <span>{theme.label}</span>
+    </span>
+  );
+};

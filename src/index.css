@@ -1,0 +1,161 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --cd-accent: #EF4444;
+    --cd-accent-hover: #DC2626;
+    --cd-accent-soft: rgba(239, 68, 68, 0.16);
+    --cd-accent-glow: rgba(239, 68, 68, 0.35);
+    --cd-accent-text: #FCA5A5;
+    --cd-bg: #09090B;
+    --cd-surface: #141418;
+    --cd-border: rgba(255, 255, 255, 0.1);
+  }
+
+  :root[data-accent="gold"] {
+    --cd-accent: #D4AF37;
+    --cd-accent-hover: #C09B26;
+    --cd-accent-soft: rgba(212, 175, 55, 0.18);
+    --cd-accent-glow: rgba(212, 175, 55, 0.35);
+    --cd-accent-text: #FDE68A;
+  }
+
+  :root[data-accent="rose"] {
+    --cd-accent: #E11D48;
+    --cd-accent-hover: #BE123C;
+    --cd-accent-soft: rgba(225, 29, 72, 0.18);
+    --cd-accent-glow: rgba(225, 29, 72, 0.35);
+    --cd-accent-text: #FDA4AF;
+  }
+
+  :root[data-accent="emerald"] {
+    --cd-accent: #10B981;
+    --cd-accent-hover: #059669;
+    --cd-accent-soft: rgba(16, 185, 129, 0.18);
+    --cd-accent-glow: rgba(16, 185, 129, 0.35);
+    --cd-accent-text: #6EE7B7;
+  }
+
+  :root[data-contrast="high"] {
+    --cd-bg: #030305;
+    --cd-surface: #101014;
+    --cd-border: rgba(255, 255, 255, 0.24);
+  }
+
+  html {
+    background-color: var(--cd-bg);
+    color: #FAFAFA;
+    font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--cd-bg);
+    color: #FAFAFA;
+    overflow-x: hidden;
+  }
+}
+
+.font-display {
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.no-scrollbar::-webkit-scrollbar,
+.scrollbar-hide::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar,
+.scrollbar-hide,
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 420px;
+}
+
+.cd-accent-bg {
+  background-color: var(--cd-accent);
+}
+
+.cd-accent-bg:hover {
+  background-color: var(--cd-accent-hover);
+}
+
+.cd-accent-text {
+  color: var(--cd-accent);
+}
+
+.cd-accent-border {
+  border-color: var(--cd-accent);
+}
+
+.rank-numeral {
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-text-stroke: 2px var(--cd-accent);
+  color: rgba(9, 9, 11, 0.92);
+  text-shadow: 0 12px 30px rgba(0, 0, 0, 0.9);
+}
+
+.group:hover .rank-numeral {
+  -webkit-text-stroke: 2px var(--cd-accent);
+  color: var(--cd-accent-soft);
+}
+
+@keyframes darkShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-espresso {
+  background: linear-gradient(
+    90deg,
+    #141418 25%,
+    #1F1F26 50%,
+    #141418 75%
+  );
+  background-size: 200% 100%;
+  animation: darkShimmer 1.6s infinite linear;
+}
+
+@keyframes reactionFloat {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.85);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(-8px) scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-64px) scale(1);
+  }
+}
+
+.animate-reaction-float {
+  animation: reactionFloat 1.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

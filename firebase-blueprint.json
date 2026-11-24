@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "UserPrivateProfile": {
+      "title": "UserPrivateProfile",
+      "description": "Authenticated user's Google profile and watch streak metadata.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 180
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "streakCount": {
+          "type": "number"
+        },
+        "lastVisitDate": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "maxLength": 10
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "displayName", "streakCount", "lastVisitDate", "updatedAt"]
+    },
+    "EpisodeComment": {
+      "title": "EpisodeComment",
+      "description": "User comment posted on an episode after Google authentication.",
+      "type": "object",
+      "properties": {
+        "authorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "author": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "authorPhotoURL": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "authorBadge": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["authorUid", "author", "text", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/private/profile": {
+      "schema": { "$ref": "#/entities/UserPrivateProfile" },
+      "description": "Isolated private Google profile and daily streak state per user."
+    },
+    "/episodes/{episodeKey}/comments/{commentId}": {
+      "schema": { "$ref": "#/entities/EpisodeComment" },
+      "description": "Authenticated user comments per drama episode."
+    }
+  }
+}

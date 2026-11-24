@@ -1,0 +1,69 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+.cache/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*credentials*.json
+secrets/
+private/
+
+# Dependencies and build output
+node_modules/
+dist/
+.output/
+.next/
+coverage/
+
+# Temporary files and backups
+*.log
+*.zip
+backup*/
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*credentials*.json
+secrets/
+private/
+
+# Dependencies and build output
+node_modules/
+dist/
+.output/
+.next/
+coverage/
+
+# Temporary files and backups
+*.log
+*.zip
+backup*/
+.DS_Store
+Thumbs.db
+
+*.bak
+*.backup-*
+
+*.bak
+*.backup-*

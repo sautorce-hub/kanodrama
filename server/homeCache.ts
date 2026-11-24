@@ -1,0 +1,1970 @@
+import {
+  type CatalogUpsertItem,
+  type LiveDramaBadgeStat,
+  dbQuery,
+  ensureDatabaseReady,
+  getTrendingStatsMapFromDb,
+  isDatabaseEnabled,
+  listCatalogForSitemapFromDb,
+  upsertDramaCatalogBatchInDb,
+} from './db.ts';
+import { notifyCatalogAdditionsToGoogle } from './googleIndexing.ts';
+
+export type HomeLangCode = 'en' | 'id' | 'cn' | 'vi';
+
+export interface CachedDramaItem {
+  id?: string;
+  bookId: string;
+  title: string;
+  slug?: string;
+  cover: string;
+  description: string;
+  chapterCount: number;
+  episodes?: number;
+  tags: string[];
+  playCount?: string;
+  corner?: string;
+  protagonist?: string;
+  author?: string;
+  isVip: boolean;
+  provider: string;
+  rank?: number;
+  status?: 'Ongoing' | 'Completed';
+  rating?: number;
+  dailyViews?: number;
+  totalViews?: number;
+  trendBadge?: 'HOT' | 'TRENDING';
+  updatedAt?: number | string;
+}
+
+export interface HomeCatalogPayload {
+  lang: HomeLangCode;
+  provider: string;
+  heroSpotlights: CachedDramaItem[];
+  trendingTop: CachedDramaItem[];
+  hotReleases: CachedDramaItem[];
+  catalogGrid: CachedDramaItem[];
+  providerCounts: Record<string, number>;
+  updatedAt: number;
+  expiresAt: number;
+  cached: boolean;
+  stale: boolean;
+  source: 'database-cache' | 'live-refresh' | 'empty-fallback';
+  storage: 'postgresql' | 'memory';
+}
+
+const MOLATV_API_BASE = 'https://api.molatv.id/api';
+export const HOME_CACHE_TTL_MS = 90 * 60 * 1000; // 1.5 hours
+export const API_FEED_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+type StoredHomePayload = Omit<HomeCatalogPayload, 'cached' | 'stale' | 'source' | 'storage'>;
+
+const memoryHomeCache = new Map<
+  string,
+  { payload: StoredHomePayload; updatedAt: number; expiresAt: number }
+>();
+
+const memoryApiCache = new Map<
+  string,
+  { statusCode: number; payloadJson: string; updatedAt: number; expiresAt: number }
+>();
+
+const inFlightHomeBuilds = new Map<string, Promise<HomeCatalogPayload>>();
+const inFlightApiRevalidations = new Set<string>();
+const recentIndexedBySlug = new Map<string, CachedDramaItem>();
+
+function rememberIndexedDramas(items: CachedDramaItem[]): void {
+  for (const item of items) {
+    if (!item?.bookId || !item?.title) continue;
+    const slug = slugifyTitle(item.slug || item.title);
+    if (!slug) continue;
+    if (recentIndexedBySlug.size >= 1500) {
+      const oldest = recentIndexedBySlug.keys().next().value;
+      if (oldest) recentIndexedBySlug.delete(oldest);
+    }
+    recentIndexedBySlug.set(slug, { ...item, slug });
+  }
+}
+
+function getStorageMode(): 'postgresql' | 'memory' {
+  return isDatabaseEnabled() ? 'postgresql' : 'memory';
+}
+
+function normalizeLang(raw?: string): HomeLangCode {
+  if (raw === 'id' || raw === 'cn' || raw === 'vi' || raw === 'en') return raw;
+  return 'en';
+}
+
+function normalizeProviderFilter(raw?: string): string {
+  const trimmed = (raw || '').trim();
+  return trimmed || 'All';
+}
+
+function makeHomeCacheKey(lang: HomeLangCode, provider: string): string {
+  return `home:${lang}:${provider}`;
+}
+
+function cleanText(val: unknown, fallback = ''): string {
+  if (typeof val !== 'string') return fallback;
+  const trimmed = val.trim();
+  if (
+    !trimmed ||
+    trimmed === '<nil>' ||
+    trimmed.toLowerCase() === 'null' ||
+    trimmed.toLowerCase() === 'undefined'
+  ) {
+    return fallback;
+  }
+  return trimmed;
+}
+
+function toPositiveNumber(val: unknown, fallback = 0): number {
+  const num = Number(val);
+  return Number.isFinite(num) && num > 0 ? num : fallback;
+}
+
+export function slugifyTitle(text: string): string {
+  return (text || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 96) || 'watch-drama';
+}
+
+const CANONICAL_GENRES: Array<{ label: string; keywords: RegExp }> = [
+  { label: 'CEO', keywords: /\b(ceo|boss|president|tycoon|director|direktur|presdir|bos)\b/i },
+  { label: 'Revenge', keywords: /\b(revenge|vengeance|betray|betrayal|balas dendam|dendam|divorce|cheating|rebirth|reborn)\b/i },
+  { label: 'Romance', keywords: /\b(romance|love|wife|husband|marriage|marry|bride|wedding|crush|sweet|suami|istri|cinta|nikah|secret marriage|flash marriage)\b/i },
+  { label: 'Billionaire', keywords: /\b(billionaire|rich|wealthy|heir|heiress|secretly rich|konglomerat|miliarder|hidden identity|undercover)\b/i },
+  { label: 'Fantasy', keywords: /\b(fantasy|magic|immortal|cultivat|dragon|system|god|system|time travel|system|mystic|werewolf|vampire)\b/i },
+  { label: 'Historical', keywords: /\b(historical|palace|emperor|empress|king|queen|princess|prince|dynasty|kerajaan|ancient|royal|general)\b/i },
+  { label: 'Action', keywords: /\b(action|martial|warrior|fighter|assassin|agent|special force|bodyguard|war|battle|master)\b/i },
+  { label: 'Dubbed', keywords: /\b(dubbed|dubbing|sulih suara|indo dub|english dub)\b/i },
+];
+
+function inferGenresForCatalog(item: CachedDramaItem): string[] {
+  const out = new Set<string>();
+  for (const tag of item.tags || []) {
+    const clean = cleanText(tag);
+    if (clean && clean.length <= 32) {
+      out.add(clean);
+    }
+  }
+  const haystack = `${item.title} ${item.description} ${(item.tags || []).join(' ')} ${item.corner || ''}`;
+  for (const rule of CANONICAL_GENRES) {
+    if (rule.keywords.test(haystack)) {
+      out.add(rule.label);
+    }
+  }
+  if (out.size === 0) {
+    out.add('Romance');
+  }
+  return Array.from(out).slice(0, 10);
+}
+
+function parsePlayCountToNumber(raw?: string, rank?: number): number {
+  const s = (raw || '').trim().toUpperCase();
+  let score = 0;
+  const match = s.match(/([\d.]+)\s*([KMB])?/);
+  if (match) {
+    const base = parseFloat(match[1]) || 0;
+    const suffix = match[2];
+    if (suffix === 'B') score = Math.round(base * 1_000_000_000);
+    else if (suffix === 'M') score = Math.round(base * 1_000_000);
+    else if (suffix === 'K') score = Math.round(base * 1_000);
+    else score = Math.round(base);
+  }
+  if (score <= 0 && typeof rank === 'number' && rank > 0) {
+    score = Math.max(10_000, 1_500_000 - rank * 25_000);
+  }
+  return score || 50_000;
+}
+
+function deriveStatus(item: CachedDramaItem): 'Ongoing' | 'Completed' {
+  if (item.status === 'Ongoing' || item.status === 'Completed') return item.status;
+  const hay = `${item.corner || ''} ${(item.tags || []).join(' ')}`.toLowerCase();
+  if (hay.includes('ongoing') || hay.includes('updating') || hay.includes('new')) {
+    return item.chapterCount >= 40 ? 'Completed' : 'Ongoing';
+  }
+  return item.chapterCount >= 20 ? 'Completed' : 'Ongoing';
+}
+
+function deriveRating(item: CachedDramaItem): number {
+  if (typeof item.rating === 'number' && item.rating >= 3.5 && item.rating <= 5) {
+    return Number(item.rating.toFixed(1));
+  }
+  // Deterministic high-signal rating between 4.2 and 4.9 derived from rank/title hash
+  let hash = 0;
+  for (let i = 0; i < item.bookId.length; i++) {
+    hash = (hash * 31 + item.bookId.charCodeAt(i)) % 100;
+  }
+  const rankBonus = typeof item.rank === 'number' && item.rank <= 10 ? 0.2 : 0;
+  const raw = 4.2 + (hash % 7) * 0.1 + rankBonus;
+  return Number(Math.min(4.9, Math.max(4.1, raw)).toFixed(1));
+}
+
+function toCatalogUpsertItem(item: CachedDramaItem): CatalogUpsertItem {
+  const slug = slugifyTitle(item.slug || item.title);
+  const genres = inferGenresForCatalog(item);
+  const status = deriveStatus(item);
+  const rating = deriveRating(item);
+  const popularityScore = parsePlayCountToNumber(item.playCount, item.rank);
+  const enrichedItem: CachedDramaItem = {
+    ...item,
+    slug,
+    status,
+    rating,
+    tags: item.tags.length > 0 ? item.tags : genres.slice(0, 4),
+  };
+  return {
+    dramaId: item.bookId,
+    provider: item.provider,
+    slug,
+    title: item.title,
+    description: item.description,
+    cover: item.cover,
+    chapterCount: item.chapterCount,
+    genres,
+    status,
+    popularityScore,
+    rating,
+    playCount: item.playCount,
+    isVip: item.isVip,
+    dramaJson: enrichedItem as unknown as Record<string, unknown>,
+  };
+}
+
+export async function syncDramasToCatalogDb(
+  items: CachedDramaItem[]
+): Promise<void> {
+  if (!items || items.length === 0) return;
+  rememberIndexedDramas(items);
+  const dedup = new Map<string, CatalogUpsertItem>();
+  for (const item of items) {
+    if (!item?.bookId || !item?.title) continue;
+    const key = `${item.provider}:${item.bookId}`;
+    if (!dedup.has(key)) {
+      dedup.set(key, toCatalogUpsertItem(item));
+    }
+  }
+  if (dedup.size === 0) return;
+  const changes = await upsertDramaCatalogBatchInDb(Array.from(dedup.values()));
+  if (changes.length > 0) {
+    void notifyCatalogAdditionsToGoogle(changes).catch(() => {});
+  }
+}
+
+export function attachLiveBadgesToItems(
+  items: CachedDramaItem[],
+  statsMap: Record<string, LiveDramaBadgeStat>,
+  options?: { isTrendingSection?: boolean; isHotSection?: boolean }
+): CachedDramaItem[] {
+  return items.map((item, idx) => {
+    const key = `${item.provider}:${item.bookId}`;
+    const stat = statsMap[key];
+    let trendBadge = stat?.trendBadge ?? item.trendBadge;
+    if (!trendBadge) {
+      if (options?.isHotSection && idx < 4) {
+        trendBadge = 'HOT';
+      } else if (options?.isTrendingSection && idx < 6) {
+        trendBadge = idx < 2 ? 'HOT' : 'TRENDING';
+      }
+    }
+    return {
+      ...item,
+      dailyViews: stat ? stat.dailyViews : item.dailyViews,
+      totalViews: stat ? stat.totalViews : item.totalViews,
+      trendBadge,
+    };
+  });
+}
+
+async function enrichHomePayloadWithLiveStats(
+  payload: StoredHomePayload
+): Promise<StoredHomePayload> {
+  try {
+    const statsMap = await getTrendingStatsMapFromDb(250);
+    return {
+      ...payload,
+      heroSpotlights: attachLiveBadgesToItems(payload.heroSpotlights, statsMap),
+      trendingTop: attachLiveBadgesToItems(payload.trendingTop, statsMap, {
+        isTrendingSection: true,
+      }),
+      hotReleases: attachLiveBadgesToItems(payload.hotReleases, statsMap, {
+        isHotSection: true,
+      }),
+      catalogGrid: attachLiveBadgesToItems(payload.catalogGrid, statsMap),
+    };
+  } catch {
+    return payload;
+  }
+}
+
+function extractBookArray(payload: unknown): Record<string, unknown>[] {
+  if (!payload) return [];
+  if (Array.isArray(payload)) {
+    const first = payload[0] as Record<string, unknown> | undefined;
+    if (first && Array.isArray(first.books)) {
+      return payload.flatMap((entry) =>
+        Array.isArray((entry as Record<string, unknown>).books)
+          ? ((entry as Record<string, unknown>).books as Record<string, unknown>[])
+          : []
+      );
+    }
+    return payload as Record<string, unknown>[];
+  }
+  if (typeof payload === 'object') {
+    const obj = payload as Record<string, unknown>;
+    if (Array.isArray(obj.books)) return obj.books as Record<string, unknown>[];
+    if (Array.isArray(obj.items)) return obj.items as Record<string, unknown>[];
+    if (Array.isArray(obj.list)) return obj.list as Record<string, unknown>[];
+    if (Array.isArray(obj.records)) return obj.records as Record<string, unknown>[];
+    if (Array.isArray(obj.results)) return obj.results as Record<string, unknown>[];
+    if (Array.isArray(obj.dramas)) return obj.dramas as Record<string, unknown>[];
+    if (obj.data !== undefined && obj.data !== null) {
+      return extractBookArray(obj.data);
+    }
+  }
+  return [];
+}
+
+function normalizeDrama(
+  raw: Record<string, unknown>,
+  provider: string,
+  index?: number,
+  forceVip = false
+): CachedDramaItem | null {
+  const idCandidates = [
+    raw.bookId,
+    raw.book_id,
+    raw.playlet_id,
+    raw.playletId,
+    raw.album_id,
+    raw.albumId,
+    raw.dramaId,
+    raw.drama_id,
+    raw.id,
+    raw.vid,
+  ];
+  let bookId = '';
+  for (const cand of idCandidates) {
+    if (cand !== undefined && cand !== null) {
+      const cleaned = cleanText(String(cand));
+      if (cleaned) {
+        bookId = cleaned;
+        break;
+      }
+    }
+  }
+
+  const title = cleanText(
+    raw.bookName ??
+      raw.title ??
+      raw.book_name ??
+      raw.name ??
+      raw.dramaName ??
+      raw.dramaTitle
+  );
+  if (!bookId || !title) return null;
+
+  const rawCover = cleanText(
+    raw.cover ??
+      raw.coverUrl ??
+      raw.bookCover ??
+      raw.book_cover ??
+      raw.coverWap ??
+      raw.vertical_poster_url ??
+      raw.poster ??
+      raw.image ??
+      raw.cover_url ??
+      raw.coverImg ??
+      raw.cover_image ??
+      raw.thumb
+  );
+
+  const needsProxy =
+    Boolean(rawCover) &&
+    !rawCover.startsWith('/api/proxy') &&
+    (rawCover.startsWith('http://') ||
+      (provider === 'Melolo' &&
+        (rawCover.toLowerCase().includes('.heic') ||
+          rawCover.toLowerCase().includes('fizzopic.org'))));
+
+  const cover = needsProxy
+    ? `/api/proxy?url=${encodeURIComponent(rawCover)}`
+    : rawCover;
+
+  const description = cleanText(
+    raw.description ??
+      raw.introduction ??
+      raw.synopsis ??
+      raw.intro ??
+      raw.summary,
+    `Watch free ${title} in vertical HD theater mode on KanoDrama.`
+  );
+
+  let chapterCount = toPositiveNumber(
+    raw.chapterCount ??
+      raw.totalEpisodes ??
+      raw.episodeCount ??
+      raw.episode_count ??
+      raw.total_episode ??
+      raw.total_episodes ??
+      raw.num_videos ??
+      raw.totalChapter,
+    0
+  );
+  if (chapterCount <= 0) {
+    const epHint = title.match(/(\d+)\s*Episode/i);
+    chapterCount = epHint ? Math.max(1, Number(epHint[1])) : 1;
+  }
+
+  let tags: string[] = [];
+  if (Array.isArray(raw.tags)) {
+    tags = raw.tags
+      .map((t) =>
+        typeof t === 'object' && t !== null
+          ? cleanText(
+              (t as Record<string, unknown>).name ??
+                (t as Record<string, unknown>).tagName
+            )
+          : cleanText(t)
+      )
+      .filter((t): t is string => Boolean(t));
+  } else if (Array.isArray(raw.labels)) {
+    tags = raw.labels
+      .map((t) => cleanText(t))
+      .filter((t): t is string => Boolean(t));
+  } else if (Array.isArray(raw.tagV3s)) {
+    tags = raw.tagV3s
+      .map((t) =>
+        typeof t === 'object' && t !== null
+          ? cleanText((t as Record<string, unknown>).tagName)
+          : cleanText(t)
+      )
+      .filter((t): t is string => Boolean(t));
+  }
+
+  const cornerText =
+    typeof raw.corner === 'object' && raw.corner !== null
+      ? cleanText((raw.corner as Record<string, unknown>).name)
+      : cleanText(raw.corner);
+
+  const isVip =
+    forceVip ||
+    Boolean(raw.isVip) ||
+    cornerText.toLowerCase().includes('vip');
+
+  const status: 'Ongoing' | 'Completed' =
+    chapterCount >= 20 ? 'Completed' : 'Ongoing';
+
+  return {
+    id: bookId,
+    bookId,
+    title,
+    slug: cleanText(raw.slug) || slugifyTitle(title),
+    cover,
+    description,
+    chapterCount,
+    episodes: chapterCount,
+    tags,
+    playCount: cleanText(raw.playCount ?? raw.hotCode ?? raw.views) || undefined,
+    corner: cornerText || undefined,
+    protagonist: cleanText(raw.protagonist) || undefined,
+    author: cleanText(raw.author) || undefined,
+    isVip,
+    provider,
+    rank: typeof index === 'number' ? index + 1 : undefined,
+    status,
+  };
+}
+
+function interleaveUnique(...lists: CachedDramaItem[][]): CachedDramaItem[] {
+  const merged: CachedDramaItem[] = [];
+  const seen = new Set<string>();
+  const maxLen = Math.max(...lists.map((l) => l.length), 0);
+  for (let i = 0; i < maxLen; i++) {
+    for (const list of lists) {
+      const candidate = list[i];
+      if (candidate) {
+        const key = `${candidate.provider}:${candidate.bookId}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          merged.push(candidate);
+        }
+      }
+    }
+  }
+  return merged;
+}
+
+function mapLangForProvider(provider: string, lang: HomeLangCode): string | null {
+  switch (provider) {
+    case 'DramaBox':
+      return lang === 'cn' ? 'zh' : lang;
+    case 'NetShort':
+      if (lang === 'id') return 'id_ID';
+      if (lang === 'cn') return 'zh_CN';
+      if (lang === 'vi') return 'vi_VN';
+      return 'en_US';
+    case 'DramaOra':
+      return lang === 'id' ? 'id-id' : 'en-us';
+    case 'PetaDrama':
+      return null;
+    case 'RadReels':
+      return lang === 'id' ? '4' : '3';
+    case 'StardustTV':
+      return lang === 'id' ? 'id_ID' : 'en_US';
+    case 'StarShort':
+      return lang === 'id' ? '4' : '1';
+    case 'CubeTV':
+      return lang === 'id' ? '9' : '1';
+    case 'FlickReels':
+      return lang === 'id' ? '6' : '1';
+    case 'DramaWave':
+    case 'FreeReels':
+      return lang === 'id' ? 'id-ID' : 'en-US';
+    case 'Melolo':
+    case 'MeloShort':
+    case 'DramaVerse':
+    case 'MoboReels':
+    case 'MicroDrama':
+    case 'FunDrama':
+    case 'Vigloo':
+    case 'DotDrama':
+    case 'GoodShort':
+    case 'SodaReels':
+      return lang === 'id' ? 'in' : 'en';
+    default:
+      return lang === 'id' ? 'id' : 'en';
+  }
+}
+
+interface ProviderFeedTarget {
+  provider: string;
+  apiSegment: string;
+  endpoints: {
+    path: string;
+    role: 'rank' | 'foryou' | 'new';
+    extraQuery?: Record<string, string | number>;
+  }[];
+}
+
+function resolveProviderApiSegment(provider: string): string {
+  const map: Record<string, string> = {
+    DramaBox: 'dramaboxv2',
+    NetShort: 'netshort',
+    AnyReel: 'anyreel',
+    Melolo: 'melolo',
+    DramaOra: 'dramaora',
+    MeloShort: 'meloshort',
+    PetaDrama: 'petadrama',
+    RadReels: 'radreels',
+    DramaVerse: 'dramaverse',
+    KalosTV: 'kalostv',
+    StardustTV: 'stardust',
+    StarShort: 'starshort',
+    DramaBite: 'dramabite',
+    LoveShots: 'loveshots',
+    MyDrama: 'mydrama',
+    ShotShort: 'shotshort',
+    MoboReels: 'moboreels',
+    BlinkDrama: 'blinkdrama',
+    WeTV: 'wetv',
+    CubeTV: 'cubetv',
+    MicroDrama: 'microdrama',
+    FlareFlow: 'flareflow',
+    FunDrama: 'fundrama',
+    FreeShort: 'freeshort',
+    ToonShort: 'toonshort',
+    HappyShort: 'happyshort',
+    DramaDash: 'dramadash',
+    StoryReel: 'storyreel',
+    StoryReelV2: 'storyreel_v2',
+    VibeShort: 'vibeshort',
+    VibeShortV2: 'vibeshort_v2',
+    FlickReels: 'flickreels',
+    DramaWave: 'dramawave',
+    FreeReels: 'freereels',
+    PineDrama: 'pinedrama',
+    ShortMax: 'shortmax',
+    ShortMaxV2: 'shortmax_v2',
+    FlexTV: 'flextv',
+    Vigloo: 'vigloo',
+    DotDrama: 'dotdrama',
+    iDrama: 'idrama',
+    iDramaV2: 'idrama_v2',
+    GoodShort: 'goodshort',
+    ReelShort: 'reelshort',
+    ReelShortV2: 'reelshort_v2',
+    JoyReels: 'joyreels',
+    SodaReels: 'sodareels',
+    BonusTV: 'bonustv',
+    iQIYI: 'iqiyi',
+  };
+  return map[provider] ?? provider.toLowerCase();
+}
+
+function getEndpointsForProvider(provider: string): ProviderFeedTarget {
+  const apiSegment = resolveProviderApiSegment(provider);
+  switch (provider) {
+    case 'DramaBox':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/ranking', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/terbaru', role: 'new' },
+        ],
+      };
+    case 'NetShort':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/trending', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/all', role: 'new' },
+        ],
+      };
+    case 'AnyReel':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/asian', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+        ],
+      };
+    case 'Melolo':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/rank', role: 'rank', extraQuery: { page_size: 18 } },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/new_release', role: 'new', extraQuery: { page_size: 12 } },
+        ],
+      };
+    case 'CubeTV':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/hot', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/newrelease', role: 'new' },
+        ],
+      };
+    case 'DramaWave':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/exclusive', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+        ],
+      };
+    case 'FreeReels':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/popular', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/terbaru', role: 'new' },
+        ],
+      };
+    case 'GoodShort':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/tren', role: 'rank', extraQuery: { page_size: 20 } },
+          { path: '/foryou', role: 'foryou' },
+        ],
+      };
+    case 'JoyReels':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/hot', role: 'rank' },
+          { path: '/new', role: 'new' },
+        ],
+      };
+    case 'iQIYI':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/recomendasi', role: 'rank', extraQuery: { per_page: 20 } },
+          { path: '/drama', role: 'foryou', extraQuery: { per_page: 20 } },
+        ],
+      };
+    default:
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/foryou', role: 'foryou' },
+          { path: '/ranking', role: 'rank' },
+        ],
+      };
+  }
+}
+
+async function fetchUpstreamFeed(
+  token: string,
+  provider: string,
+  apiSegment: string,
+  endpointPath: string,
+  lang: HomeLangCode,
+  withRank: boolean,
+  extraQuery?: Record<string, string | number>
+): Promise<CachedDramaItem[]> {
+  const url = new URL(`${MOLATV_API_BASE}/${apiSegment}${endpointPath}`);
+  url.searchParams.set('page', '1');
+  const langParam = mapLangForProvider(provider, lang);
+  if (langParam) url.searchParams.set('lang', langParam);
+  if (extraQuery) {
+    for (const [k, v] of Object.entries(extraQuery)) {
+      url.searchParams.set(k, String(v));
+    }
+  }
+  url.searchParams.set('token', token);
+
+  try {
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(7500),
+    });
+    if (!res.ok) return [];
+    const rawText = await res.text();
+    let json: unknown;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      return [];
+    }
+    const rawList = extractBookArray(json);
+
+    const out: CachedDramaItem[] = [];
+    const seen = new Set<string>();
+    rawList.forEach((raw, idx) => {
+      const item = normalizeDrama(raw, provider, withRank ? idx : undefined);
+      if (item && !seen.has(item.bookId)) {
+        seen.add(item.bookId);
+        out.push(item);
+      }
+    });
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+async function readHomeFromDb(
+  cacheKey: string
+): Promise<{
+  payload: StoredHomePayload;
+  updatedAt: number;
+  expiresAt: number;
+} | null> {
+  const mem = memoryHomeCache.get(cacheKey);
+  if (mem) {
+    return mem;
+  }
+
+  try {
+    const res = await dbQuery<{
+      payload_json: StoredHomePayload | string;
+      updated_at: string | number;
+      expires_at: string | number;
+    }>(
+      'SELECT payload_json, updated_at, expires_at FROM home_cache WHERE cache_key = $1',
+      [cacheKey]
+    );
+    const row = res?.rows[0];
+    if (row && row.payload_json) {
+      const parsed =
+        typeof row.payload_json === 'string'
+          ? (JSON.parse(row.payload_json) as StoredHomePayload)
+          : row.payload_json;
+      const entry = {
+        payload: parsed,
+        updatedAt: Number(row.updated_at) || Date.now(),
+        expiresAt: Number(row.expires_at) || 0,
+      };
+      memoryHomeCache.set(cacheKey, entry);
+      return entry;
+    }
+  } catch (err) {
+    console.warn(
+      '[HomeCache] Failed reading PostgreSQL home_cache:',
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+  return null;
+}
+
+async function writeHomeToDb(
+  cacheKey: string,
+  payload: StoredHomePayload,
+  updatedAt: number,
+  expiresAt: number
+): Promise<void> {
+  memoryHomeCache.set(cacheKey, { payload, updatedAt, expiresAt });
+  try {
+    await dbQuery(
+      `INSERT INTO home_cache (cache_key, payload_json, updated_at, expires_at)
+       VALUES ($1, $2::jsonb, $3, $4)
+       ON CONFLICT (cache_key) DO UPDATE SET
+         payload_json = EXCLUDED.payload_json,
+         updated_at = EXCLUDED.updated_at,
+         expires_at = EXCLUDED.expires_at`,
+      [cacheKey, JSON.stringify(payload), updatedAt, expiresAt]
+    );
+  } catch (err) {
+    console.warn(
+      '[HomeCache] Failed writing PostgreSQL home_cache:',
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+async function buildHomePayloadFromUpstream(
+  token: string,
+  lang: HomeLangCode,
+  provider: string
+): Promise<StoredHomePayload> {
+  const now = Date.now();
+  const providerCounts: Record<string, number> = {};
+
+  if (provider === 'All') {
+    const coreTargets: Array<{
+      provider: string;
+      apiSegment: string;
+      path: string;
+      role: 'rank' | 'foryou' | 'new';
+      extraQuery?: Record<string, string | number>;
+    }> = [
+      { provider: 'DramaBox', apiSegment: 'dramaboxv2', path: '/ranking', role: 'rank' },
+      { provider: 'DramaBox', apiSegment: 'dramaboxv2', path: '/foryou', role: 'foryou' },
+      { provider: 'DramaBox', apiSegment: 'dramaboxv2', path: '/terbaru', role: 'new' },
+      { provider: 'NetShort', apiSegment: 'netshort', path: '/trending', role: 'rank' },
+      { provider: 'NetShort', apiSegment: 'netshort', path: '/foryou', role: 'foryou' },
+      { provider: 'AnyReel', apiSegment: 'anyreel', path: '/asian', role: 'rank' },
+      { provider: 'AnyReel', apiSegment: 'anyreel', path: '/foryou', role: 'foryou' },
+      { provider: 'Melolo', apiSegment: 'melolo', path: '/rank', role: 'rank', extraQuery: { page_size: 18 } },
+      { provider: 'Melolo', apiSegment: 'melolo', path: '/new_release', role: 'new', extraQuery: { page_size: 12 } },
+      { provider: 'WeTV', apiSegment: 'wetv', path: '/foryou', role: 'foryou' },
+      { provider: 'ReelShort', apiSegment: 'reelshort', path: '/foryou', role: 'foryou' },
+      { provider: 'GoodShort', apiSegment: 'goodshort', path: '/tren', role: 'rank', extraQuery: { page_size: 15 } },
+    ];
+
+    const settled = await Promise.allSettled(
+      coreTargets.map((target) =>
+        fetchUpstreamFeed(
+          token,
+          target.provider,
+          target.apiSegment,
+          target.path,
+          lang,
+          target.role === 'rank',
+          target.extraQuery
+        )
+      )
+    );
+
+    const rankLists: CachedDramaItem[][] = [];
+    const newLists: CachedDramaItem[][] = [];
+    const forYouLists: CachedDramaItem[][] = [];
+    const providerKeySets: Record<string, Set<string>> = {};
+
+    settled.forEach((result, idx) => {
+      if (result.status !== 'fulfilled') return;
+      const items = result.value;
+      const target = coreTargets[idx];
+      if (!providerKeySets[target.provider]) {
+        providerKeySets[target.provider] = new Set();
+      }
+      for (const it of items) {
+        providerKeySets[target.provider].add(it.bookId);
+      }
+      if (target.role === 'rank') rankLists.push(items);
+      else if (target.role === 'new') newLists.push(items);
+      else forYouLists.push(items);
+    });
+
+    let totalAll = 0;
+    for (const [prov, set] of Object.entries(providerKeySets)) {
+      providerCounts[prov] = set.size;
+      totalAll += set.size;
+    }
+    providerCounts.all = totalAll;
+
+    const trendingPool = interleaveUnique(...rankLists).map((item, idx) => ({
+      ...item,
+      rank: idx + 1,
+    }));
+    const hotPool = interleaveUnique(...newLists, ...forYouLists);
+    const catalogPool = interleaveUnique(...forYouLists, ...rankLists, ...newLists);
+
+    const heroCandidates = interleaveUnique(
+      ...rankLists.map((l) => l.slice(0, 3)),
+      ...forYouLists.map((l) => l.slice(0, 2))
+    ).filter((d) => Boolean(d.cover));
+
+    return {
+      lang,
+      provider,
+      heroSpotlights: heroCandidates.slice(0, 8),
+      trendingTop: trendingPool.slice(0, 12),
+      hotReleases: hotPool.slice(0, 12),
+      catalogGrid: catalogPool.slice(0, 20),
+      providerCounts,
+      updatedAt: now,
+      expiresAt: now + HOME_CACHE_TTL_MS,
+    };
+  }
+
+  const target = getEndpointsForProvider(provider);
+  const settled = await Promise.allSettled(
+    target.endpoints.map((ep) =>
+      fetchUpstreamFeed(
+        token,
+        target.provider,
+        target.apiSegment,
+        ep.path,
+        lang,
+        ep.role === 'rank',
+        ep.extraQuery
+      )
+    )
+  );
+
+  const rankLists: CachedDramaItem[][] = [];
+  const otherLists: CachedDramaItem[][] = [];
+  const seenIds = new Set<string>();
+
+  settled.forEach((result, idx) => {
+    if (result.status !== 'fulfilled') return;
+    const items = result.value;
+    for (const it of items) seenIds.add(it.bookId);
+    if (target.endpoints[idx].role === 'rank') rankLists.push(items);
+    else otherLists.push(items);
+  });
+
+  providerCounts[provider] = seenIds.size;
+  providerCounts.all = seenIds.size;
+
+  const trendingPool = interleaveUnique(...rankLists, ...otherLists).map(
+    (item, idx) => ({ ...item, rank: idx + 1 })
+  );
+  const hotPool = interleaveUnique(...otherLists, ...rankLists);
+  const catalogPool = interleaveUnique(...otherLists, ...rankLists);
+
+  return {
+    lang,
+    provider,
+    heroSpotlights: trendingPool.filter((d) => Boolean(d.cover)).slice(0, 6),
+    trendingTop: trendingPool.slice(0, 12),
+    hotReleases: hotPool.slice(0, 12),
+    catalogGrid: catalogPool.slice(0, 20),
+    providerCounts,
+    updatedAt: now,
+    expiresAt: now + HOME_CACHE_TTL_MS,
+  };
+}
+
+function hasAnyItems(p: {
+  heroSpotlights: CachedDramaItem[];
+  trendingTop: CachedDramaItem[];
+  hotReleases: CachedDramaItem[];
+  catalogGrid: CachedDramaItem[];
+}): boolean {
+  return (
+    p.heroSpotlights.length > 0 ||
+    p.trendingTop.length > 0 ||
+    p.hotReleases.length > 0 ||
+    p.catalogGrid.length > 0
+  );
+}
+
+async function refreshAndPersistHome(
+  token: string,
+  lang: HomeLangCode,
+  provider: string
+): Promise<HomeCatalogPayload> {
+  const cacheKey = makeHomeCacheKey(lang, provider);
+  const existingBuild = inFlightHomeBuilds.get(cacheKey);
+  if (existingBuild) return existingBuild;
+
+  const task = (async (): Promise<HomeCatalogPayload> => {
+    if (!token) {
+      const existing = await readHomeFromDb(cacheKey);
+      if (existing) {
+        return {
+          ...existing.payload,
+          cached: true,
+          stale: true,
+          source: 'database-cache',
+          storage: getStorageMode(),
+        };
+      }
+      const now = Date.now();
+      return {
+        lang,
+        provider,
+        heroSpotlights: [],
+        trendingTop: [],
+        hotReleases: [],
+        catalogGrid: [],
+        providerCounts: {},
+        updatedAt: now,
+        expiresAt: now + 30_000,
+        cached: false,
+        stale: false,
+        source: 'empty-fallback',
+        storage: getStorageMode(),
+      };
+    }
+
+    const built = await buildHomePayloadFromUpstream(token, lang, provider);
+    if (hasAnyItems(built)) {
+      await writeHomeToDb(cacheKey, built, built.updatedAt, built.expiresAt);
+      const allBuilt = [
+        ...built.heroSpotlights,
+        ...built.trendingTop,
+        ...built.hotReleases,
+        ...built.catalogGrid,
+      ];
+      void syncDramasToCatalogDb(allBuilt).catch(() => {});
+      const enriched = await enrichHomePayloadWithLiveStats(built);
+      return {
+        ...enriched,
+        cached: false,
+        stale: false,
+        source: 'live-refresh',
+        storage: getStorageMode(),
+      };
+    }
+
+    const previous = await readHomeFromDb(cacheKey);
+    if (previous && hasAnyItems(previous.payload)) {
+      const enriched = await enrichHomePayloadWithLiveStats(previous.payload);
+      return {
+        ...enriched,
+        cached: true,
+        stale: true,
+        source: 'database-cache',
+        storage: getStorageMode(),
+      };
+    }
+
+    return {
+      ...built,
+      expiresAt: Date.now() + 30_000,
+      cached: false,
+      stale: false,
+      source: 'empty-fallback',
+      storage: getStorageMode(),
+    };
+  })().finally(() => {
+    inFlightHomeBuilds.delete(cacheKey);
+  });
+
+  inFlightHomeBuilds.set(cacheKey, task);
+  return task;
+}
+
+export async function getCachedHomeData(
+  token: string,
+  rawLang?: string,
+  rawProvider?: string
+): Promise<HomeCatalogPayload> {
+  const lang = normalizeLang(rawLang);
+  const provider = normalizeProviderFilter(rawProvider);
+  const cacheKey = makeHomeCacheKey(lang, provider);
+
+  const cached = await readHomeFromDb(cacheKey);
+  if (cached && hasAnyItems(cached.payload)) {
+    const isStale = Date.now() > cached.expiresAt;
+    if (isStale && token && !inFlightHomeBuilds.has(cacheKey)) {
+      void refreshAndPersistHome(token, lang, provider).catch(() => {});
+    }
+    const enriched = await enrichHomePayloadWithLiveStats(cached.payload);
+    return {
+      ...enriched,
+      updatedAt: cached.updatedAt,
+      expiresAt: cached.expiresAt,
+      cached: true,
+      stale: isStale,
+      source: 'database-cache',
+      storage: getStorageMode(),
+    };
+  }
+
+  return refreshAndPersistHome(token, lang, provider);
+}
+
+export function triggerAsyncHomeRevalidate(
+  token: string,
+  rawLang?: string,
+  rawProvider?: string
+): { started: boolean; cacheKey: string } {
+  const lang = normalizeLang(rawLang);
+  const provider = normalizeProviderFilter(rawProvider);
+  const cacheKey = makeHomeCacheKey(lang, provider);
+  if (!token) {
+    return { started: false, cacheKey };
+  }
+  void refreshAndPersistHome(token, lang, provider).catch(() => {});
+  return { started: true, cacheKey };
+}
+
+export async function getHomeCacheStatus(): Promise<{
+  storage: 'postgresql' | 'memory';
+  ttlMinutes: number;
+  entries: {
+    cacheKey: string;
+    updatedAt: number;
+    expiresAt: number;
+    stale: boolean;
+    heroCount: number;
+    trendingCount: number;
+    hotCount: number;
+    catalogCount: number;
+  }[];
+}> {
+  const now = Date.now();
+  const entries: {
+    cacheKey: string;
+    updatedAt: number;
+    expiresAt: number;
+    stale: boolean;
+    heroCount: number;
+    trendingCount: number;
+    hotCount: number;
+    catalogCount: number;
+  }[] = [];
+
+  try {
+    const res = await dbQuery<{
+      cache_key: string;
+      payload_json: Partial<HomeCatalogPayload> | string;
+      updated_at: string | number;
+      expires_at: string | number;
+    }>(
+      'SELECT cache_key, payload_json, updated_at, expires_at FROM home_cache ORDER BY updated_at DESC LIMIT 50'
+    );
+    if (res && res.rows.length > 0) {
+      for (const row of res.rows) {
+        const key = String(row.cache_key || '');
+        const updatedAt = Number(row.updated_at) || 0;
+        const expiresAt = Number(row.expires_at) || 0;
+        let parsed: Partial<HomeCatalogPayload> = {};
+        try {
+          parsed =
+            typeof row.payload_json === 'string'
+              ? (JSON.parse(row.payload_json) as Partial<HomeCatalogPayload>)
+              : (row.payload_json ?? {});
+        } catch {
+          // ignore
+        }
+        entries.push({
+          cacheKey: key,
+          updatedAt,
+          expiresAt,
+          stale: now > expiresAt,
+          heroCount: parsed.heroSpotlights?.length ?? 0,
+          trendingCount: parsed.trendingTop?.length ?? 0,
+          hotCount: parsed.hotReleases?.length ?? 0,
+          catalogCount: parsed.catalogGrid?.length ?? 0,
+        });
+      }
+      return {
+        storage: getStorageMode(),
+        ttlMinutes: Math.round(HOME_CACHE_TTL_MS / 60000),
+        entries,
+      };
+    }
+  } catch {
+    // Fallback to L1 memory map
+  }
+
+  for (const [key, val] of memoryHomeCache.entries()) {
+    entries.push({
+      cacheKey: key,
+      updatedAt: val.updatedAt,
+      expiresAt: val.expiresAt,
+      stale: now > val.expiresAt,
+      heroCount: val.payload.heroSpotlights.length,
+      trendingCount: val.payload.trendingTop.length,
+      hotCount: val.payload.hotReleases.length,
+      catalogCount: val.payload.catalogGrid.length,
+    });
+  }
+
+  return {
+    storage: getStorageMode(),
+    ttlMinutes: Math.round(HOME_CACHE_TTL_MS / 60000),
+    entries,
+  };
+}
+
+// --- Read-Only Catalog List Cache for /api/mola/* (L1 Memory + L2 PostgreSQL) ---
+const CACHEABLE_MOLA_LIST_SUFFIXES = [
+  '/ranking',
+  '/trending',
+  '/foryou',
+  '/terbaru',
+  '/vip',
+  '/anime',
+  '/dubbing',
+  '/all',
+  '/new_release',
+  '/asian',
+  '/rank',
+  '/hot',
+  '/popular',
+  '/recommend',
+  '/recomendasi',
+  '/exclusive',
+  '/browse',
+  '/tren',
+  '/new',
+  '/newrelease',
+  '/drama',
+  '/all_drama',
+];
+
+export function isCacheableMolaListPath(rawPath: string): boolean {
+  const pathname = rawPath.split('?')[0].toLowerCase();
+  return CACHEABLE_MOLA_LIST_SUFFIXES.some((suffix) =>
+    pathname.endsWith(suffix)
+  );
+}
+
+export async function getCachedMolaApiResponse(cacheKey: string): Promise<{
+  statusCode: number;
+  payloadJson: string;
+  stale: boolean;
+} | null> {
+  const now = Date.now();
+  const mem = memoryApiCache.get(cacheKey);
+  if (mem) {
+    return {
+      statusCode: mem.statusCode,
+      payloadJson: mem.payloadJson,
+      stale: now > mem.expiresAt,
+    };
+  }
+
+  try {
+    const res = await dbQuery<{
+      status_code: number;
+      payload_json: string;
+      updated_at: string | number;
+      expires_at: string | number;
+    }>(
+      'SELECT status_code, payload_json, updated_at, expires_at FROM api_response_cache WHERE cache_key = $1',
+      [cacheKey]
+    );
+    const row = res?.rows[0];
+    if (row && typeof row.payload_json === 'string') {
+      const statusCode = Number(row.status_code) || 200;
+      const updatedAt = Number(row.updated_at) || now;
+      const expiresAt = Number(row.expires_at) || 0;
+      if (memoryApiCache.size > 400) {
+        const firstKey = memoryApiCache.keys().next().value;
+        if (firstKey) memoryApiCache.delete(firstKey);
+      }
+      memoryApiCache.set(cacheKey, {
+        statusCode,
+        payloadJson: row.payload_json,
+        updatedAt,
+        expiresAt,
+      });
+      return {
+        statusCode,
+        payloadJson: row.payload_json,
+        stale: now > expiresAt,
+      };
+    }
+  } catch {
+    // Fallback gracefully
+  }
+  return null;
+}
+
+const MOLA_SEGMENT_TO_PROVIDER: Record<string, string> = {
+  dramaboxv2: 'DramaBox',
+  netshort: 'NetShort',
+  anyreel: 'AnyReel',
+  melolo: 'Melolo',
+  dramaora: 'DramaOra',
+  meloshort: 'MeloShort',
+  petadrama: 'PetaDrama',
+  radreels: 'RadReels',
+  dramaverse: 'DramaVerse',
+  kalostv: 'KalosTV',
+  stardust: 'StardustTV',
+  starshort: 'StarShort',
+  dramabite: 'DramaBite',
+  loveshots: 'LoveShots',
+  mydrama: 'MyDrama',
+  shotshort: 'ShotShort',
+  moboreels: 'MoboReels',
+  blinkdrama: 'BlinkDrama',
+  wetv: 'WeTV',
+  cubetv: 'CubeTV',
+  microdrama: 'MicroDrama',
+  flareflow: 'FlareFlow',
+  fundrama: 'FunDrama',
+  freeshort: 'FreeShort',
+  toonshort: 'ToonShort',
+  happyshort: 'HappyShort',
+  dramadash: 'DramaDash',
+  storyreel: 'StoryReel',
+  storyreel_v2: 'StoryReelV2',
+  vibeshort: 'VibeShort',
+  vibeshort_v2: 'VibeShortV2',
+  flickreels: 'FlickReels',
+  dramawave: 'DramaWave',
+  freereels: 'FreeReels',
+  pinedrama: 'PineDrama',
+  shortmax: 'ShortMax',
+  shortmax_v2: 'ShortMaxV2',
+  flextv: 'FlexTV',
+  vigloo: 'Vigloo',
+  dotdrama: 'DotDrama',
+  idrama: 'iDrama',
+  idrama_v2: 'iDramaV2',
+  goodshort: 'GoodShort',
+  reelshort: 'ReelShort',
+  reelshort_v2: 'ReelShortV2',
+  joyreels: 'JoyReels',
+  sodareels: 'SodaReels',
+  bonustv: 'BonusTV',
+  iqiyi: 'iQIYI',
+};
+
+export function resolveProviderFromMolaSegment(segment: string): string {
+  return MOLA_SEGMENT_TO_PROVIDER[segment.toLowerCase()] || 'DramaBox';
+}
+
+export function indexMolaPayloadToCatalog(
+  rawPathOrCacheKey: string,
+  payloadJson: string
+): void {
+  try {
+    const cleanPath = rawPathOrCacheKey.startsWith('mola:')
+      ? rawPathOrCacheKey.slice(5)
+      : rawPathOrCacheKey;
+    const segMatch = cleanPath.match(/^\/([^/?]+)/i);
+    const seg = (segMatch?.[1] || '').toLowerCase();
+    if (!seg || seg === 'lk21') return;
+    const provider = resolveProviderFromMolaSegment(seg);
+    const parsed = JSON.parse(payloadJson) as unknown;
+    let books = extractBookArray(parsed);
+    if (
+      books.length === 0 &&
+      parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed)
+    ) {
+      const obj = parsed as Record<string, unknown>;
+      const candidate =
+        obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data)
+          ? (obj.data as Record<string, unknown>)
+          : obj;
+      books = [candidate];
+    }
+    if (books.length > 0) {
+      const normalized: CachedDramaItem[] = [];
+      books.forEach((raw, idx) => {
+        const item = normalizeDrama(raw, provider, idx);
+        if (item) normalized.push(item);
+      });
+      if (normalized.length > 0) {
+        rememberIndexedDramas(normalized);
+        void syncDramasToCatalogDb(normalized).catch(() => {});
+      }
+    }
+  } catch {
+    // Ignore unparseable response
+  }
+}
+
+export function setCachedMolaApiResponse(
+  cacheKey: string,
+  statusCode: number,
+  payloadJson: string,
+  ttlMs = API_FEED_CACHE_TTL_MS
+): void {
+  const now = Date.now();
+  const expiresAt = now + ttlMs;
+  if (memoryApiCache.size > 400) {
+    const firstKey = memoryApiCache.keys().next().value;
+    if (firstKey) memoryApiCache.delete(firstKey);
+  }
+  memoryApiCache.set(cacheKey, { statusCode, payloadJson, updatedAt: now, expiresAt });
+
+  void dbQuery(
+    `INSERT INTO api_response_cache (cache_key, status_code, payload_json, updated_at, expires_at)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (cache_key) DO UPDATE SET
+       status_code = EXCLUDED.status_code,
+       payload_json = EXCLUDED.payload_json,
+       updated_at = EXCLUDED.updated_at,
+       expires_at = EXCLUDED.expires_at`,
+    [cacheKey, statusCode, payloadJson, now, expiresAt]
+  ).catch(() => {});
+
+  // Also index extracted books asynchronously into drama_catalog for instant Explore filters & slug SEO resolution
+  if (statusCode >= 200 && statusCode < 300) {
+    indexMolaPayloadToCatalog(cacheKey, payloadJson);
+  }
+}
+
+export function markApiRevalidating(
+  cacheKey: string,
+  fn: () => Promise<void>
+): void {
+  if (inFlightApiRevalidations.has(cacheKey)) return;
+  inFlightApiRevalidations.add(cacheKey);
+  void fn().finally(() => {
+    inFlightApiRevalidations.delete(cacheKey);
+  });
+}
+
+async function pruneExpiredApiCache(): Promise<void> {
+  const now = Date.now();
+  const cutoff = now - 2 * 60 * 60 * 1000;
+  for (const [k, v] of memoryApiCache.entries()) {
+    if (now > v.expiresAt + 2 * 60 * 60 * 1000) {
+      memoryApiCache.delete(k);
+    }
+  }
+  try {
+    await dbQuery('DELETE FROM api_response_cache WHERE expires_at < $1', [cutoff]);
+  } catch {
+    // Ignore
+  }
+}
+
+export function startHomeCacheWorker(getToken: () => string): () => void {
+  const runWarmupCycle = async () => {
+    await ensureDatabaseReady();
+    const token = getToken();
+    if (!token) return;
+    const defaultKeys: Array<[HomeLangCode, string]> = [
+      ['en', 'All'],
+      ['id', 'All'],
+    ];
+    for (const [lang, prov] of defaultKeys) {
+      try {
+        await refreshAndPersistHome(token, lang, prov);
+      } catch {
+        // Non-blocking background worker
+      }
+    }
+    await pruneExpiredApiCache();
+  };
+
+  const warmupTimer = setTimeout(() => {
+    void runWarmupCycle();
+  }, 1200);
+
+  const intervalTimer = setInterval(() => {
+    void runWarmupCycle();
+  }, HOME_CACHE_TTL_MS);
+
+  return () => {
+    clearTimeout(warmupTimer);
+    clearInterval(intervalTimer);
+  };
+}
+
+export interface SitemapDramaEntry {
+  bookId: string;
+  slug: string;
+  title: string;
+  provider: string;
+  cover?: string;
+  description?: string;
+  chapterCount?: number;
+  updatedAt: number;
+}
+
+export async function seedCatalogFromExistingCacheIfEmpty(): Promise<number> {
+  const collected: CachedDramaItem[] = [];
+  const pushList = (list?: CachedDramaItem[]) => {
+    if (!Array.isArray(list)) return;
+    for (const item of list) {
+      if (item && item.bookId && item.title) {
+        collected.push(item);
+      }
+    }
+  };
+
+  for (const val of memoryHomeCache.values()) {
+    pushList(val.payload.heroSpotlights);
+    pushList(val.payload.trendingTop);
+    pushList(val.payload.hotReleases);
+    pushList(val.payload.catalogGrid);
+  }
+
+  try {
+    const homeRes = await dbQuery<{ payload_json: Partial<HomeCatalogPayload> | string }>(
+      'SELECT payload_json FROM home_cache ORDER BY updated_at DESC LIMIT 20'
+    );
+    if (homeRes) {
+      for (const row of homeRes.rows) {
+        const parsed =
+          typeof row.payload_json === 'string'
+            ? (JSON.parse(row.payload_json) as Partial<HomeCatalogPayload>)
+            : (row.payload_json ?? {});
+        pushList(parsed.heroSpotlights);
+        pushList(parsed.trendingTop);
+        pushList(parsed.hotReleases);
+        pushList(parsed.catalogGrid);
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  if (collected.length > 0) {
+    await syncDramasToCatalogDb(collected);
+  }
+  return collected.length;
+}
+
+export async function findDramaBySlugInHomeCache(
+  slug: string
+): Promise<CachedDramaItem | null> {
+  const target = slugifyTitle(slug);
+  if (!target) return null;
+
+  const recentHit = recentIndexedBySlug.get(target);
+  if (recentHit) return recentHit;
+
+  const inspectList = (list?: CachedDramaItem[]): CachedDramaItem | null => {
+    if (!Array.isArray(list)) return null;
+    for (const item of list) {
+      if (!item?.title) continue;
+      if (slugifyTitle(item.slug || item.title) === target) {
+        return { ...item, slug: slugifyTitle(item.slug || item.title) };
+      }
+    }
+    return null;
+  };
+
+  for (const val of memoryHomeCache.values()) {
+    const found =
+      inspectList(val.payload.heroSpotlights) ||
+      inspectList(val.payload.trendingTop) ||
+      inspectList(val.payload.hotReleases) ||
+      inspectList(val.payload.catalogGrid);
+    if (found) return found;
+  }
+
+  try {
+    const homeRes = await dbQuery<{ payload_json: Partial<HomeCatalogPayload> | string }>(
+      'SELECT payload_json FROM home_cache ORDER BY updated_at DESC LIMIT 15'
+    );
+    if (homeRes) {
+      for (const row of homeRes.rows) {
+        const parsed =
+          typeof row.payload_json === 'string'
+            ? (JSON.parse(row.payload_json) as Partial<HomeCatalogPayload>)
+            : (row.payload_json ?? {});
+        const found =
+          inspectList(parsed.heroSpotlights) ||
+          inspectList(parsed.trendingTop) ||
+          inspectList(parsed.hotReleases) ||
+          inspectList(parsed.catalogGrid);
+        if (found) return found;
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  return null;
+}
+
+/**
+ * Resolve a clean drama slug from cached provider API responses.
+ * This is a fallback for dramas indexed in api_response_cache but not yet
+ * present in drama_catalog or the homepage cache.
+ */
+export async function findDramaBySlugInApiCache(
+  slug: string
+): Promise<CachedDramaItem | null> {
+  const target = slugifyTitle(slug);
+  if (!target) return null;
+
+  const inspectPayload = (
+    cacheKey: string,
+    payloadJson: string
+  ): CachedDramaItem | null => {
+    const segment = cacheKey.match(/^mola:\/([^/?]+)/i)?.[1]?.toLowerCase();
+    if (!segment || segment === 'lk21') return null;
+
+    const provider = resolveProviderFromMolaSegment(segment);
+    try {
+      const books = extractBookArray(JSON.parse(payloadJson));
+      for (let index = 0; index < books.length; index += 1) {
+        const item = normalizeDrama(books[index], provider, index);
+        if (!item) continue;
+
+        if (
+          slugifyTitle(item.slug || '') === target ||
+          slugifyTitle(item.title) === target
+        ) {
+          return item;
+        }
+      }
+    } catch {
+      // Ignore malformed cached provider responses.
+    }
+    return null;
+  };
+
+  // Check the in-memory cache first.
+  for (const [cacheKey, cached] of memoryApiCache.entries()) {
+    if (cached.statusCode < 200 || cached.statusCode >= 300) continue;
+    const found = inspectPayload(cacheKey, cached.payloadJson);
+    if (found) return found;
+  }
+
+  // Then check PostgreSQL so this also works after a server restart.
+  const result = await dbQuery<{
+    cache_key: string;
+    payload_json: string;
+  }>(
+    `SELECT cache_key, payload_json
+     FROM api_response_cache
+     WHERE status_code >= 200 AND status_code < 300
+     ORDER BY updated_at DESC
+     LIMIT 120`
+  );
+
+  for (const row of result?.rows ?? []) {
+    const found = inspectPayload(String(row.cache_key || ''), String(row.payload_json || ''));
+    if (found) return found;
+  }
+
+  return null;
+}
+
+export async function searchUpstreamDramaBySlug(
+  token: string,
+  slug: string,
+  providerHint?: string
+): Promise<CachedDramaItem | null> {
+  const target = slugifyTitle(slug);
+  if (!token || !target) return null;
+
+  const recentHit = recentIndexedBySlug.get(target);
+  if (recentHit) return recentHit;
+
+  const keyword = target
+    .split('-')
+    .filter((w) => w.length > 0)
+    .slice(0, 6)
+    .join(' ');
+  if (!keyword || keyword.length < 2) return null;
+
+  const candidateProviders = providerHint
+    ? [providerHint]
+    : [
+        'DramaBox',
+        'NetShort',
+        'AnyReel',
+        'Melolo',
+        'DramaOra',
+        'FreeReels',
+        'FlickReels',
+        'GoodShort',
+        'DramaWave',
+        'ReelShort',
+        'ShortMax',
+      ];
+
+  const searchSpecs: Array<{
+    provider: string;
+    segment: string;
+    buildUrl: (kw: string) => string;
+  }> = candidateProviders.map((prov) => {
+    const segment = resolveProviderApiSegment(prov);
+    if (prov === 'DramaOra' || prov === 'iQIYI') {
+      return {
+        provider: prov,
+        segment,
+        buildUrl: (kw) =>
+          `${MOLATV_API_BASE}/${segment}/search?keyword=${encodeURIComponent(kw)}&lang=${encodeURIComponent(mapLangForProvider(prov, 'en') || 'en')}&token=${token}`,
+      };
+    }
+    if (prov === 'FreeReels' || prov === 'DramaWave' || prov === 'ReelShort' || prov === 'GoodShort') {
+      return {
+        provider: prov,
+        segment,
+        buildUrl: (kw) =>
+          `${MOLATV_API_BASE}/${segment}/search?keyword=${encodeURIComponent(kw)}&lang=${encodeURIComponent(mapLangForProvider(prov, 'en') || 'en-US')}&token=${token}`,
+      };
+    }
+    if (prov === 'Melolo') {
+      return {
+        provider: prov,
+        segment,
+        buildUrl: (kw) =>
+          `${MOLATV_API_BASE}/melolo/search?query=${encodeURIComponent(kw)}&lang=en&token=${token}`,
+      };
+    }
+    return {
+      provider: prov,
+      segment,
+      buildUrl: (kw) =>
+        `${MOLATV_API_BASE}/${segment}/search?keyword=${encodeURIComponent(kw)}&lang=${encodeURIComponent(mapLangForProvider(prov, 'en') || 'en')}&token=${token}`,
+    };
+  });
+
+  const settled = await Promise.allSettled(
+    searchSpecs.map(async (spec) => {
+      const res = await fetch(spec.buildUrl(keyword), {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!res.ok) return [] as CachedDramaItem[];
+      const json = (await res.json()) as unknown;
+      const books = extractBookArray(json);
+      const out: CachedDramaItem[] = [];
+      books.forEach((raw, idx) => {
+        const norm = normalizeDrama(raw, spec.provider, idx);
+        if (norm) out.push(norm);
+      });
+      return out;
+    })
+  );
+
+  const allNormalized: CachedDramaItem[] = [];
+  for (const entry of settled) {
+    if (entry.status === 'fulfilled' && entry.value.length > 0) {
+      allNormalized.push(...entry.value);
+    }
+  }
+
+  if (allNormalized.length === 0) return null;
+
+  rememberIndexedDramas(allNormalized);
+  void syncDramasToCatalogDb(allNormalized).catch(() => {});
+
+  const exact = allNormalized.find(
+    (item) =>
+      slugifyTitle(item.slug || '') === target ||
+      slugifyTitle(item.title) === target
+  );
+  if (exact) return exact;
+
+  // Only allow strict hyphen-boundary prefix matching when both slugs are substantial (>= 12 chars)
+  // so short slugs like "12-ipa-4" never falsely resolve to unrelated titles such as "12".
+  const prefix =
+    target.length >= 12
+      ? allNormalized.find((item) => {
+          const itemSlug = slugifyTitle(item.slug || item.title);
+          if (itemSlug.length < 12) return false;
+          return (
+            itemSlug.startsWith(`${target}-`) ||
+            target.startsWith(`${itemSlug}-`)
+          );
+        })
+      : undefined;
+  return prefix ?? null;
+}
+
+const INVALID_SITEMAP_DRAMA_SLUGS = new Set([
+  'watch-drama',
+  'series',
+  'drama',
+  'short-drama',
+  'unknown',
+  'null',
+  'undefined',
+]);
+
+export async function getCachedDramasForSitemap(limit = 2000): Promise<{
+  dramas: SitemapDramaEntry[];
+  tags: string[];
+  providers: string[];
+}> {
+  const seenDramas = new Map<string, SitemapDramaEntry>();
+  const tagSet = new Set<string>();
+  const providerSet = new Set<string>();
+
+  const pushItem = (
+    item: Partial<CachedDramaItem> | undefined,
+    updatedAt: number
+  ) => {
+    if (!item || !item.bookId || !item.title) return;
+    const cleanId = cleanText(String(item.bookId));
+    const cleanTitle = cleanText(String(item.title));
+    if (!cleanId || cleanTitle.length < 2) return;
+    const provider = cleanText(item.provider, 'DramaBox');
+    if (
+      provider.toUpperCase() === 'LK21' ||
+      provider.toUpperCase() === 'LOOKSERIES'
+    ) {
+      return;
+    }
+    const cleanSlug = (item.slug || slugifyTitle(cleanTitle)).trim().toLowerCase();
+    if (!cleanSlug || INVALID_SITEMAP_DRAMA_SLUGS.has(cleanSlug)) return;
+    const chapterCount = Number(item.chapterCount) || 0;
+    const cover = cleanText(item.cover);
+    const description = cleanText(item.description);
+    if (chapterCount < 1 || (!cover && !description)) return;
+
+    providerSet.add(provider);
+    if (Array.isArray(item.tags)) {
+      for (const tg of item.tags) {
+        const cleanTag = cleanText(tg);
+        if (cleanTag && cleanTag.length <= 32) {
+          tagSet.add(cleanTag);
+        }
+      }
+    }
+    const key = `${provider}:${cleanId}`;
+    if (!seenDramas.has(key) && seenDramas.size < limit) {
+      seenDramas.set(key, {
+        bookId: cleanId,
+        slug: cleanSlug,
+        title: cleanTitle,
+        provider,
+        cover: cover || undefined,
+        description: description || undefined,
+        chapterCount,
+        updatedAt,
+      });
+    }
+  };
+
+  try {
+    // 1. Primary source: indexed drama_catalog (has collision-free canonical slugs)
+    const catalogRows = await listCatalogForSitemapFromDb(limit);
+    for (const row of catalogRows) {
+      const cleanSlug = (row.slug || slugifyTitle(row.title)).trim().toLowerCase();
+      if (
+        !row.dramaId ||
+        !row.title ||
+        row.title.trim().length < 2 ||
+        !cleanSlug ||
+        INVALID_SITEMAP_DRAMA_SLUGS.has(cleanSlug) ||
+        (row.chapterCount || 0) < 1 ||
+        (!row.cover && !row.description)
+      ) {
+        continue;
+      }
+      providerSet.add(row.provider);
+      for (const tg of row.genres) {
+        if (tg && tg.length <= 32) tagSet.add(tg);
+      }
+      const key = `${row.provider}:${row.dramaId}`;
+      if (!seenDramas.has(key) && seenDramas.size < limit) {
+        seenDramas.set(key, {
+          bookId: row.dramaId,
+          slug: cleanSlug,
+          title: row.title,
+          provider: row.provider,
+          cover: row.cover || undefined,
+          description: row.description || undefined,
+          chapterCount: row.chapterCount || 1,
+          updatedAt: row.updatedAt,
+        });
+      }
+    }
+
+    const homeRes = await dbQuery<{
+      payload_json: Partial<HomeCatalogPayload> | string;
+      updated_at: string | number;
+    }>('SELECT payload_json, updated_at FROM home_cache ORDER BY updated_at DESC LIMIT 20');
+
+    if (homeRes) {
+      for (const row of homeRes.rows) {
+        const updatedAt = Number(row.updated_at) || Date.now();
+        try {
+          const parsed =
+            typeof row.payload_json === 'string'
+              ? (JSON.parse(row.payload_json) as Partial<HomeCatalogPayload>)
+              : (row.payload_json ?? {});
+          const allLists = [
+            ...(parsed.heroSpotlights ?? []),
+            ...(parsed.trendingTop ?? []),
+            ...(parsed.hotReleases ?? []),
+            ...(parsed.catalogGrid ?? []),
+          ];
+          for (const item of allLists) {
+            pushItem(item, updatedAt);
+          }
+        } catch {
+          // Ignore malformed JSON row
+        }
+      }
+    }
+
+    const apiRes = await dbQuery<{
+      cache_key: string;
+      payload_json: string;
+      updated_at: string | number;
+    }>('SELECT cache_key, payload_json, updated_at FROM api_response_cache ORDER BY updated_at DESC LIMIT 120');
+
+    if (apiRes) {
+      for (const row of apiRes.rows) {
+        if (seenDramas.size >= limit) break;
+        const cacheKey = String(row.cache_key || '');
+        const updatedAt = Number(row.updated_at) || Date.now();
+        const segMatch = cacheKey.match(/^mola:\/([^/?]+)/i);
+        const providerGuess = segMatch?.[1] || 'DramaBox';
+        try {
+          const parsed = JSON.parse(String(row.payload_json));
+          const books = extractBookArray(parsed);
+          for (const raw of books) {
+            const norm = normalizeDrama(raw, providerGuess);
+            if (norm) pushItem(norm, updatedAt);
+            if (seenDramas.size >= limit) break;
+          }
+        } catch {
+          // Ignore malformed JSON row
+        }
+      }
+    }
+  } catch {
+    // Fallback to L1 memory cache below
+  }
+
+  for (const val of memoryHomeCache.values()) {
+    const allLists = [
+      ...(val.payload.heroSpotlights ?? []),
+      ...(val.payload.trendingTop ?? []),
+      ...(val.payload.hotReleases ?? []),
+      ...(val.payload.catalogGrid ?? []),
+    ];
+    for (const item of allLists) {
+      pushItem(item, val.updatedAt);
+    }
+  }
+
+  return {
+    dramas: Array.from(seenDramas.values()),
+    tags: Array.from(tagSet).slice(0, 40),
+    providers: Array.from(providerSet),
+  };
+}

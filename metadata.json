@@ -1,0 +1,6 @@
+{
+  "name": "Coffee Drama",
+  "description": "Ultra-luxury Chinese Drama & Vertical Short Drama streaming platform featuring curated originals, multi-provider filtering, and theater-mode playback.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
