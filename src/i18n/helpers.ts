@@ -1216,6 +1216,7 @@ export function mapNavTabToMetadataPage(
     case 'mylist':
       return 'watchlist';
     case 'dashboard':
+    case 'rewards':
       return 'dashboard';
     default:
       return 'home';

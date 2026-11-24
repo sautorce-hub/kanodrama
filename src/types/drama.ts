@@ -81,7 +81,8 @@ export type NavTab =
   | 'anime'
   | 'dubbing'
   | 'mylist'
-  | 'dashboard';
+  | 'dashboard'
+  | 'rewards';
 
 export interface HomeCatalogResponse {
   lang: LanguageCode;

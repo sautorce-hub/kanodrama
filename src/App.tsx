@@ -377,6 +377,14 @@ function parseTabFromLocation(): NavTab {
   if (p === '/trending') return 'ranking';
   if (p === '/latest') return 'terbaru';
   if (p === '/vip') return 'vip';
+  if (
+    p === '/rewards' ||
+    p.startsWith('/rewards/') ||
+    p === '/referral' ||
+    p.startsWith('/referral/')
+  ) {
+    return 'rewards';
+  }
   if (p === '/account' || p.startsWith('/account/')) return 'dashboard';
   if (p === '/watchlist' || p.startsWith('/watchlist/')) return 'mylist';
   if (p === '/dashboard' || p.startsWith('/dashboard/')) return 'dashboard';
@@ -402,6 +410,8 @@ function getTabPath(tab: NavTab): string {
     case 'mylist':
     case 'dashboard':
       return '/account';
+    case 'rewards':
+      return '/rewards';
     default:
       return '/';
   }
@@ -888,7 +898,22 @@ export default function App() {
   const [providerHubOpen, setProviderHubOpen] = useState(false);
   const [dashboardSubTab, setDashboardSubTab] = useState<
     'profile' | 'rewards' | 'watchlist' | 'history' | 'comments'
-  >('profile');
+  >(() => {
+    if (typeof window === 'undefined') return 'profile';
+    const p = window.location.pathname.toLowerCase();
+    const tabParam = new URLSearchParams(window.location.search).get('tab')?.toLowerCase();
+    if (
+      p === '/rewards' ||
+      p.startsWith('/rewards/') ||
+      p === '/referral' ||
+      p.startsWith('/referral/') ||
+      tabParam === 'rewards' ||
+      tabParam === 'referral'
+    ) {
+      return 'rewards';
+    }
+    return 'profile';
+  });
   const [dashboardWatchlistCategory, setDashboardWatchlistCategory] = useState<
     'movie' | 'drama'
   >('movie');
@@ -1844,6 +1869,9 @@ export default function App() {
       if (activeTab === 'providers') {
         setSelectedProvider('All');
       }
+      if (tab === 'rewards') {
+        setDashboardSubTab('rewards');
+      }
       setActiveTab(tab);
       const nextPath = getTabPath(tab);
       if (window.location.pathname !== nextPath || window.location.search) {
@@ -1926,12 +1954,14 @@ export default function App() {
       const detail = (
         evt as CustomEvent<{
           tab?: NavTab;
-          subTab?: 'profile' | 'watchlist' | 'history' | 'comments';
+          subTab?: 'profile' | 'rewards' | 'watchlist' | 'history' | 'comments';
           watchlistCategory?: 'movie' | 'drama';
         }>
       ).detail;
       if (detail?.tab) {
-        if (detail.tab === 'dashboard') {
+        if (detail.tab === 'rewards') {
+          setDashboardSubTab('rewards');
+        } else if (detail.tab === 'dashboard') {
           setDashboardSubTab(detail.subTab ?? 'profile');
           if (detail.watchlistCategory) {
             setDashboardWatchlistCategory(detail.watchlistCategory);
@@ -1971,6 +2001,11 @@ export default function App() {
           setInvalidProviderSlug(rawSlug);
           window.history.pushState({}, '', normalized);
         }
+        return;
+      }
+      if (lower === '/rewards' || lower === '/referral') {
+        setDashboardSubTab('rewards');
+        handleNavigateTab('rewards');
         return;
       }
       if (lower === '/account' || lower === '/dashboard') {
@@ -3385,7 +3420,7 @@ export default function App() {
         </main>
       ) : (
         <main className="flex-1 pb-20 md:pb-8">
-          {activeTab === 'dashboard' ? (
+          {activeTab === 'dashboard' || activeTab === 'rewards' ? (
             <Suspense
               fallback={
                 <div className="max-w-[1440px] mx-auto px-4 md:px-8 py-16 flex justify-center">
@@ -3399,7 +3434,7 @@ export default function App() {
                   handlePlayEpisode(d, ep, [], resumeTimeSec)
                 }
                 onBackToHome={() => handleNavigateTab('home')}
-                initialSubTab={dashboardSubTab}
+                initialSubTab={activeTab === 'rewards' ? 'rewards' : dashboardSubTab}
                 initialWatchlistCategory={dashboardWatchlistCategory}
               />
             </Suspense>

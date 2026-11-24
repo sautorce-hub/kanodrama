@@ -2,6 +2,13 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Pool, type PoolClient, type PoolConfig, type QueryResult, type QueryResultRow } from 'pg';
+import {
+  ANTI_CHEAT_DEFAULTS,
+  type DailyMissionMilestoneConfig,
+  getDatabaseUrl,
+  getRewardsRuntimeValues,
+  isPgSslRequired,
+} from './config.ts';
 
 let pool: Pool | null = null;
 let schemaReadyPromise: Promise<boolean> | null = null;
@@ -30,10 +37,7 @@ export function getJakartaDateKey(date: Date = new Date()): string {
 }
 
 function buildPoolConfig(connectionString: string): PoolConfig {
-  const needsSsl =
-    connectionString.includes('sslmode=require') ||
-    connectionString.includes('neon.tech') ||
-    process.env.PGSSLMODE === 'require';
+  const needsSsl = isPgSslRequired(connectionString);
 
   return {
     connectionString,
@@ -73,7 +77,7 @@ function isTransientPoolError(err: unknown): boolean {
 
 export function getPool(): Pool | null {
   if (pool) return pool;
-  const conn = (process.env.DATABASE_URL || '').trim();
+  const conn = getDatabaseUrl();
   if (!conn) return null;
 
   try {
@@ -96,7 +100,7 @@ export function getPool(): Pool | null {
 }
 
 export function isDatabaseEnabled(): boolean {
-  return Boolean((process.env.DATABASE_URL || '').trim()) && dbAvailable;
+  return Boolean(getDatabaseUrl()) && dbAvailable;
 }
 
 export async function dbQuery<T extends QueryResultRow = QueryResultRow>(
@@ -517,6 +521,16 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_security_signals_ip ON user_security_signals (ip_hash)`,
   `CREATE INDEX IF NOT EXISTS idx_security_signals_subnet ON user_security_signals (subnet_hash)`,
   `CREATE INDEX IF NOT EXISTS idx_security_signals_device ON user_security_signals (device_hash)`,
+
+  `CREATE TABLE IF NOT EXISTS email_credentials (
+    email TEXT PRIMARY KEY,
+    uid TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT 'Kano Viewer',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_email_credentials_uid ON email_credentials (uid)`,
 ];
 
 export async function ensureDatabaseReady(): Promise<boolean> {
@@ -601,6 +615,197 @@ export interface DbUserRecord {
   preferences: Record<string, unknown>;
 }
 
+interface EmailCredentialFallbackRecord {
+  email: string;
+  uid: string;
+  passwordHash: string;
+  displayName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AuthFallbackStore {
+  emailCredentials: Record<string, EmailCredentialFallbackRecord>;
+  users: Record<string, DbUserRecord>;
+}
+
+const AUTH_FALLBACK_CACHE_PATH = path.resolve(
+  process.cwd(),
+  '.cache',
+  'email-auth.json'
+);
+let authFallbackStore: AuthFallbackStore | null = null;
+let authFallbackQueue: Promise<unknown> = Promise.resolve();
+
+function withAuthFallbackLock<T>(fn: () => Promise<T> | T): Promise<T> {
+  const next = authFallbackQueue.then(fn, fn);
+  authFallbackQueue = next.catch(() => {});
+  return next;
+}
+
+function loadAuthFallbackStore(): AuthFallbackStore {
+  if (authFallbackStore) return authFallbackStore;
+  try {
+    if (fs.existsSync(AUTH_FALLBACK_CACHE_PATH)) {
+      const parsed = JSON.parse(
+        fs.readFileSync(AUTH_FALLBACK_CACHE_PATH, 'utf-8')
+      ) as Partial<AuthFallbackStore>;
+      authFallbackStore = {
+        emailCredentials:
+          parsed.emailCredentials && typeof parsed.emailCredentials === 'object'
+            ? parsed.emailCredentials
+            : {},
+        users:
+          parsed.users && typeof parsed.users === 'object' ? parsed.users : {},
+      };
+      return authFallbackStore;
+    }
+  } catch {
+    // Ignore corrupt snapshot and initialize clean store
+  }
+  authFallbackStore = { emailCredentials: {}, users: {} };
+  return authFallbackStore;
+}
+
+function persistAuthFallbackStore(store: AuthFallbackStore): void {
+  try {
+    const dir = path.dirname(AUTH_FALLBACK_CACHE_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const tmp = `${AUTH_FALLBACK_CACHE_PATH}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(store, null, 2), 'utf-8');
+    fs.renameSync(tmp, AUTH_FALLBACK_CACHE_PATH);
+  } catch (err) {
+    console.warn(
+      '[AuthFallback] Disk snapshot write failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
+const SCRYPT_N = 16384;
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+const SCRYPT_KEYLEN = 64;
+
+function scryptAsync(
+  password: string,
+  salt: string,
+  keylen: number,
+  options: crypto.ScryptOptions
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    crypto.scrypt(password, salt, keylen, options, (err, derivedKey) => {
+      if (err) reject(err);
+      else resolve(derivedKey);
+    });
+  });
+}
+
+export async function hashPasswordScrypt(password: string): Promise<string> {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = await scryptAsync(password, salt, SCRYPT_KEYLEN, {
+    N: SCRYPT_N,
+    r: SCRYPT_R,
+    p: SCRYPT_P,
+  });
+  return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt}$${derived.toString('hex')}`;
+}
+
+export async function verifyPasswordScrypt(
+  password: string,
+  storedHash: string
+): Promise<boolean> {
+  const parts = storedHash.split('$');
+  if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
+  const n = Number(parts[1]);
+  const r = Number(parts[2]);
+  const p = Number(parts[3]);
+  const salt = parts[4];
+  const expectedHex = parts[5];
+  if (!salt || !expectedHex || !Number.isFinite(n) || !Number.isFinite(r) || !Number.isFinite(p)) {
+    return false;
+  }
+  try {
+    const expectedBuf = Buffer.from(expectedHex, 'hex');
+    const derived = await scryptAsync(password, salt, expectedBuf.length, { N: n, r, p });
+    return (
+      derived.length === expectedBuf.length &&
+      crypto.timingSafeEqual(derived, expectedBuf)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function syncUserFallback(input: {
+  uid: string;
+  email?: string;
+  displayName?: string;
+  photoURL?: string | null;
+  avatarInitials?: string;
+  avatarColor?: string;
+  visitDate?: string;
+}): DbUserRecord {
+  const store = loadAuthFallbackStore();
+  const today = (input.visitDate || getDateKeyUtc()).slice(0, 10);
+  const yesterday = getDateKeyUtc(-1);
+  const prev = store.users[input.uid];
+
+  let nextStreak = 1;
+  if (prev) {
+    const prevCount = Number(prev.streakCount) || 1;
+    if (prev.lastVisitDate === today) {
+      nextStreak = Math.max(1, prevCount);
+    } else if (prev.lastVisitDate === yesterday) {
+      nextStreak = Math.max(2, prevCount + 1);
+    } else {
+      nextStreak = 1;
+    }
+  }
+
+  const email = (input.email || prev?.email || '').trim().slice(0, 180);
+  const incomingName = (input.displayName || '').trim().slice(0, 120);
+  const displayName =
+    prev?.displayName && prev.displayName !== 'Kano Viewer'
+      ? prev.displayName
+      : incomingName || 'Kano Viewer';
+  const record: DbUserRecord = {
+    uid: input.uid,
+    email,
+    displayName,
+    photoURL:
+      input.photoURL !== undefined
+        ? input.photoURL
+          ? input.photoURL.trim().slice(0, 500)
+          : null
+        : prev?.photoURL ?? null,
+    avatarInitials: (input.avatarInitials || prev?.avatarInitials || 'KD').trim().slice(0, 4),
+    avatarColor: (input.avatarColor || prev?.avatarColor || '#EF4444').trim().slice(0, 24),
+    streakCount: nextStreak,
+    lastVisitDate: today,
+    isVip: nextStreak >= 3,
+    bio: prev?.bio || '',
+    preferredLanguage: prev?.preferredLanguage || 'en',
+    preferences: prev?.preferences || {},
+  };
+
+  store.users[input.uid] = record;
+  persistAuthFallbackStore(store);
+
+  // Also ensure referral code mapping exists in points fallback store
+  const ptsStore = loadPointsFallbackStore();
+  const refCode = buildReferralCodeForUser(input.uid);
+  if (!ptsStore.referralCodeToUid[refCode]) {
+    ptsStore.referralCodeToUid[refCode] = input.uid;
+    ptsStore.userNames[input.uid] = record.displayName;
+    persistPointsFallbackStore(ptsStore);
+  }
+
+  return record;
+}
+
 export async function syncUserInDb(input: {
   uid: string;
   email?: string;
@@ -611,9 +816,9 @@ export async function syncUserInDb(input: {
   visitDate?: string;
 }): Promise<DbUserRecord | null> {
   const activePool = getPool();
-  if (!activePool) return null;
-  await ensureDatabaseReady();
-  if (!dbAvailable) return null;
+  if (!activePool || !(await ensureDatabaseReady()) || !dbAvailable) {
+    return withAuthFallbackLock(() => syncUserFallback(input));
+  }
 
   const today = (input.visitDate || getDateKeyUtc()).slice(0, 10);
   const yesterday = getDateKeyUtc(-1);
@@ -623,7 +828,9 @@ export async function syncUserInDb(input: {
       streak_count: number;
       last_visit_date: string;
     }>('SELECT streak_count, last_visit_date FROM users WHERE uid = $1', [input.uid]);
-    if (!existingRes) return null;
+    if (!existingRes) {
+      return withAuthFallbackLock(() => syncUserFallback(input));
+    }
 
     let nextStreak = 1;
     if (existingRes.rows.length > 0) {
@@ -644,6 +851,7 @@ export async function syncUserInDb(input: {
     const photoURL = input.photoURL ? input.photoURL.trim().slice(0, 500) : null;
     const avatarInitials = (input.avatarInitials || 'KD').trim().slice(0, 4);
     const avatarColor = (input.avatarColor || '#EF4444').trim().slice(0, 24);
+    const referralCode = buildReferralCodeForUser(input.uid);
 
     const upsertRes = await dbQuery<{
       uid: string;
@@ -661,9 +869,9 @@ export async function syncUserInDb(input: {
     }>(
       `INSERT INTO users (
          uid, email, display_name, photo_url, avatar_initials, avatar_color,
-         streak_count, last_visit_date, is_vip, created_at, updated_at
+         streak_count, last_visit_date, is_vip, referral_code, created_at, updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
        ON CONFLICT (uid) DO UPDATE SET
          email = CASE WHEN EXCLUDED.email <> '' THEN EXCLUDED.email ELSE users.email END,
          display_name = CASE WHEN users.display_name <> '' AND users.display_name <> 'Kano Viewer' THEN users.display_name ELSE EXCLUDED.display_name END,
@@ -673,6 +881,7 @@ export async function syncUserInDb(input: {
          streak_count = EXCLUDED.streak_count,
          last_visit_date = EXCLUDED.last_visit_date,
          is_vip = EXCLUDED.is_vip,
+         referral_code = CASE WHEN users.referral_code = '' THEN EXCLUDED.referral_code ELSE users.referral_code END,
          updated_at = NOW()
        RETURNING uid, email, display_name, photo_url, avatar_initials, avatar_color, streak_count, last_visit_date, is_vip, bio, preferred_language, preferences_json`,
       [
@@ -685,28 +894,223 @@ export async function syncUserInDb(input: {
         nextStreak,
         today,
         isVip,
+        referralCode,
       ]
     );
 
     const row = upsertRes?.rows[0];
-    if (!row) return null;
-  return {
-    uid: row.uid,
-    email: row.email,
-    displayName: row.display_name,
-    photoURL: row.photo_url,
-    avatarInitials: row.avatar_initials,
-    avatarColor: row.avatar_color,
-    streakCount: Number(row.streak_count) || 1,
-    lastVisitDate: row.last_visit_date,
-    isVip: Boolean(row.is_vip),
-    bio: row.bio || '',
-    preferredLanguage: row.preferred_language || 'en',
-    preferences: row.preferences_json || {},
-  };
+    if (!row) {
+      return withAuthFallbackLock(() => syncUserFallback(input));
+    }
+    return {
+      uid: row.uid,
+      email: row.email,
+      displayName: row.display_name,
+      photoURL: row.photo_url,
+      avatarInitials: row.avatar_initials,
+      avatarColor: row.avatar_color,
+      streakCount: Number(row.streak_count) || 1,
+      lastVisitDate: row.last_visit_date,
+      isVip: Boolean(row.is_vip),
+      bio: row.bio || '',
+      preferredLanguage: row.preferred_language || 'en',
+      preferences: row.preferences_json || {},
+    };
   } catch {
-    return null;
+    return withAuthFallbackLock(() => syncUserFallback(input));
   }
+}
+
+export async function registerEmailAccountInDb(input: {
+  email: string;
+  password: string;
+  displayName?: string;
+  avatarInitials: string;
+  avatarColor: string;
+  visitDate?: string;
+}): Promise<
+  | { ok: true; user: DbUserRecord }
+  | { ok: false; reason: 'email_exists' | 'invalid_input' }
+> {
+  const cleanEmail = input.email.trim().toLowerCase().slice(0, 180);
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(cleanEmail) ||
+    input.password.length < 6 ||
+    input.password.length > 128
+  ) {
+    return { ok: false, reason: 'invalid_input' };
+  }
+
+  const displayName = (
+    (input.displayName || '').trim() ||
+    cleanEmail.split('@')[0] ||
+    'Kano Viewer'
+  ).slice(0, 120);
+  const uid = `email_${crypto
+    .createHash('sha256')
+    .update(cleanEmail)
+    .digest('hex')
+    .slice(0, 20)}`;
+  const passwordHash = await hashPasswordScrypt(input.password);
+
+  const activePool = getPool();
+  if (activePool && (await ensureDatabaseReady()) && dbAvailable) {
+    let client: PoolClient | null = null;
+    try {
+      client = await activePool.connect();
+      await client.query('BEGIN');
+
+      const existing = await client.query<{ email: string }>(
+        `SELECT email FROM email_credentials WHERE email = $1 LIMIT 1`,
+        [cleanEmail]
+      );
+      if (existing.rows.length > 0) {
+        await client.query('COMMIT');
+        return { ok: false, reason: 'email_exists' };
+      }
+
+      await client.query(
+        `INSERT INTO email_credentials (email, uid, password_hash, display_name, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+        [cleanEmail, uid, passwordHash, displayName]
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      try {
+        await client?.query('ROLLBACK');
+      } catch {
+        // Ignore rollback error
+      }
+      const pgCode = String((err as { code?: unknown })?.code || '');
+      if (pgCode === '23505') {
+        return { ok: false, reason: 'email_exists' };
+      }
+      console.warn(
+        '[PostgreSQL] registerEmailAccountInDb failed, using fallback:',
+        err instanceof Error ? err.message : String(err)
+      );
+      client = null;
+    } finally {
+      client?.release();
+    }
+
+    if (dbAvailable) {
+      const synced = await syncUserInDb({
+        uid,
+        email: cleanEmail,
+        displayName,
+        photoURL: null,
+        avatarInitials: input.avatarInitials,
+        avatarColor: input.avatarColor,
+        visitDate: input.visitDate,
+      });
+      if (synced) {
+        return { ok: true, user: synced };
+      }
+    }
+  }
+
+  return withAuthFallbackLock(() => {
+    const store = loadAuthFallbackStore();
+    if (store.emailCredentials[cleanEmail]) {
+      return { ok: false as const, reason: 'email_exists' as const };
+    }
+    const nowIso = new Date().toISOString();
+    store.emailCredentials[cleanEmail] = {
+      email: cleanEmail,
+      uid,
+      passwordHash,
+      displayName,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    persistAuthFallbackStore(store);
+    const user = syncUserFallback({
+      uid,
+      email: cleanEmail,
+      displayName,
+      photoURL: null,
+      avatarInitials: input.avatarInitials,
+      avatarColor: input.avatarColor,
+      visitDate: input.visitDate,
+    });
+    return { ok: true as const, user };
+  });
+}
+
+export async function authenticateEmailAccountInDb(input: {
+  email: string;
+  password: string;
+  avatarInitials: string;
+  avatarColor: string;
+  visitDate?: string;
+}): Promise<
+  | { ok: true; user: DbUserRecord }
+  | { ok: false; reason: 'invalid_credentials' }
+> {
+  const cleanEmail = input.email.trim().toLowerCase().slice(0, 180);
+  if (!cleanEmail || !input.password || input.password.length > 128) {
+    return { ok: false, reason: 'invalid_credentials' };
+  }
+
+  const activePool = getPool();
+  if (activePool && (await ensureDatabaseReady()) && dbAvailable) {
+    const res = await dbQuery<{
+      uid: string;
+      password_hash: string;
+      display_name: string;
+    }>(
+      `SELECT uid, password_hash, display_name
+       FROM email_credentials
+       WHERE email = $1
+       LIMIT 1`,
+      [cleanEmail]
+    );
+    const row = res?.rows[0];
+    if (res) {
+      if (!row) {
+        return { ok: false, reason: 'invalid_credentials' };
+      }
+      const matched = await verifyPasswordScrypt(input.password, row.password_hash);
+      if (!matched) {
+        return { ok: false, reason: 'invalid_credentials' };
+      }
+      const synced = await syncUserInDb({
+        uid: row.uid,
+        email: cleanEmail,
+        displayName: row.display_name,
+        photoURL: null,
+        avatarInitials: input.avatarInitials,
+        avatarColor: input.avatarColor,
+        visitDate: input.visitDate,
+      });
+      if (synced) {
+        return { ok: true, user: synced };
+      }
+    }
+  }
+
+  return withAuthFallbackLock(async () => {
+    const store = loadAuthFallbackStore();
+    const cred = store.emailCredentials[cleanEmail];
+    if (!cred) {
+      return { ok: false as const, reason: 'invalid_credentials' as const };
+    }
+    const matched = await verifyPasswordScrypt(input.password, cred.passwordHash);
+    if (!matched) {
+      return { ok: false as const, reason: 'invalid_credentials' as const };
+    }
+    const user = syncUserFallback({
+      uid: cred.uid,
+      email: cleanEmail,
+      displayName: cred.displayName,
+      photoURL: null,
+      avatarInitials: input.avatarInitials,
+      avatarColor: input.avatarColor,
+      visitDate: input.visitDate,
+    });
+    return { ok: true as const, user };
+  });
 }
 
 export function buildGmailAccountKey(uid: string, email?: string): string {
@@ -793,6 +1197,13 @@ export async function getUniqueGmailLoginCountFromDb(): Promise<number | null> {
 }
 
 export async function getUserFromDb(uid: string): Promise<DbUserRecord | null> {
+  const activePool = getPool();
+  if (!activePool || !(await ensureDatabaseReady()) || !dbAvailable) {
+    return withAuthFallbackLock(() => {
+      const store = loadAuthFallbackStore();
+      return store.users[uid] || null;
+    });
+  }
   const res = await dbQuery<{
     uid: string;
     email: string;
@@ -812,7 +1223,12 @@ export async function getUserFromDb(uid: string): Promise<DbUserRecord | null> {
     [uid]
   );
   const row = res?.rows[0];
-  if (!row) return null;
+  if (!row) {
+    return withAuthFallbackLock(() => {
+      const store = loadAuthFallbackStore();
+      return store.users[uid] || null;
+    });
+  }
   return {
     uid: row.uid,
     email: row.email,
@@ -837,9 +1253,41 @@ export async function updateUserProfileInDb(input: {
   preferences?: Record<string, unknown>;
 }): Promise<DbUserRecord | null> {
   const activePool = getPool();
-  if (!activePool) return null;
-  await ensureDatabaseReady();
-  if (!dbAvailable) return null;
+  if (!activePool || !(await ensureDatabaseReady()) || !dbAvailable) {
+    return withAuthFallbackLock(() => {
+      const store = loadAuthFallbackStore();
+      const existing = store.users[input.uid] || syncUserFallback({ uid: input.uid });
+      const nextName =
+        typeof input.displayName === 'string' && input.displayName.trim()
+          ? input.displayName.trim().slice(0, 120)
+          : existing.displayName || 'Kano Viewer';
+      const nextBio =
+        typeof input.bio === 'string'
+          ? input.bio.trim().slice(0, 320)
+          : existing.bio || '';
+      const nextLang =
+        typeof input.preferredLanguage === 'string' &&
+        ['en', 'id', 'cn', 'vi', 'es', 'ko', 'ja', 'th', 'ms', 'tl'].includes(
+          input.preferredLanguage
+        )
+          ? input.preferredLanguage
+          : existing.preferredLanguage || 'en';
+      const mergedPrefs = {
+        ...(existing.preferences || {}),
+        ...(input.preferences || {}),
+      };
+      const updated: DbUserRecord = {
+        ...existing,
+        displayName: nextName,
+        bio: nextBio,
+        preferredLanguage: nextLang,
+        preferences: mergedPrefs,
+      };
+      store.users[input.uid] = updated;
+      persistAuthFallbackStore(store);
+      return updated;
+    });
+  }
 
   const existing = await getUserFromDb(input.uid);
   const nextName =
@@ -3189,6 +3637,9 @@ export interface PayoutRuntimeConfig {
   claimCooldownSeconds: number;
   dailyCheckinPoints: number;
   watchEpisodePoints: number;
+  watchMinutePoints: number;
+  dailyMissionMaxWatchSeconds: number;
+  dailyMissionMilestones: DailyMissionMilestoneConfig[];
   referralQualifySeconds: number;
   referralBonusPoints: number;
   maxDailyReferrals: number;
@@ -3232,6 +3683,9 @@ export interface UserPointsSummary {
   totalRedeemed: number;
   todayEarned: number;
   maxDailyEarnPoints: number;
+  todayWatchSeconds: number;
+  todayWatchPointsEarned: number;
+  dailyMissionMaxWatchSeconds: number;
   estimatedUsd: number;
   estimatedIdr: number;
   lastClaimAt: string | null;
@@ -3273,105 +3727,9 @@ const USD_PAYOUT_METHODS: ReadonlySet<PayoutMethod> = new Set([
   'wise',
 ]);
 
-function parseBoundedIntEnv(
-  raw: string | undefined,
-  fallback: number,
-  min: number,
-  max: number
-): number {
-  const num = Number(raw);
-  if (!Number.isFinite(num) || num <= 0) return fallback;
-  return Math.min(max, Math.max(min, Math.round(num)));
-}
-
-function parseBoundedFloatEnv(
-  raw: string | undefined,
-  fallback: number,
-  min: number,
-  max: number
-): number {
-  const num = Number(raw);
-  if (!Number.isFinite(num) || num <= 0) return fallback;
-  return Math.min(max, Math.max(min, Math.round(num * 100) / 100));
-}
-
 export function getPayoutRuntimeConfig(): PayoutRuntimeConfig {
-  const usdToIdrRate = parseBoundedIntEnv(
-    process.env.USD_TO_IDR_RATE,
-    16000,
-    1000,
-    100000
-  );
-  const pointsPerUsd = parseBoundedIntEnv(
-    process.env.POINTS_PER_USD,
-    10000,
-    100,
-    1000000
-  );
-  const minPayoutIdr = parseBoundedIntEnv(
-    process.env.MIN_PAYOUT_IDR,
-    50000,
-    50000,
-    50000000
-  );
-  const minPayoutUsd = parseBoundedFloatEnv(
-    process.env.MIN_PAYOUT_USD,
-    5.0,
-    5.0,
-    10000
-  );
-  const derivedPointsIdr = Math.ceil((minPayoutIdr / usdToIdrRate) * pointsPerUsd);
-  const derivedPointsUsd = Math.ceil(minPayoutUsd * pointsPerUsd);
-  const minPayoutPointsIdr = Math.max(
-    derivedPointsIdr,
-    parseBoundedIntEnv(process.env.MIN_PAYOUT_POINTS_IDR, derivedPointsIdr, 1000, 10000000)
-  );
-  const minPayoutPointsUsd = Math.max(
-    derivedPointsUsd,
-    parseBoundedIntEnv(process.env.MIN_PAYOUT_POINTS_USD, derivedPointsUsd, 1000, 10000000)
-  );
-  const maxDailyEarnPoints = parseBoundedIntEnv(
-    process.env.MAX_DAILY_EARN_POINTS,
-    500,
-    50,
-    50000
-  );
-  const claimCooldownSeconds = parseBoundedIntEnv(
-    process.env.CLAIM_COOLDOWN_SECONDS,
-    45,
-    5,
-    3600
-  );
-  const referralQualifySeconds = parseBoundedIntEnv(
-    process.env.REFERRAL_QUALIFY_SECONDS,
-    3600,
-    3600,
-    86400
-  );
-  const referralBonusPoints = parseBoundedIntEnv(
-    process.env.REFERRAL_BONUS_POINTS,
-    500,
-    50,
-    50000
-  );
-  const maxDailyReferrals = parseBoundedIntEnv(
-    process.env.MAX_DAILY_REFERRALS,
-    5,
-    1,
-    50
-  );
-  const maxWeeklyReferrals = parseBoundedIntEnv(
-    process.env.MAX_WEEKLY_REFERRALS,
-    15,
-    1,
-    200
-  );
-  const maxDailyVerifiedWatchSeconds = parseBoundedIntEnv(
-    process.env.MAX_DAILY_VERIFIED_WATCH_SECONDS,
-    28800,
-    3600,
-    43200
-  );
+  const runtime = getRewardsRuntimeValues();
+  const { minPayoutPointsIdr, minPayoutPointsUsd } = runtime;
 
   const methods: PayoutMethodDescriptor[] = [
     {
@@ -3441,21 +3799,7 @@ export function getPayoutRuntimeConfig(): PayoutRuntimeConfig {
   ];
 
   return {
-    usdToIdrRate,
-    pointsPerUsd,
-    minPayoutIdr,
-    minPayoutUsd,
-    minPayoutPointsIdr,
-    minPayoutPointsUsd,
-    maxDailyEarnPoints,
-    claimCooldownSeconds,
-    dailyCheckinPoints: 50,
-    watchEpisodePoints: 25,
-    referralQualifySeconds,
-    referralBonusPoints,
-    maxDailyReferrals,
-    maxWeeklyReferrals,
-    maxDailyVerifiedWatchSeconds,
+    ...runtime,
     methods,
   };
 }
@@ -3701,7 +4045,8 @@ function summarizeUserFallback(
   let totalEarned = 0;
   let totalRedeemed = 0;
   let todayEarned = 0;
-  let lastEarnTimeMs = 0;
+  let todayWatchPointsEarned = 0;
+  let lastManualClaimTimeMs = 0;
   let dailyCheckinClaimedToday = false;
   const checkinRef = `checkin:${userId}:${todayKey}`;
 
@@ -3715,10 +4060,21 @@ function summarizeUserFallback(
         const createdDateKey = getJakartaDateKey(new Date(row.createdAt));
         if (createdDateKey === todayKey) {
           todayEarned += row.points;
+          if (
+            row.referenceId.startsWith('watch_min:') ||
+            row.referenceId.startsWith('mission_')
+          ) {
+            todayWatchPointsEarned += row.points;
+          }
         }
-        const ts = Date.parse(row.createdAt);
-        if (Number.isFinite(ts) && ts > lastEarnTimeMs) {
-          lastEarnTimeMs = ts;
+        const isManualClaim =
+          row.referenceId.startsWith('checkin:') ||
+          row.referenceId.startsWith('watch:');
+        if (isManualClaim) {
+          const ts = Date.parse(row.createdAt);
+          if (Number.isFinite(ts) && ts > lastManualClaimTimeMs) {
+            lastManualClaimTimeMs = ts;
+          }
         }
       }
     } else if (row.type === 'redeem') {
@@ -3726,12 +4082,20 @@ function summarizeUserFallback(
     }
   }
 
+  const tel = store.watchTelemetry[userId];
+  const todayWatchSeconds =
+    tel && tel.todayDateKey === todayKey
+      ? Math.max(0, Number(tel.todayWatchSeconds) || 0)
+      : 0;
+
   const balance = Math.max(0, totalEarned - totalRedeemed);
   const { usdAmount, idrAmount } = computePointsConversion(balance, cfg);
   const elapsedSec =
-    lastEarnTimeMs > 0 ? Math.floor((Date.now() - lastEarnTimeMs) / 1000) : 999999;
+    lastManualClaimTimeMs > 0
+      ? Math.floor((Date.now() - lastManualClaimTimeMs) / 1000)
+      : 999999;
   const cooldownSecondsRemaining =
-    lastEarnTimeMs > 0 && elapsedSec < cfg.claimCooldownSeconds
+    lastManualClaimTimeMs > 0 && elapsedSec < cfg.claimCooldownSeconds
       ? Math.max(1, cfg.claimCooldownSeconds - elapsedSec)
       : 0;
 
@@ -3746,9 +4110,15 @@ function summarizeUserFallback(
     totalRedeemed,
     todayEarned,
     maxDailyEarnPoints: cfg.maxDailyEarnPoints,
+    todayWatchSeconds,
+    todayWatchPointsEarned,
+    dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
     estimatedUsd: usdAmount,
     estimatedIdr: idrAmount,
-    lastClaimAt: lastEarnTimeMs > 0 ? new Date(lastEarnTimeMs).toISOString() : null,
+    lastClaimAt:
+      lastManualClaimTimeMs > 0
+        ? new Date(lastManualClaimTimeMs).toISOString()
+        : null,
     cooldownSecondsRemaining,
     dailyCheckinClaimedToday,
     ledger: userLedger.slice(0, 40),
@@ -3837,6 +4207,7 @@ async function queryUserPointsSummaryOnClient(
     total_earned: string;
     total_redeemed: string;
     today_earned: string;
+    today_watch_points: string;
     last_claim_at: Date | null;
     checkin_today: boolean;
   }>(
@@ -3852,9 +4223,19 @@ async function queryUserPointsSummaryOnClient(
            ELSE 0
          END
        ), 0)::text AS today_earned,
+       COALESCE(SUM(
+         CASE
+           WHEN type = 'earn'
+            AND (reference_id LIKE 'watch_min:%' OR reference_id LIKE 'mission_%')
+            AND (created_at AT TIME ZONE 'Asia/Jakarta')::date = $2::date
+           THEN points
+           ELSE 0
+         END
+       ), 0)::text AS today_watch_points,
        MAX(
          CASE
-           WHEN type = 'earn' AND reference_id NOT LIKE 'refund:payout:%'
+           WHEN type = 'earn'
+            AND (reference_id LIKE 'checkin:%' OR reference_id LIKE 'watch:%')
            THEN created_at
            ELSE NULL
          END
@@ -3865,10 +4246,27 @@ async function queryUserPointsSummaryOnClient(
     [userId, todayKey, checkinRef]
   );
 
+  const telRes = await client.query<{
+    today_watch_seconds: number;
+    today_date_key: string;
+  }>(
+    `SELECT today_watch_seconds, today_date_key
+     FROM watch_telemetry
+     WHERE user_id = $1
+     LIMIT 1`,
+    [userId]
+  );
+
   const agg = aggRes.rows[0];
   const totalEarned = Math.max(0, Number(agg?.total_earned) || 0);
   const totalRedeemed = Math.max(0, Number(agg?.total_redeemed) || 0);
   const todayEarned = Math.max(0, Number(agg?.today_earned) || 0);
+  const todayWatchPointsEarned = Math.max(0, Number(agg?.today_watch_points) || 0);
+  const telRow = telRes.rows[0];
+  const todayWatchSeconds =
+    telRow && telRow.today_date_key === todayKey
+      ? Math.max(0, Number(telRow.today_watch_seconds) || 0)
+      : 0;
   const balance = Math.max(0, totalEarned - totalRedeemed);
   const lastClaimDate = agg?.last_claim_at instanceof Date ? agg.last_claim_at : null;
   const elapsedSec = lastClaimDate
@@ -3929,6 +4327,9 @@ async function queryUserPointsSummaryOnClient(
     totalRedeemed,
     todayEarned,
     maxDailyEarnPoints: cfg.maxDailyEarnPoints,
+    todayWatchSeconds,
+    todayWatchPointsEarned,
+    dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
     estimatedUsd: usdAmount,
     estimatedIdr: idrAmount,
     lastClaimAt: lastClaimDate ? lastClaimDate.toISOString() : null,
@@ -4022,7 +4423,8 @@ export async function claimPointsInDb(input: {
            ), 0)::text AS today_earned,
            MAX(
              CASE
-               WHEN type = 'earn' AND reference_id NOT LIKE 'refund:payout:%'
+               WHEN type = 'earn'
+                AND (reference_id LIKE 'checkin:%' OR reference_id LIKE 'watch:%')
                THEN created_at
                ELSE NULL
              END
@@ -4784,31 +5186,88 @@ export async function updateAdminPayoutStatusInDb(input: {
   });
 }
 
-const BASELINE_LIVE_PAYOUTS: Array<{
-  id: string;
-  maskedUser: string;
-  countryCode: string;
-  method: PayoutMethod;
-  usdAmount: number;
-  idrAmount: number;
-  minutesAgo: number;
-}> = [
-  { id: 'live-seed-1', maskedUser: 'R***a', countryCode: 'ID', method: 'dana', usdAmount: 2.0, idrAmount: 32000, minutesAgo: 4 },
-  { id: 'live-seed-2', maskedUser: 'D***n', countryCode: 'ID', method: 'gopay', usdAmount: 1.5, idrAmount: 24000, minutesAgo: 11 },
-  { id: 'live-seed-3', maskedUser: 'A***l', countryCode: 'US', method: 'paypal', usdAmount: 3.5, idrAmount: 56000, minutesAgo: 19 },
-  { id: 'live-seed-4', maskedUser: 'M***i', countryCode: 'SG', method: 'usdt_polygon', usdAmount: 5.0, idrAmount: 80000, minutesAgo: 28 },
-  { id: 'live-seed-5', maskedUser: 'K***o', countryCode: 'ID', method: 'ovo', usdAmount: 1.0, idrAmount: 16000, minutesAgo: 41 },
-  { id: 'live-seed-6', maskedUser: 'S***a', countryCode: 'ID', method: 'bank_transfer', usdAmount: 3.0, idrAmount: 48000, minutesAgo: 58 },
-  { id: 'live-seed-7', maskedUser: 'F***r', countryCode: 'MY', method: 'wise', usdAmount: 4.0, idrAmount: 64000, minutesAgo: 84 },
-  { id: 'live-seed-8', maskedUser: 'N***y', countryCode: 'PH', method: 'usdt_trc20', usdAmount: 2.5, idrAmount: 40000, minutesAgo: 115 },
-  { id: 'live-seed-9', maskedUser: 'T***s', countryCode: 'ID', method: 'dana', usdAmount: 2.5, idrAmount: 40000, minutesAgo: 148 },
-  { id: 'live-seed-10', maskedUser: 'Y***i', countryCode: 'US', method: 'paypal', usdAmount: 2.75, idrAmount: 44000, minutesAgo: 195 },
-];
+const LIVE_MASKED_USERS = [
+  'R***a',
+  'D***n',
+  'A***l',
+  'M***i',
+  'K***o',
+  'S***a',
+  'F***r',
+  'N***y',
+  'T***s',
+  'Y***i',
+  'B***i',
+  'W***y',
+  'E***n',
+  'H***a',
+  'L***a',
+  'Z***r',
+  'P***i',
+  'C***a',
+] as const;
+
+const LIVE_IDR_METHODS: PayoutMethod[] = ['dana', 'gopay', 'ovo', 'bank_transfer'];
+const LIVE_USD_METHODS: PayoutMethod[] = ['paypal', 'usdt_polygon', 'usdt_trc20', 'wise'];
+const LIVE_IDR_AMOUNTS = [50_000, 55_000, 62_000, 75_000, 91_000, 105_000, 125_000, 150_000, 182_000];
+const LIVE_USD_AMOUNTS = [5.0, 5.5, 6.25, 7.5, 8.0, 10.0, 12.5, 15.0];
+const LIVE_ROLL_STEP_MS = 12_000;
+
+function buildRollingLivePayouts(
+  nowMs: number,
+  cfg: PayoutRuntimeConfig,
+  count: number
+): LivePayoutFeedItem[] {
+  const currentSlot = Math.floor(nowMs / LIVE_ROLL_STEP_MS);
+  const items: LivePayoutFeedItem[] = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const slot = currentSlot - i;
+    const h = Math.abs((slot * 2654435761) | 0);
+    const maskedUser = LIVE_MASKED_USERS[h % LIVE_MASKED_USERS.length];
+    const isUsd = (h >> 3) % 5 >= 3; // ~60% IDR, ~40% USD
+
+    let method: PayoutMethod;
+    let usdAmount: number;
+    let idrAmount: number;
+    if (isUsd) {
+      method = LIVE_USD_METHODS[(h >> 6) % LIVE_USD_METHODS.length];
+      const baseUsd = LIVE_USD_AMOUNTS[(h >> 9) % LIVE_USD_AMOUNTS.length];
+      usdAmount = Math.max(cfg.minPayoutUsd, baseUsd);
+      idrAmount = Math.round(usdAmount * cfg.usdToIdrRate);
+    } else {
+      method = LIVE_IDR_METHODS[(h >> 6) % LIVE_IDR_METHODS.length];
+      const baseIdr = LIVE_IDR_AMOUNTS[(h >> 9) % LIVE_IDR_AMOUNTS.length];
+      idrAmount = Math.max(cfg.minPayoutIdr, baseIdr);
+      usdAmount = Math.round((idrAmount / cfg.usdToIdrRate) * 100) / 100;
+    }
+
+    const meta = getMethodMetadata(method);
+    const ageOffsetMs = (h % 7) * 1_000 + 2_000;
+    const createdAtMs = Math.max(0, slot * LIVE_ROLL_STEP_MS - ageOffsetMs);
+    items.push({
+      id: `live-roll-${slot}`,
+      maskedUser,
+      countryCode: meta.countryCode,
+      method,
+      methodLabel: meta.label,
+      currency: meta.currency,
+      usdAmount,
+      idrAmount,
+      status: i === 0 && h % 4 === 0 ? 'approved' : 'paid',
+      createdAt: new Date(createdAtMs).toISOString(),
+      isReal: false,
+    });
+  }
+
+  return items;
+}
 
 export async function listLivePayoutFeedFromDb(
   limit = 12
 ): Promise<LivePayoutFeedItem[]> {
   const safeLimit = Math.min(30, Math.max(1, Number(limit) || 12));
+  const cfg = getPayoutRuntimeConfig();
   const realItems: LivePayoutFeedItem[] = [];
 
   const activePool = getPool();
@@ -4840,15 +5299,20 @@ export async function listLivePayoutFeedFromDb(
             ? r.method
             : 'dana') as PayoutMethod;
           const meta = getMethodMetadata(method);
+          const currency = r.currency === 'USD' ? 'USD' : 'IDR';
+          const usdAmount = Number(Number(r.usd_amount || 0).toFixed(2));
+          const idrAmount = Math.max(0, Math.round(Number(r.idr_amount) || 0));
+          if (currency === 'IDR' && idrAmount < cfg.minPayoutIdr) continue;
+          if (currency === 'USD' && usdAmount < cfg.minPayoutUsd) continue;
           realItems.push({
             id: r.id,
             maskedUser: maskDisplayNameForFeed(r.user_name || r.account_holder_name),
             countryCode: meta.countryCode,
             method,
             methodLabel: meta.label,
-            currency: r.currency === 'USD' ? 'USD' : 'IDR',
-            usdAmount: Number(Number(r.usd_amount || 0).toFixed(2)),
-            idrAmount: Math.max(0, Math.round(Number(r.idr_amount) || 0)),
+            currency,
+            usdAmount,
+            idrAmount,
             status: r.status === 'paid' ? 'paid' : 'approved',
             createdAt:
               r.updated_at instanceof Date
@@ -4873,6 +5337,8 @@ export async function listLivePayoutFeedFromDb(
         .slice(0, safeLimit);
 
       for (const r of rows) {
+        if (r.currency === 'IDR' && r.idrAmount < cfg.minPayoutIdr) continue;
+        if (r.currency === 'USD' && r.usdAmount < cfg.minPayoutUsd) continue;
         const meta = getMethodMetadata(r.method);
         realItems.push({
           id: r.id,
@@ -4897,25 +5363,9 @@ export async function listLivePayoutFeedFromDb(
     return realItems.slice(0, safeLimit);
   }
 
-  const nowMs = Date.now();
-  const baselineItems: LivePayoutFeedItem[] = BASELINE_LIVE_PAYOUTS.map((seed) => {
-    const meta = getMethodMetadata(seed.method);
-    return {
-      id: seed.id,
-      maskedUser: seed.maskedUser,
-      countryCode: seed.countryCode,
-      method: seed.method,
-      methodLabel: meta.label,
-      currency: meta.currency,
-      usdAmount: seed.usdAmount,
-      idrAmount: seed.idrAmount,
-      status: 'paid',
-      createdAt: new Date(nowMs - seed.minutesAgo * 60_000).toISOString(),
-      isReal: false,
-    };
-  });
-
-  return [...realItems, ...baselineItems].slice(0, safeLimit);
+  const remaining = safeLimit - realItems.length;
+  const rollingItems = buildRollingLivePayouts(Date.now(), cfg, remaining);
+  return [...realItems, ...rollingItems].slice(0, safeLimit);
 }
 
 // --- Referral System (1-Hour Verified Active Watch) & Multi-Layer Anti-Cheat ---
@@ -5154,8 +5604,8 @@ export async function bindReferralForUserInDb(input: {
         [input.refereeUid]
       );
       if (
-        (Number(activityCheck.rows[0]?.ledger_cnt) || 0) > 2 ||
-        (Number(activityCheck.rows[0]?.watch_sec) || 0) >= 600
+        (Number(activityCheck.rows[0]?.ledger_cnt) || 0) > ANTI_CHEAT_DEFAULTS.newAccountMaxLedgerEntries ||
+        (Number(activityCheck.rows[0]?.watch_sec) || 0) >= ANTI_CHEAT_DEFAULTS.newAccountMaxWatchSeconds
       ) {
         await client.query('COMMIT');
         return { bound: false, reason: 'account_not_new' };
@@ -5301,7 +5751,10 @@ export async function bindReferralForUserInDb(input: {
 
     const priorWatch = store.watchTelemetry[input.refereeUid]?.verifiedWatchSeconds || 0;
     const priorLedger = store.ledger.filter((l) => l.userId === input.refereeUid).length;
-    if (priorWatch >= 600 || priorLedger > 2) {
+    if (
+      priorWatch >= ANTI_CHEAT_DEFAULTS.newAccountMaxWatchSeconds ||
+      priorLedger > ANTI_CHEAT_DEFAULTS.newAccountMaxLedgerEntries
+    ) {
       return { bound: false, reason: 'account_not_new' as const };
     }
 
@@ -5379,6 +5832,269 @@ export async function bindReferralForUserInDb(input: {
   });
 }
 
+interface WatchMissionGrantResult {
+  awardedWatchPoints: number;
+  todayWatchPointsEarned: number;
+  pointsBalance: number | null;
+}
+
+async function getQuickPointsStatePg(
+  client: PoolClient,
+  userId: string,
+  todayKey: string
+): Promise<{
+  balance: number;
+  todayEarned: number;
+  todayWatchPointsEarned: number;
+}> {
+  const res = await client.query<{
+    total_earned: string;
+    total_redeemed: string;
+    today_earned: string;
+    today_watch_points: string;
+  }>(
+    `SELECT
+       COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0)::text AS total_earned,
+       COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0)::text AS total_redeemed,
+       COALESCE(SUM(
+         CASE
+           WHEN type = 'earn'
+            AND reference_id NOT LIKE 'refund:payout:%'
+            AND (created_at AT TIME ZONE 'Asia/Jakarta')::date = $2::date
+           THEN points
+           ELSE 0
+         END
+       ), 0)::text AS today_earned,
+       COALESCE(SUM(
+         CASE
+           WHEN type = 'earn'
+            AND (reference_id LIKE 'watch_min:%' OR reference_id LIKE 'mission_%')
+            AND (created_at AT TIME ZONE 'Asia/Jakarta')::date = $2::date
+           THEN points
+           ELSE 0
+         END
+       ), 0)::text AS today_watch_points
+     FROM points_ledger
+     WHERE user_id = $1`,
+    [userId, todayKey]
+  );
+  const row = res.rows[0];
+  const totalEarned = Math.max(0, Number(row?.total_earned) || 0);
+  const totalRedeemed = Math.max(0, Number(row?.total_redeemed) || 0);
+  return {
+    balance: Math.max(0, totalEarned - totalRedeemed),
+    todayEarned: Math.max(0, Number(row?.today_earned) || 0),
+    todayWatchPointsEarned: Math.max(0, Number(row?.today_watch_points) || 0),
+  };
+}
+
+async function grantWatchMissionPointsPg(
+  client: PoolClient,
+  userId: string,
+  todayKey: string,
+  todayWatchSeconds: number,
+  cfg: PayoutRuntimeConfig,
+  shouldAward: boolean
+): Promise<WatchMissionGrantResult> {
+  await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+    `points:${userId}`,
+  ]);
+
+  const initial = await getQuickPointsStatePg(client, userId, todayKey);
+  if (!shouldAward) {
+    return {
+      awardedWatchPoints: 0,
+      todayWatchPointsEarned: initial.todayWatchPointsEarned,
+      pointsBalance: initial.balance,
+    };
+  }
+
+  const maxMissionSec = Math.max(60, cfg.dailyMissionMaxWatchSeconds);
+  const cappedSeconds = Math.min(todayWatchSeconds, maxMissionSec);
+  const completedMinutes = Math.floor(cappedSeconds / 60);
+  if (completedMinutes <= 0) {
+    return {
+      awardedWatchPoints: 0,
+      todayWatchPointsEarned: initial.todayWatchPointsEarned,
+      pointsBalance: initial.balance,
+    };
+  }
+
+  const existingRes = await client.query<{ reference_id: string }>(
+    `SELECT reference_id
+     FROM points_ledger
+     WHERE user_id = $1
+       AND (reference_id LIKE $2 OR reference_id LIKE $3)`,
+    [userId, `watch_min:${userId}:${todayKey}:%`, `mission_%:${userId}:${todayKey}`]
+  );
+  const existingRefs = new Set(existingRes.rows.map((r) => r.reference_id));
+
+  let remainingDaily = Math.max(0, cfg.maxDailyEarnPoints - initial.todayEarned);
+  let awardedWatchPoints = 0;
+
+  const candidates: Array<{ refId: string; points: number; desc: string }> = [];
+  const maxMinutes = Math.floor(maxMissionSec / 60);
+  for (let m = 1; m <= Math.min(completedMinutes, maxMinutes); m += 1) {
+    candidates.push({
+      refId: `watch_min:${userId}:${todayKey}:m${m}`,
+      points: cfg.watchMinutePoints,
+      desc: `Misi Nonton Aktif (Menit ${m}/${maxMinutes})`,
+    });
+  }
+  for (const ms of cfg.dailyMissionMilestones) {
+    if (completedMinutes >= ms.minutes) {
+      candidates.push({
+        refId: `mission_${ms.minutes}m:${userId}:${todayKey}`,
+        points: ms.bonusPoints,
+        desc: `Bonus Misi Harian ${ms.minutes} Menit Nonton`,
+      });
+    }
+  }
+
+  for (const cand of candidates) {
+    if (existingRefs.has(cand.refId)) continue;
+    if (cand.points <= 0 || cand.points > remainingDaily) continue;
+    const ins = await client.query(
+      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, $5, NOW())
+       ON CONFLICT (reference_id) DO NOTHING`,
+      [crypto.randomUUID(), userId, cand.points, cand.desc, cand.refId]
+    );
+    if ((ins.rowCount ?? 0) > 0) {
+      existingRefs.add(cand.refId);
+      remainingDaily -= cand.points;
+      awardedWatchPoints += cand.points;
+    }
+  }
+
+  return {
+    awardedWatchPoints,
+    todayWatchPointsEarned: initial.todayWatchPointsEarned + awardedWatchPoints,
+    pointsBalance: initial.balance + awardedWatchPoints,
+  };
+}
+
+function getQuickPointsStateFallback(
+  store: PointsFallbackStore,
+  userId: string,
+  todayKey: string
+): {
+  balance: number;
+  todayEarned: number;
+  todayWatchPointsEarned: number;
+} {
+  let totalEarned = 0;
+  let totalRedeemed = 0;
+  let todayEarned = 0;
+  let todayWatchPointsEarned = 0;
+
+  for (const row of store.ledger) {
+    if (row.userId !== userId) continue;
+    if (row.type === 'earn') {
+      totalEarned += row.points;
+      if (!row.referenceId.startsWith('refund:payout:')) {
+        if (getJakartaDateKey(new Date(row.createdAt)) === todayKey) {
+          todayEarned += row.points;
+          if (
+            row.referenceId.startsWith('watch_min:') ||
+            row.referenceId.startsWith('mission_')
+          ) {
+            todayWatchPointsEarned += row.points;
+          }
+        }
+      }
+    } else if (row.type === 'redeem') {
+      totalRedeemed += row.points;
+    }
+  }
+
+  return {
+    balance: Math.max(0, totalEarned - totalRedeemed),
+    todayEarned,
+    todayWatchPointsEarned,
+  };
+}
+
+function grantWatchMissionPointsFallback(
+  store: PointsFallbackStore,
+  userId: string,
+  todayKey: string,
+  todayWatchSeconds: number,
+  cfg: PayoutRuntimeConfig,
+  shouldAward: boolean,
+  nowIso: string
+): WatchMissionGrantResult {
+  const initial = getQuickPointsStateFallback(store, userId, todayKey);
+  if (!shouldAward) {
+    return {
+      awardedWatchPoints: 0,
+      todayWatchPointsEarned: initial.todayWatchPointsEarned,
+      pointsBalance: initial.balance,
+    };
+  }
+
+  const maxMissionSec = Math.max(60, cfg.dailyMissionMaxWatchSeconds);
+  const cappedSeconds = Math.min(todayWatchSeconds, maxMissionSec);
+  const completedMinutes = Math.floor(cappedSeconds / 60);
+  if (completedMinutes <= 0) {
+    return {
+      awardedWatchPoints: 0,
+      todayWatchPointsEarned: initial.todayWatchPointsEarned,
+      pointsBalance: initial.balance,
+    };
+  }
+
+  const existingRefs = new Set(
+    store.ledger
+      .filter((r) => r.userId === userId)
+      .map((r) => r.referenceId)
+  );
+  let remainingDaily = Math.max(0, cfg.maxDailyEarnPoints - initial.todayEarned);
+  let awardedWatchPoints = 0;
+
+  const candidates: Array<{ refId: string; points: number; desc: string }> = [];
+  const maxMinutes = Math.floor(maxMissionSec / 60);
+  for (let m = 1; m <= Math.min(completedMinutes, maxMinutes); m += 1) {
+    candidates.push({
+      refId: `watch_min:${userId}:${todayKey}:m${m}`,
+      points: cfg.watchMinutePoints,
+      desc: `Misi Nonton Aktif (Menit ${m}/${maxMinutes})`,
+    });
+  }
+  for (const ms of cfg.dailyMissionMilestones) {
+    if (completedMinutes >= ms.minutes) {
+      candidates.push({
+        refId: `mission_${ms.minutes}m:${userId}:${todayKey}`,
+        points: ms.bonusPoints,
+        desc: `Bonus Misi Harian ${ms.minutes} Menit Nonton`,
+      });
+    }
+  }
+
+  for (const cand of candidates) {
+    if (existingRefs.has(cand.refId)) continue;
+    if (cand.points <= 0 || cand.points > remainingDaily) continue;
+    store.ledger.push({
+      id: crypto.randomUUID(),
+      userId,
+      type: 'earn',
+      points: cand.points,
+      description: cand.desc,
+      referenceId: cand.refId,
+      createdAt: nowIso,
+    });
+    existingRefs.add(cand.refId);
+    remainingDaily -= cand.points;
+    awardedWatchPoints += cand.points;
+  }
+
+  return {
+    awardedWatchPoints,
+    todayWatchPointsEarned: initial.todayWatchPointsEarned + awardedWatchPoints,
+    pointsBalance: initial.balance + awardedWatchPoints,
+  };
+}
+
 export async function recordWatchHeartbeatInDb(input: {
   userId: string;
   streamSessionId: string;
@@ -5397,6 +6113,10 @@ export async function recordWatchHeartbeatInDb(input: {
   addedSeconds: number;
   verifiedWatchSeconds: number;
   todayWatchSeconds: number;
+  awardedWatchPoints: number;
+  todayWatchPointsEarned: number;
+  dailyMissionMaxWatchSeconds: number;
+  pointsBalance: number | null;
   referralQualified: boolean;
   riskFlag: string;
   reason?:
@@ -5422,6 +6142,10 @@ export async function recordWatchHeartbeatInDb(input: {
       addedSeconds: 0,
       verifiedWatchSeconds: 0,
       todayWatchSeconds: 0,
+      awardedWatchPoints: 0,
+      todayWatchPointsEarned: 0,
+      dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+      pointsBalance: null,
       referralQualified: false,
       riskFlag: '',
       reason: 'session_started',
@@ -5488,10 +6212,13 @@ export async function recordWatchHeartbeatInDb(input: {
         lastSessionId &&
         lastSessionId !== cleanSessionId &&
         lastHbMs > 0 &&
-        wallElapsedSec < 25
+        wallElapsedSec < ANTI_CHEAT_DEFAULTS.concurrentSessionWindowSec
       ) {
         concurrentStrikes += 1;
-        if (concurrentStrikes >= 3 && !riskFlag.includes('concurrent_streams')) {
+        if (
+          concurrentStrikes >= ANTI_CHEAT_DEFAULTS.maxConcurrentStrikes &&
+          !riskFlag.includes('concurrent_streams')
+        ) {
           riskFlag = riskFlag ? `${riskFlag},concurrent_streams` : 'concurrent_streams';
           suspiciousReason = suspiciousReason
             ? `${suspiciousReason}; Multiple simultaneous watch streams detected`
@@ -5503,12 +6230,17 @@ export async function recordWatchHeartbeatInDb(input: {
            WHERE user_id = $1`,
           [input.userId, concurrentStrikes, riskFlag.slice(0, 120), suspiciousReason.slice(0, 300)]
         );
+        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
         await client.query('COMMIT');
         return {
           ok: false,
           addedSeconds: 0,
           verifiedWatchSeconds,
           todayWatchSeconds,
+          awardedWatchPoints: 0,
+          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+          pointsBalance: ptsState.balance,
           referralQualified: false,
           riskFlag,
           reason: 'concurrent_stream_detected',
@@ -5545,12 +6277,17 @@ export async function recordWatchHeartbeatInDb(input: {
             suspiciousReason,
           ]
         );
+        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
         await client.query('COMMIT');
         return {
           ok: true,
           addedSeconds: 0,
           verifiedWatchSeconds,
           todayWatchSeconds,
+          awardedWatchPoints: 0,
+          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+          pointsBalance: ptsState.balance,
           referralQualified: false,
           riskFlag,
           reason: 'paused_or_hidden',
@@ -5558,7 +6295,10 @@ export async function recordWatchHeartbeatInDb(input: {
       }
 
       // 3. Playback speed guard (1x normal speed required) -> reset anchor
-      if (safeRate > 1.15 || safeRate < 0.75) {
+      if (
+        safeRate > ANTI_CHEAT_DEFAULTS.maxPlaybackRate ||
+        safeRate < ANTI_CHEAT_DEFAULTS.minPlaybackRate
+      ) {
         await client.query(
           `INSERT INTO watch_telemetry (
              user_id, verified_watch_seconds, today_watch_seconds, today_date_key,
@@ -5584,12 +6324,17 @@ export async function recordWatchHeartbeatInDb(input: {
             suspiciousReason,
           ]
         );
+        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
         await client.query('COMMIT');
         return {
           ok: true,
           addedSeconds: 0,
           verifiedWatchSeconds,
           todayWatchSeconds,
+          awardedWatchPoints: 0,
+          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+          pointsBalance: ptsState.balance,
           referralQualified: false,
           riskFlag,
           reason: 'invalid_playback_speed',
@@ -5634,12 +6379,17 @@ export async function recordWatchHeartbeatInDb(input: {
             suspiciousReason,
           ]
         );
+        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
         await client.query('COMMIT');
         return {
           ok: true,
           addedSeconds: 0,
           verifiedWatchSeconds,
           todayWatchSeconds,
+          awardedWatchPoints: 0,
+          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+          pointsBalance: ptsState.balance,
           referralQualified: false,
           riskFlag,
           reason: 'session_started',
@@ -5647,9 +6397,12 @@ export async function recordWatchHeartbeatInDb(input: {
       }
 
       // 5. Timestamp delta check (reject faster than real time)
-      if (wallElapsedSec < 12) {
+      if (wallElapsedSec < ANTI_CHEAT_DEFAULTS.minHeartbeatIntervalSec) {
         fastStrikes += 1;
-        if (fastStrikes >= 4 && !riskFlag.includes('heartbeat_flood')) {
+        if (
+          fastStrikes >= ANTI_CHEAT_DEFAULTS.maxFastDeltaStrikes &&
+          !riskFlag.includes('heartbeat_flood')
+        ) {
           riskFlag = riskFlag ? `${riskFlag},heartbeat_flood` : 'heartbeat_flood';
           suspiciousReason = suspiciousReason
             ? `${suspiciousReason}; Rapid heartbeat flood detected`
@@ -5661,12 +6414,17 @@ export async function recordWatchHeartbeatInDb(input: {
            WHERE user_id = $1`,
           [input.userId, fastStrikes, riskFlag.slice(0, 120), suspiciousReason.slice(0, 300)]
         );
+        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
         await client.query('COMMIT');
         return {
           ok: false,
           addedSeconds: 0,
           verifiedWatchSeconds,
           todayWatchSeconds,
+          awardedWatchPoints: 0,
+          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+          pointsBalance: ptsState.balance,
           referralQualified: false,
           riskFlag,
           reason: 'heartbeat_too_fast',
@@ -5674,19 +6432,24 @@ export async function recordWatchHeartbeatInDb(input: {
       }
 
       const videoDeltaSec = safeVideoTime - lastVideoSec;
-      if (videoDeltaSec <= 0.5) {
+      if (videoDeltaSec <= ANTI_CHEAT_DEFAULTS.minVideoAdvanceSec) {
         await client.query(
           `UPDATE watch_telemetry
            SET last_heartbeat_at = NOW(), last_video_time_sec = $2, updated_at = NOW()
            WHERE user_id = $1`,
           [input.userId, safeVideoTime]
         );
+        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
         await client.query('COMMIT');
         return {
           ok: true,
           addedSeconds: 0,
           verifiedWatchSeconds,
           todayWatchSeconds,
+          awardedWatchPoints: 0,
+          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+          pointsBalance: ptsState.balance,
           referralQualified: false,
           riskFlag,
           reason: 'video_not_advancing',
@@ -5700,19 +6463,28 @@ export async function recordWatchHeartbeatInDb(input: {
            WHERE user_id = $1`,
           [input.userId, safeVideoTime]
         );
+        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
         await client.query('COMMIT');
         return {
           ok: true,
           addedSeconds: 0,
           verifiedWatchSeconds,
           todayWatchSeconds,
+          awardedWatchPoints: 0,
+          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+          pointsBalance: ptsState.balance,
           referralQualified: false,
           riskFlag,
           reason: 'daily_watch_cap_reached',
         };
       }
 
-      const rawStep = Math.min(wallElapsedSec, Math.ceil(videoDeltaSec * 1.1), 65);
+      const rawStep = Math.min(
+        wallElapsedSec,
+        Math.ceil(videoDeltaSec * 1.1),
+        ANTI_CHEAT_DEFAULTS.maxHeartbeatStepSec
+      );
       const remainingDaily = Math.max(0, cfg.maxDailyVerifiedWatchSeconds - todayWatchSeconds);
       const addedSeconds = Math.max(0, Math.min(rawStep, remainingDaily));
       verifiedWatchSeconds += addedSeconds;
@@ -5740,7 +6512,22 @@ export async function recordWatchHeartbeatInDb(input: {
         ]
       );
 
-      // 6. Auto-qualify referral if verifiedWatchSeconds >= 3600 (1 hour)
+      // 6. Grant daily watch-minute + milestone mission points (max 1h/day)
+      const secCheckSelf = await client.query<{ risk_flag: string }>(
+        `SELECT risk_flag FROM user_security_signals WHERE user_id = $1`,
+        [input.userId]
+      );
+      const hasRiskFlag = Boolean(riskFlag || secCheckSelf.rows[0]?.risk_flag);
+      const missionGrant = await grantWatchMissionPointsPg(
+        client,
+        input.userId,
+        todayKey,
+        todayWatchSeconds,
+        cfg,
+        addedSeconds > 0 && !hasRiskFlag
+      );
+
+      // 7. Auto-qualify referral if verifiedWatchSeconds >= 3600 (1 hour)
       let referralQualified = false;
       if (verifiedWatchSeconds >= cfg.referralQualifySeconds) {
         const refRes = await client.query<{
@@ -5756,13 +6543,6 @@ export async function recordWatchHeartbeatInDb(input: {
         );
         const pendingRef = refRes.rows[0];
         if (pendingRef) {
-          // Check anti-fraud flags & referrer daily/weekly limits
-          const secCheck = await client.query<{ risk_flag: string }>(
-            `SELECT risk_flag FROM user_security_signals WHERE user_id = $1`,
-            [input.userId]
-          );
-          const hasRisk = Boolean(riskFlag || secCheck.rows[0]?.risk_flag);
-
           const quotaRes = await client.query<{
             daily_cnt: string;
             weekly_cnt: string;
@@ -5777,7 +6557,7 @@ export async function recordWatchHeartbeatInDb(input: {
           const dailyCnt = Number(quotaRes.rows[0]?.daily_cnt) || 0;
           const weeklyCnt = Number(quotaRes.rows[0]?.weekly_cnt) || 0;
 
-          if (hasRisk) {
+          if (hasRiskFlag) {
             await client.query(
               `UPDATE referrals
                SET status = 'rejected_fraud',
@@ -5785,7 +6565,7 @@ export async function recordWatchHeartbeatInDb(input: {
                    suspicious_reason = 'Referee flagged by anti-cheat during 1-hour verification',
                    updated_at = NOW()
                WHERE id = $1`,
-              [pendingRef.id, riskFlag || secCheck.rows[0]?.risk_flag || 'anti_cheat_flag']
+              [pendingRef.id, riskFlag || secCheckSelf.rows[0]?.risk_flag || 'anti_cheat_flag']
             );
           } else if (
             dailyCnt < cfg.maxDailyReferrals &&
@@ -5824,6 +6604,10 @@ export async function recordWatchHeartbeatInDb(input: {
         addedSeconds,
         verifiedWatchSeconds,
         todayWatchSeconds,
+        awardedWatchPoints: missionGrant.awardedWatchPoints,
+        todayWatchPointsEarned: missionGrant.todayWatchPointsEarned,
+        dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+        pointsBalance: missionGrant.pointsBalance,
         referralQualified,
         riskFlag,
         reason: 'counted',
@@ -5864,10 +6648,13 @@ export async function recordWatchHeartbeatInDb(input: {
       prev?.activeStreamSessionId &&
       prev.activeStreamSessionId !== cleanSessionId &&
       lastHbMs > 0 &&
-      wallElapsedSec < 25
+      wallElapsedSec < ANTI_CHEAT_DEFAULTS.concurrentSessionWindowSec
     ) {
       concurrentStrikes += 1;
-      if (concurrentStrikes >= 3 && !riskFlag.includes('concurrent_streams')) {
+      if (
+        concurrentStrikes >= ANTI_CHEAT_DEFAULTS.maxConcurrentStrikes &&
+        !riskFlag.includes('concurrent_streams')
+      ) {
         riskFlag = riskFlag ? `${riskFlag},concurrent_streams` : 'concurrent_streams';
         suspiciousReason = suspiciousReason
           ? `${suspiciousReason}; Multiple simultaneous watch streams detected`
@@ -5894,12 +6681,17 @@ export async function recordWatchHeartbeatInDb(input: {
         suspiciousReason,
         updatedAt: nowIso,
       };
+      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
       persistPointsFallbackStore(store);
       return {
         ok: false,
         addedSeconds: 0,
         verifiedWatchSeconds,
         todayWatchSeconds,
+        awardedWatchPoints: 0,
+        todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+        dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+        pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
         reason: 'concurrent_stream_detected' as const,
@@ -5922,19 +6714,27 @@ export async function recordWatchHeartbeatInDb(input: {
         suspiciousReason,
         updatedAt: nowIso,
       };
+      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
       persistPointsFallbackStore(store);
       return {
         ok: true,
         addedSeconds: 0,
         verifiedWatchSeconds,
         todayWatchSeconds,
+        awardedWatchPoints: 0,
+        todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+        dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+        pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
         reason: 'paused_or_hidden' as const,
       };
     }
 
-    if (safeRate > 1.15 || safeRate < 0.75) {
+    if (
+      safeRate > ANTI_CHEAT_DEFAULTS.maxPlaybackRate ||
+      safeRate < ANTI_CHEAT_DEFAULTS.minPlaybackRate
+    ) {
       store.watchTelemetry[input.userId] = {
         userId: input.userId,
         verifiedWatchSeconds,
@@ -5950,12 +6750,17 @@ export async function recordWatchHeartbeatInDb(input: {
         suspiciousReason,
         updatedAt: nowIso,
       };
+      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
       persistPointsFallbackStore(store);
       return {
         ok: true,
         addedSeconds: 0,
         verifiedWatchSeconds,
         todayWatchSeconds,
+        awardedWatchPoints: 0,
+        todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+        dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+        pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
         reason: 'invalid_playback_speed' as const,
@@ -5984,21 +6789,29 @@ export async function recordWatchHeartbeatInDb(input: {
         suspiciousReason,
         updatedAt: nowIso,
       };
+      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
       persistPointsFallbackStore(store);
       return {
         ok: true,
         addedSeconds: 0,
         verifiedWatchSeconds,
         todayWatchSeconds,
+        awardedWatchPoints: 0,
+        todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+        dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+        pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
         reason: 'session_started' as const,
       };
     }
 
-    if (wallElapsedSec < 12) {
+    if (wallElapsedSec < ANTI_CHEAT_DEFAULTS.minHeartbeatIntervalSec) {
       fastStrikes += 1;
-      if (fastStrikes >= 4 && !riskFlag.includes('heartbeat_flood')) {
+      if (
+        fastStrikes >= ANTI_CHEAT_DEFAULTS.maxFastDeltaStrikes &&
+        !riskFlag.includes('heartbeat_flood')
+      ) {
         riskFlag = riskFlag ? `${riskFlag},heartbeat_flood` : 'heartbeat_flood';
         suspiciousReason = suspiciousReason
           ? `${suspiciousReason}; Rapid heartbeat flood detected`
@@ -6011,12 +6824,17 @@ export async function recordWatchHeartbeatInDb(input: {
         suspiciousReason,
         updatedAt: nowIso,
       };
+      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
       persistPointsFallbackStore(store);
       return {
         ok: false,
         addedSeconds: 0,
         verifiedWatchSeconds,
         todayWatchSeconds,
+        awardedWatchPoints: 0,
+        todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+        dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+        pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
         reason: 'heartbeat_too_fast' as const,
@@ -6024,19 +6842,24 @@ export async function recordWatchHeartbeatInDb(input: {
     }
 
     const videoDeltaSec = safeVideoTime - prev.lastVideoTimeSec;
-    if (videoDeltaSec <= 0.5) {
+    if (videoDeltaSec <= ANTI_CHEAT_DEFAULTS.minVideoAdvanceSec) {
       store.watchTelemetry[input.userId] = {
         ...prev,
         lastHeartbeatAt: nowIso,
         lastVideoTimeSec: safeVideoTime,
         updatedAt: nowIso,
       };
+      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
       persistPointsFallbackStore(store);
       return {
         ok: true,
         addedSeconds: 0,
         verifiedWatchSeconds,
         todayWatchSeconds,
+        awardedWatchPoints: 0,
+        todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+        dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+        pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
         reason: 'video_not_advancing' as const,
@@ -6050,19 +6873,28 @@ export async function recordWatchHeartbeatInDb(input: {
         lastVideoTimeSec: safeVideoTime,
         updatedAt: nowIso,
       };
+      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
       persistPointsFallbackStore(store);
       return {
         ok: true,
         addedSeconds: 0,
         verifiedWatchSeconds,
         todayWatchSeconds,
+        awardedWatchPoints: 0,
+        todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+        dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+        pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
         reason: 'daily_watch_cap_reached' as const,
       };
     }
 
-    const rawStep = Math.min(wallElapsedSec, Math.ceil(videoDeltaSec * 1.1), 65);
+    const rawStep = Math.min(
+      wallElapsedSec,
+      Math.ceil(videoDeltaSec * 1.1),
+      ANTI_CHEAT_DEFAULTS.maxHeartbeatStepSec
+    );
     const remainingDaily = Math.max(0, cfg.maxDailyVerifiedWatchSeconds - todayWatchSeconds);
     const addedSeconds = Math.max(0, Math.min(rawStep, remainingDaily));
     verifiedWatchSeconds += addedSeconds;
@@ -6084,14 +6916,24 @@ export async function recordWatchHeartbeatInDb(input: {
       updatedAt: nowIso,
     };
 
+    const sigRisk = store.securitySignals[input.userId]?.riskFlag || '';
+    const hasRisk = Boolean(riskFlag || sigRisk);
+    const missionGrant = grantWatchMissionPointsFallback(
+      store,
+      input.userId,
+      todayKey,
+      todayWatchSeconds,
+      cfg,
+      addedSeconds > 0 && !hasRisk,
+      nowIso
+    );
+
     let referralQualified = false;
     if (verifiedWatchSeconds >= cfg.referralQualifySeconds) {
       const pendingRef = store.referrals.find(
         (r) => r.refereeUid === input.userId && r.status === 'pending_watch'
       );
       if (pendingRef) {
-        const sigRisk = store.securitySignals[input.userId]?.riskFlag || '';
-        const hasRisk = Boolean(riskFlag || sigRisk);
         const weekAgoMs = nowMs - 7 * 86400_000;
         const qualifiedForReferrer = store.referrals.filter(
           (r) => r.referrerUid === pendingRef.referrerUid && r.status === 'qualified'
@@ -6139,6 +6981,10 @@ export async function recordWatchHeartbeatInDb(input: {
       addedSeconds,
       verifiedWatchSeconds,
       todayWatchSeconds,
+      awardedWatchPoints: missionGrant.awardedWatchPoints,
+      todayWatchPointsEarned: missionGrant.todayWatchPointsEarned,
+      dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+      pointsBalance: missionGrant.pointsBalance,
       referralQualified,
       riskFlag,
       reason: 'counted' as const,

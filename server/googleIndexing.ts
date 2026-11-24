@@ -5,6 +5,10 @@ import {
   upsertSeoIndexingLogInDb,
 } from './db.ts';
 import { getProviderRouteSlug } from '../src/constants/providerLogos.ts';
+import {
+  getConfiguredSiteUrl,
+  getGoogleIndexingServiceAccount,
+} from './config.ts';
 
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const GOOGLE_INDEXING_PUBLISH_ENDPOINT =
@@ -35,57 +39,17 @@ let cachedAccessToken: { token: string; expiresAt: number } | null = null;
 const inMemoryRecentPings = new Map<string, number>();
 
 export function resolveSiteOrigin(fallbackOrigin?: string): string {
-  const candidates = [
-    process.env.SITE_URL,
-    process.env.APP_URL,
-    process.env.VITE_SITE_URL,
-    fallbackOrigin,
-    'http://localhost:3000',
-  ];
-  for (const cand of candidates) {
-    const clean = (cand || '').trim().replace(/\/+$/, '');
-    if (clean && /^https?:\/\//i.test(clean)) {
-      return clean;
-    }
+  const configured = getConfiguredSiteUrl();
+  if (configured) return configured;
+  const fallback = (fallbackOrigin || '').trim().replace(/\/+$/, '');
+  if (fallback && /^https?:\/\//i.test(fallback)) {
+    return fallback;
   }
   return 'http://localhost:3000';
 }
 
 function loadServiceAccountCredentials(): ServiceAccountCredentials | null {
-  const rawJson = (process.env.GOOGLE_INDEXING_SERVICE_ACCOUNT_JSON || '').trim();
-  if (rawJson) {
-    try {
-      const jsonStr = rawJson.startsWith('{')
-        ? rawJson
-        : Buffer.from(rawJson, 'base64').toString('utf8');
-      const parsed = JSON.parse(jsonStr) as {
-        client_email?: string;
-        private_key?: string;
-      };
-      if (parsed.client_email && parsed.private_key) {
-        return {
-          clientEmail: parsed.client_email.trim(),
-          privateKey: parsed.private_key.replace(/\\n/g, '\n'),
-        };
-      }
-    } catch (err) {
-      console.warn(
-        '[GoogleIndexing] Invalid GOOGLE_INDEXING_SERVICE_ACCOUNT_JSON:',
-        err instanceof Error ? err.message : String(err)
-      );
-    }
-  }
-
-  const email = (process.env.GOOGLE_INDEXING_CLIENT_EMAIL || '').trim();
-  const key = (process.env.GOOGLE_INDEXING_PRIVATE_KEY || '').trim();
-  if (email && key) {
-    return {
-      clientEmail: email,
-      privateKey: key.replace(/\\n/g, '\n'),
-    };
-  }
-
-  return null;
+  return getGoogleIndexingServiceAccount();
 }
 
 function base64UrlEncode(input: Buffer | string): string {

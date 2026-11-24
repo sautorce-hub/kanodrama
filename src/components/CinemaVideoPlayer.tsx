@@ -61,6 +61,7 @@ import { useDramaContext } from '../context/DramaContext';
 import { getWatchPath, syncEpisodePlayerSeo } from '../utils/seo';
 import { ProviderBadge } from './ProviderBadge';
 import { ShareDramaModal } from './ShareDramaModal';
+import { VideoPointsCounter } from './VideoPointsCounter';
 import type {
   DramaItem,
   EpisodeItem,
@@ -2398,6 +2399,13 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
             className={`w-full h-full max-w-full max-h-full bg-black transition-all duration-300 ${
               videoFitMode === 'fill' ? 'object-cover' : 'object-contain'
             }`}
+          />
+
+          <VideoPointsCounter
+            isPlaying={isPlaying}
+            playbackRate={playbackSpeed}
+            isMiniPlayer={isFloatingMiniActive}
+            onNavigateRewards={onClose}
           />
 
           {/* Dynamic Moving Translucent Watermark Overlay (Stream Security — hidden in compact corner mini-player) */}

@@ -79,7 +79,7 @@ const COLLECTION_PATHS = [
 ];
 
 export const Footer: React.FC = () => {
-  const { t, pushToast, setHelpModalOpen } = useDramaContext();
+  const { t, language, pushToast, setHelpModalOpen } = useDramaContext();
   const [activeModal, setActiveModal] = useState<LegalModalTopic | null>(null);
   const [stats, setStats] = useState<VisitorStats>({
     onlineNow: 0,
@@ -337,6 +337,23 @@ export const Footer: React.FC = () => {
                     className="inline-flex items-center min-h-[36px] text-xs text-[#8E8E93] hover:text-white transition-colors"
                   >
                     {t.nav.trending}
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href={`${DEFAULT_SITE_ORIGIN}/rewards`}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                      e.preventDefault();
+                      window.dispatchEvent(
+                        new CustomEvent('hd:navigate-path', {
+                          detail: { path: '/rewards' },
+                        })
+                      );
+                    }}
+                    className="inline-flex items-center min-h-[36px] text-xs font-semibold text-[#D4AF37] hover:text-[#FDE68A] transition-colors"
+                  >
+                    {language === 'id' ? 'Poin & Referral' : 'Points & Referral'}
                   </a>
                 </li>
                 <li>

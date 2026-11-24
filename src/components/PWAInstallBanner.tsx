@@ -144,7 +144,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
       <button
         type="button"
         onClick={() => void triggerInstall()}
-        className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#D4AF37]/15 border border-[#D4AF37]/40 hover:bg-[#D4AF37]/25 text-[#FDE68A] text-xs font-semibold whitespace-nowrap shrink-0 transition-colors"
+        className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#D4AF37]/15 border border-[#D4AF37]/40 hover:bg-[#D4AF37]/25 text-[#FDE68A] text-xs font-semibold whitespace-nowrap shrink-0 transition-colors"
       >
         <Download className="w-3.5 h-3.5 text-[#D4AF37]" />
         <span>{t.pwa.installBtn}</span>

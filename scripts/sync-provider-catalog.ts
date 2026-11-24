@@ -9,10 +9,11 @@ import {
   syncDramasToCatalogDb,
   type CachedDramaItem,
 } from '../server/homeCache.ts';
+import { CATALOG_DEFAULTS } from '../server/config.ts';
 
 const MAX_PAGES = Math.max(
   1,
-  Number(process.env.CATALOG_MAX_PAGES || 100)
+  Number(process.env.CATALOG_MAX_PAGES || CATALOG_DEFAULTS.syncMaxPages)
 );
 
 const DELAY_MS = 300;

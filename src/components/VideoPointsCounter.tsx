@@ -1,0 +1,344 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { CheckCircle2, Clock, Coins, Flame, Gift, Pause, Sparkles } from 'lucide-react';
+import { useDramaContext } from '../context/DramaContext';
+
+interface VideoPointsCounterProps {
+  isPlaying: boolean;
+  playbackRate: number;
+  isMiniPlayer?: boolean;
+  onNavigateRewards?: () => void;
+}
+
+function formatClockMmSs(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
+  isPlaying,
+  playbackRate,
+  isMiniPlayer = false,
+  onNavigateRewards,
+}) => {
+  const {
+    user,
+    language,
+    pointsBalance,
+    todayWatchSeconds,
+    todayWatchPointsEarned,
+    dailyMissionMaxWatchSeconds,
+    watchMinutePoints,
+    dailyMissionMilestones,
+    pointsPerUsd,
+    openAuthModal,
+    refreshPointsBalance,
+  } = useDramaContext();
+
+  const [expanded, setExpanded] = useState(false);
+  const [displaySeconds, setDisplaySeconds] = useState<number>(todayWatchSeconds);
+  const [tabHidden, setTabHidden] = useState<boolean>(
+    typeof document !== 'undefined' ? document.hidden : false
+  );
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const isId = language === 'id';
+  const safeRate = Number(playbackRate) || 1;
+  const speedValid = safeRate >= 0.75 && safeRate <= 1.15;
+  const isActivelyCounting = Boolean(user && isPlaying && speedValid && !tabHidden);
+  const maxMissionSeconds = Math.max(60, dailyMissionMaxWatchSeconds || 3600);
+  const maxMissionMinutes = Math.floor(maxMissionSeconds / 60);
+
+  useEffect(() => {
+    if (user && pointsBalance === null) {
+      void refreshPointsBalance();
+    }
+  }, [user, pointsBalance, refreshPointsBalance]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onVis = () => setTabHidden(document.hidden);
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
+  // Reconcile local ticking seconds with authoritative server seconds
+  useEffect(() => {
+    if (!user) {
+      setDisplaySeconds(0);
+      return;
+    }
+    setDisplaySeconds((prev) => {
+      if (todayWatchSeconds === 0 && prev > 60) return 0;
+      if (todayWatchSeconds > prev) return todayWatchSeconds;
+      if (prev - todayWatchSeconds > 28) return todayWatchSeconds;
+      return prev;
+    });
+  }, [user, todayWatchSeconds]);
+
+  // Smooth 1-second local counter tick while playing validly
+  useEffect(() => {
+    if (!isActivelyCounting) return;
+    const timer = window.setInterval(() => {
+      setDisplaySeconds((prev) => {
+        const cap = todayWatchSeconds + 24;
+        return prev < cap ? prev + 1 : prev;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isActivelyCounting, todayWatchSeconds]);
+
+  // Close popover on outside click
+  useEffect(() => {
+    if (!expanded) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setExpanded(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [expanded]);
+
+  if (isMiniPlayer) return null;
+
+  const cappedMissionSec = Math.min(displaySeconds, maxMissionSeconds);
+  const completedMinutes = Math.floor(cappedMissionSec / 60);
+  const secIntoCurrentMin = displaySeconds % 60;
+  const secRemainingForNext = 60 - secIntoCurrentMin;
+  const missionDone = cappedMissionSec >= maxMissionSeconds;
+  const missionPct = Math.min(
+    100,
+    Math.round((cappedMissionSec / maxMissionSeconds) * 100)
+  );
+  const fiveUsdPoints = Math.max(1000, (pointsPerUsd || 20000) * 5);
+  const balanceDisplay = Math.max(0, pointsBalance ?? 0);
+
+  const handleOpenRewardsPage = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpanded(false);
+    onNavigateRewards?.();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('hd:navigate', {
+          detail: { tab: 'rewards' },
+        })
+      );
+    }
+  };
+
+  if (!user) {
+    return (
+      <div
+        ref={containerRef}
+        data-hud-control="true"
+        className="absolute top-3 right-3 sm:top-4 sm:right-4 z-30"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            openAuthModal(
+              isId
+                ? `Masuk untuk mengumpulkan poin nonton (+${watchMinutePoints} poin/menit) & menukarnya ke DANA/PayPal`
+                : `Sign in to earn watch points (+${watchMinutePoints} pts/min) & withdraw to PayPal/DANA`
+            );
+          }}
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#09090B]/85 backdrop-blur-md border border-[#D4AF37]/45 text-xs font-bold text-white shadow-lg hover:border-[#D4AF37] hover:bg-[#141418]/95 transition-all"
+        >
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#D4AF37] opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#D4AF37]" />
+          </span>
+          <Coins className="w-3.5 h-3.5 text-[#D4AF37]" />
+          <span className="tabular-nums">
+            {isId ? 'Dapat Poin Nonton' : 'Earn Watch Pts'}
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      data-hud-control="true"
+      className="absolute top-3 right-3 sm:top-4 sm:right-4 z-30 flex flex-col items-end"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setExpanded((prev) => !prev);
+        }}
+        aria-expanded={expanded}
+        aria-label={isId ? 'Counter Poin Nonton & Misi Harian' : 'Live Watch Points Counter'}
+        className={`group flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border text-xs font-bold shadow-[0_8px_24px_rgba(0,0,0,0.65)] transition-all ${
+          isActivelyCounting
+            ? 'bg-[#09090B]/88 border-[#D4AF37]/55 text-white hover:border-[#D4AF37]'
+            : 'bg-[#09090B]/85 border-white/20 text-[#D4D4D8] hover:border-white/40'
+        }`}
+      >
+        {isActivelyCounting ? (
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+          </span>
+        ) : (
+          <Pause className="w-3 h-3 text-amber-400 shrink-0" />
+        )}
+
+        <Coins className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
+
+        <span className="tabular-nums text-white font-extrabold">
+          {balanceDisplay.toLocaleString()}
+        </span>
+
+        <span className="text-[10px] text-[#A1A1AA] hidden sm:inline">pts</span>
+
+        <span className="h-3 w-px bg-white/15" />
+
+        {missionDone ? (
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-300 tabular-nums">
+            <CheckCircle2 className="w-3 h-3" />
+            <span>60/60m</span>
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-[#D4AF37] tabular-nums">
+            <Clock className="w-3 h-3" />
+            <span>{formatClockMmSs(displaySeconds)}</span>
+            <span className="text-[10px] text-[#A1A1AA] font-semibold hidden md:inline">
+              / {maxMissionMinutes}m
+            </span>
+          </span>
+        )}
+      </button>
+
+      {expanded && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="mt-2 w-[275px] sm:w-[305px] rounded-2xl bg-[#111015]/95 backdrop-blur-xl border border-[#D4AF37]/35 p-3.5 shadow-[0_18px_45px_rgba(0,0,0,0.85)] text-left space-y-3"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-semibold text-[#D4AF37] flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>
+                  {isId ? 'Counter Poin Langsung' : 'Live Watch Counter'}
+                </span>
+              </p>
+              <p className="text-lg font-extrabold text-white tabular-nums mt-0.5">
+                {balanceDisplay.toLocaleString()}{' '}
+                <span className="text-xs font-semibold text-[#D4AF37]">
+                  {isId ? 'poin' : 'pts'}
+                </span>
+              </p>
+            </div>
+            <span
+              className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                isActivelyCounting
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+              }`}
+            >
+              {isActivelyCounting
+                ? isId
+                  ? 'AKTIF'
+                  : 'LIVE'
+                : !speedValid
+                ? '1x ONLY'
+                : isId
+                ? 'JEDA'
+                : 'PAUSED'}
+            </span>
+          </div>
+
+          {/* Per-minute live progress */}
+          <div className="p-2.5 rounded-xl bg-[#09090B]/90 border border-white/10 space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-[#A1A1AA]">
+                {missionDone
+                  ? isId
+                    ? 'Misi 1 Jam Hari Ini Selesai'
+                    : '1h Daily Mission Completed'
+                  : isId
+                  ? `Menit berikutnya (+${watchMinutePoints} poin)`
+                  : `Next minute (+${watchMinutePoints} pts)`}
+              </span>
+              <span className="text-white font-bold tabular-nums">
+                {missionDone ? 'MAX' : `${secRemainingForNext}s`}
+              </span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-[#D4AF37] to-emerald-400 transition-all duration-500"
+                style={{
+                  width: `${missionDone ? 100 : Math.max(4, Math.round((secIntoCurrentMin / 60) * 100))}%`,
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Daily Mission 1h Cap */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="inline-flex items-center gap-1 font-semibold text-white">
+                <Flame className="w-3.5 h-3.5 text-[#EF4444]" />
+                <span>
+                  {isId ? 'Misi Harian (Maks 1 Jam)' : 'Daily Mission (Max 1h)'}
+                </span>
+              </span>
+              <span className="text-emerald-300 font-bold tabular-nums">
+                {completedMinutes}/{maxMissionMinutes}m ({missionPct}%)
+              </span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-[#EF4444] via-[#D4AF37] to-emerald-400 transition-all duration-500"
+                style={{ width: `${Math.max(3, missionPct)}%` }}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 pt-1">
+              {(dailyMissionMilestones || []).map((tier) => {
+                const hit = completedMinutes >= tier.minutes;
+                return (
+                  <div
+                    key={tier.minutes}
+                    className={`px-2 py-1 rounded-lg border text-center text-[10px] font-bold tabular-nums ${
+                      hit
+                        ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
+                        : 'bg-white/5 border-white/10 text-[#A1A1AA]'
+                    }`}
+                  >
+                    <div>{tier.minutes}m</div>
+                    <div className="text-[#D4AF37]">+{tier.bonusPoints}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-[#A1A1AA] tabular-nums">
+              {isId
+                ? `Terperoleh hari ini: +${todayWatchPointsEarned.toLocaleString()} poin · Rate: ${fiveUsdPoints.toLocaleString()} poin = $5.00`
+                : `Earned today: +${todayWatchPointsEarned.toLocaleString()} pts · Rate: ${fiveUsdPoints.toLocaleString()} pts = $5.00`}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleOpenRewardsPage}
+            className="w-full py-2 px-3 rounded-xl bg-[#D4AF37] text-[#09090B] text-xs font-extrabold flex items-center justify-center gap-1.5 hover:brightness-110 transition-all"
+          >
+            <Gift className="w-3.5 h-3.5" />
+            <span>{isId ? 'Lihat Misi & Tarik Dana' : 'View Missions & Withdraw'}</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};

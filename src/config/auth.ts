@@ -355,6 +355,102 @@ export async function fetchCurrentAuthSession(bearerToken?: string | null): Prom
   };
 }
 
+export async function loginWithEmail(payload: {
+  email: string;
+  password: string;
+}): Promise<GoogleAuthResult> {
+  const deviceFingerprint = getClientDeviceFingerprint();
+  const referralCode = getPendingReferralCode();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Requested-With': 'KanoDrama',
+  };
+  if (deviceFingerprint) {
+    headers['X-Device-Fingerprint'] = deviceFingerprint;
+  }
+
+  const res = await fetch('/api/auth/email/login', {
+    method: 'POST',
+    credentials: 'include',
+    cache: 'no-store',
+    headers,
+    body: JSON.stringify({
+      email: payload.email.trim().toLowerCase(),
+      password: payload.password,
+      ...(deviceFingerprint ? { deviceFingerprint } : {}),
+      ...(referralCode ? { referralCode } : {}),
+    }),
+  });
+
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    sessionToken?: string;
+    user?: ServerAuthenticatedUser;
+    gmailLoginCount?: number;
+  };
+
+  if (!res.ok || !data.ok || !data.user) {
+    throw new Error(data.error || 'Email sign-in failed.');
+  }
+
+  return {
+    sessionToken: data.sessionToken || null,
+    user: data.user,
+    gmailLoginCount:
+      typeof data.gmailLoginCount === 'number' ? data.gmailLoginCount : 0,
+  };
+}
+
+export async function registerWithEmail(payload: {
+  email: string;
+  password: string;
+  displayName?: string;
+}): Promise<GoogleAuthResult> {
+  const deviceFingerprint = getClientDeviceFingerprint();
+  const referralCode = getPendingReferralCode();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Requested-With': 'KanoDrama',
+  };
+  if (deviceFingerprint) {
+    headers['X-Device-Fingerprint'] = deviceFingerprint;
+  }
+
+  const res = await fetch('/api/auth/email/register', {
+    method: 'POST',
+    credentials: 'include',
+    cache: 'no-store',
+    headers,
+    body: JSON.stringify({
+      email: payload.email.trim().toLowerCase(),
+      password: payload.password,
+      ...(payload.displayName?.trim() ? { displayName: payload.displayName.trim() } : {}),
+      ...(deviceFingerprint ? { deviceFingerprint } : {}),
+      ...(referralCode ? { referralCode } : {}),
+    }),
+  });
+
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    sessionToken?: string;
+    user?: ServerAuthenticatedUser;
+    gmailLoginCount?: number;
+  };
+
+  if (!res.ok || !data.ok || !data.user) {
+    throw new Error(data.error || 'Email registration failed.');
+  }
+
+  return {
+    sessionToken: data.sessionToken || null,
+    user: data.user,
+    gmailLoginCount:
+      typeof data.gmailLoginCount === 'number' ? data.gmailLoginCount : 0,
+  };
+}
+
 export async function signInWithRealGoogle(): Promise<GoogleAuthResult> {
   // Use cached clientId synchronously when already preloaded to preserve click user gesture
   let clientId = getCachedGoogleClientId();
@@ -365,7 +461,7 @@ export async function signInWithRealGoogle(): Promise<GoogleAuthResult> {
 
   if (!clientId) {
     throw new Error(
-      'Google Sign-In is not configured yet. Set GOOGLE_CLIENT_ID in the server .env.'
+      'Google Sign-In is not configured yet. Please sign in with Email below or set GOOGLE_CLIENT_ID in the server .env.'
     );
   }
 
@@ -376,7 +472,7 @@ export async function signInWithRealGoogle(): Promise<GoogleAuthResult> {
 
   if (!gsiReady || !window.google?.accounts?.oauth2) {
     throw new Error(
-      'Google Identity Services could not load. Please disable strict script blockers and try again.'
+      'Google Identity Services could not load. You can use Email Login below or disable strict script blockers.'
     );
   }
 
@@ -385,8 +481,8 @@ export async function signInWithRealGoogle(): Promise<GoogleAuthResult> {
     const timeoutId = window.setTimeout(() => {
       if (done) return;
       done = true;
-      reject(new Error('Google sign-in timed out. Please try again.'));
-    }, 120_000);
+      reject(new Error('Google sign-in timed out. Please try again or use Email Login.'));
+    }, 45_000);
 
     try {
       const client = window.google!.accounts!.oauth2!.initTokenClient({
@@ -415,7 +511,7 @@ export async function signInWithRealGoogle(): Promise<GoogleAuthResult> {
           if (err?.type === 'popup_failed_to_open') {
             reject(
               new Error(
-                'Sign-in popup was blocked by your browser. Please allow popups and try again.'
+                'Sign-in popup was blocked by your browser. Please allow popups or use Email Login.'
               )
             );
             return;

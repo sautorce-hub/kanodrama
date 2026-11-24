@@ -10,6 +10,7 @@ import { createServer as createViteServer, type ViteDevServer } from 'vite';
 import {
   ALLOWED_PAYOUT_METHODS,
   ACTIVE_VISITOR_TTL_SECONDS,
+  authenticateEmailAccountInDb,
   bindReferralForUserInDb,
   buildGmailAccountKey,
   claimPointsInDb,
@@ -44,6 +45,7 @@ import {
   recordVideoViewInDb,
   recordVisitorHeartbeatInDb,
   recordWatchHeartbeatInDb,
+  registerEmailAccountInDb,
   removeActiveVisitorSessionInDb,
   resolveDramaBySlugFromDb,
   syncUserInDb,
@@ -126,19 +128,20 @@ import {
   cleanSeoDescription,
   resolveDramaSeoDescriptionFields,
 } from './src/utils/seo.ts';
+import {
+  getAdminPayoutSecret,
+  getAllowedGoogleClientIds,
+  getAuthSessionSecret,
+  getConfiguredSiteUrl,
+  getGoogleClientSecret,
+  getMolaApiToken,
+  getPrimaryGoogleClientId,
+  getStreamSigningSecret,
+  resolveServerPort,
+} from './server/config.ts';
 import type { LanguageCode, LanguagePreference } from './src/types/drama.ts';
 
-function resolvePort(): number {
-  const portFlagIndex = process.argv.indexOf('--port');
-  if (portFlagIndex !== -1 && process.argv[portFlagIndex + 1]) {
-    const cliPort = Number(process.argv[portFlagIndex + 1]);
-    if (Number.isFinite(cliPort) && cliPort > 0) return cliPort;
-  }
-  const envPort = Number(process.env.PORT);
-  return Number.isFinite(envPort) && envPort > 0 ? envPort : 3000;
-}
-
-const PORT = resolvePort();
+const PORT = resolveServerPort();
 const IS_PROD = process.env.NODE_ENV === 'production';
 const MOLATV_API_BASE = 'https://api.molatv.id/api';
 const DRAMABOX_BASE_URL = `${MOLATV_API_BASE}/dramaboxv2`;
@@ -149,7 +152,7 @@ const DEFAULT_OG_IMAGE_PATH =
   '/assets/aistudio/file_00000000f37c8211a740b95cbbe03886_b90a3ae0.png';
 
 function getMolaToken(): string {
-  return (process.env.MOLA_API_TOKEN || '').trim();
+  return getMolaApiToken();
 }
 
 type SsrProviderName =
@@ -435,26 +438,7 @@ function normalizeVisitorStatsResponse(input: {
 }
 
 function resolveAllowedGoogleClientIds(): Set<string> {
-  const ids = new Set<string>();
-  const addId = (val: unknown) => {
-    if (typeof val !== 'string') return;
-    for (const part of val.split(',')) {
-      const cleaned = part.trim();
-      if (cleaned) ids.add(cleaned);
-    }
-  };
-  addId(process.env.GOOGLE_CLIENT_ID);
-  addId(process.env.VITE_GOOGLE_CLIENT_ID);
-  return ids;
-}
-
-function getPrimaryGoogleClientId(): string {
-  const allowed = resolveAllowedGoogleClientIds();
-  return allowed.values().next().value || '';
-}
-
-function getGoogleClientSecret(): string {
-  return (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+  return getAllowedGoogleClientIds();
 }
 
 let googleCertsCache: {
@@ -639,7 +623,10 @@ async function verifyGoogleAccessToken(
 
     const sub = cleanText(userInfo.sub || tokenInfo.sub);
     const email = cleanText(userInfo.email || tokenInfo.email).toLowerCase();
-    const emailVerified = userInfo.email_verified === true;
+    const emailVerified =
+      userInfo.email_verified === true ||
+      tokenInfo.email_verified === true ||
+      tokenInfo.email_verified === 'true';
     if (!sub || !email || !emailVerified) {
       return { status: 'invalid' };
     }
@@ -659,15 +646,6 @@ async function verifyGoogleAccessToken(
 
 const SESSION_COOKIE_NAME = 'kd_session';
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
-const RUNTIME_SESSION_FALLBACK_SECRET = crypto.randomBytes(32).toString('hex');
-
-function getAuthSessionSecret(): string {
-  return (
-    process.env.SESSION_SECRET ||
-    process.env.STREAM_SIGNING_SECRET ||
-    RUNTIME_SESSION_FALLBACK_SECRET
-  ).trim();
-}
 
 interface SessionTokenPayload {
   uid: string;
@@ -998,6 +976,16 @@ async function recordGmailAccountAndSync(input: {
     visitDate: input.visitDate || getJakartaDateKey(),
   });
 
+  const isGoogleAccount = input.uid.startsWith('google_');
+  if (!isGoogleAccount) {
+    const dbCount = await getUniqueGmailLoginCountFromDb().catch(() => null);
+    const gmailLoginCount =
+      dbCount !== null
+        ? Math.max(dbCount, memoryGmailTotalLogins)
+        : memoryGmailTotalLogins;
+    return { synced, gmailLoginCount };
+  }
+
   const accountKey = buildGmailAccountKey(input.uid, input.email);
   const emailVerified = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email);
   const dbCount = await recordGmailLoginInDb({
@@ -1145,17 +1133,15 @@ function resolveOrigin(req: Request): string {
   if (/^(www\.)?kano-drama\.xyz$/i.test(host)) {
     return 'https://kano-drama.xyz';
   }
-  const configured =
-    process.env.SITE_URL || process.env.VITE_SITE_URL || process.env.APP_URL;
-  if (configured && configured !== 'MY_APP_URL') {
-    const clean = configured.trim().replace(/\/+$/, '');
-    if (/^https?:\/\/(www\.)?kano-drama\.xyz$/i.test(clean)) {
+  const configured = getConfiguredSiteUrl();
+  if (configured) {
+    if (/^https?:\/\/(www\.)?kano-drama\.xyz$/i.test(configured)) {
       return 'https://kano-drama.xyz';
     }
     const isLocalConfigured = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(
-      clean
+      configured
     );
-    return isLocalConfigured ? clean : clean.replace(/^http:\/\//i, 'https://');
+    return isLocalConfigured ? configured : configured.replace(/^http:\/\//i, 'https://');
   }
   const isLocalHost = /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(host);
   const forwardedProto = (
@@ -3889,12 +3875,7 @@ async function startServer() {
 
   // --- HMAC-SHA256 Signed Video Stream Security ---
 
-  const streamSigningSecret =
-    process.env.STREAM_SIGNING_SECRET ||
-    crypto
-      .createHash('sha256')
-      .update(`${process.env.MOLA_API_TOKEN || 'kanodrama-dev'}|stream-guard-v1`)
-      .digest('hex');
+  const streamSigningSecret = getStreamSigningSecret();
 
   const signStreamToken = (targetUrl: string, uid: string, ttlMs = 2 * 60 * 60 * 1000) => {
     const exp = Date.now() + ttlMs;
@@ -4286,6 +4267,210 @@ async function startServer() {
     }
   });
 
+  app.post('/api/auth/email/register', async (req: Request, res: Response) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store');
+      const secHashes = extractClientSecurityHashes(req);
+      if (isEndpointRateLimited(`email-reg:${secHashes.ipHash || 'anon'}`, 10, 10 * 60_000)) {
+        res.status(429).json({
+          ok: false,
+          error: 'Too many registration attempts. Please try again in a few minutes.',
+        });
+        return;
+      }
+
+      const rawEmail = cleanText(req.body?.email).toLowerCase();
+      const rawPassword = typeof req.body?.password === 'string' ? req.body.password : '';
+      const rawDisplayName = cleanText(req.body?.displayName);
+
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(rawEmail)) {
+        res.status(400).json({
+          ok: false,
+          error: 'Please enter a valid email address.',
+        });
+        return;
+      }
+      if (rawPassword.length < 6 || rawPassword.length > 128) {
+        res.status(400).json({
+          ok: false,
+          error: 'Password must be between 6 and 128 characters.',
+        });
+        return;
+      }
+
+      const resolvedName = rawDisplayName || rawEmail.split('@')[0] || 'Kano Viewer';
+      const regResult = await registerEmailAccountInDb({
+        email: rawEmail,
+        password: rawPassword,
+        displayName: resolvedName,
+        avatarInitials: buildAvatarInitials(resolvedName),
+        avatarColor: pickAvatarColor(rawEmail),
+        visitDate: getJakartaDateKey(),
+      });
+
+      if (!regResult.ok) {
+        if (regResult.reason === 'email_exists') {
+          res.status(409).json({
+            ok: false,
+            error: 'This email is already registered. Please sign in instead.',
+          });
+          return;
+        }
+        res.status(400).json({
+          ok: false,
+          error: 'Invalid email or password format.',
+        });
+        return;
+      }
+
+      const dbUser = regResult.user;
+      await recordUserSecuritySignalInDb({
+        userId: dbUser.uid,
+        ...secHashes,
+        displayName: dbUser.displayName,
+      }).catch(() => null);
+
+      const pendingRefCode = cleanText(req.body?.referralCode);
+      if (pendingRefCode) {
+        await bindReferralForUserInDb({
+          refereeUid: dbUser.uid,
+          referralCode: pendingRefCode,
+          ...secHashes,
+          displayName: dbUser.displayName,
+        }).catch(() => null);
+      }
+
+      const dbCount = await getUniqueGmailLoginCountFromDb().catch(() => null);
+      const gmailLoginCount =
+        dbCount !== null ? Math.max(dbCount, memoryGmailTotalLogins) : memoryGmailTotalLogins;
+
+      const sessionToken = signAuthSessionToken({
+        uid: dbUser.uid,
+        email: dbUser.email,
+        displayName: dbUser.displayName,
+        photoURL: dbUser.photoURL,
+      });
+      setAuthSessionCookie(req, res, sessionToken);
+
+      res.status(201).json({
+        ok: true,
+        sessionToken,
+        gmailLoginCount,
+        user: {
+          uid: dbUser.uid,
+          email: dbUser.email,
+          displayName: dbUser.displayName,
+          photoURL: dbUser.photoURL,
+          bio: dbUser.bio,
+          preferredLanguage: dbUser.preferredLanguage || 'en',
+          preferences: dbUser.preferences || {},
+          streakCount: dbUser.streakCount || 1,
+          lastVisitDate: dbUser.lastVisitDate || getJakartaDateKey(),
+          isVip: Boolean(dbUser.isVip),
+        },
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Email registration failed.',
+      });
+    }
+  });
+
+  app.post('/api/auth/email/login', async (req: Request, res: Response) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store');
+      const secHashes = extractClientSecurityHashes(req);
+      if (isEndpointRateLimited(`email-login:${secHashes.ipHash || 'anon'}`, 15, 10 * 60_000)) {
+        res.status(429).json({
+          ok: false,
+          error: 'Too many sign-in attempts. Please wait a few minutes and try again.',
+        });
+        return;
+      }
+
+      const rawEmail = cleanText(req.body?.email).toLowerCase();
+      const rawPassword = typeof req.body?.password === 'string' ? req.body.password : '';
+
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(rawEmail) || !rawPassword) {
+        res.status(400).json({
+          ok: false,
+          error: 'Please enter a valid email and password.',
+        });
+        return;
+      }
+
+      const fallbackName = rawEmail.split('@')[0] || 'Kano Viewer';
+      const authResult = await authenticateEmailAccountInDb({
+        email: rawEmail,
+        password: rawPassword,
+        avatarInitials: buildAvatarInitials(fallbackName),
+        avatarColor: pickAvatarColor(rawEmail),
+        visitDate: getJakartaDateKey(),
+      });
+
+      if (!authResult.ok) {
+        res.status(401).json({
+          ok: false,
+          error: 'Incorrect email or password.',
+        });
+        return;
+      }
+
+      const dbUser = authResult.user;
+      await recordUserSecuritySignalInDb({
+        userId: dbUser.uid,
+        ...secHashes,
+        displayName: dbUser.displayName,
+      }).catch(() => null);
+
+      const pendingRefCode = cleanText(req.body?.referralCode);
+      if (pendingRefCode) {
+        await bindReferralForUserInDb({
+          refereeUid: dbUser.uid,
+          referralCode: pendingRefCode,
+          ...secHashes,
+          displayName: dbUser.displayName,
+        }).catch(() => null);
+      }
+
+      const dbCount = await getUniqueGmailLoginCountFromDb().catch(() => null);
+      const gmailLoginCount =
+        dbCount !== null ? Math.max(dbCount, memoryGmailTotalLogins) : memoryGmailTotalLogins;
+
+      const sessionToken = signAuthSessionToken({
+        uid: dbUser.uid,
+        email: dbUser.email,
+        displayName: dbUser.displayName,
+        photoURL: dbUser.photoURL,
+      });
+      setAuthSessionCookie(req, res, sessionToken);
+
+      res.json({
+        ok: true,
+        sessionToken,
+        gmailLoginCount,
+        user: {
+          uid: dbUser.uid,
+          email: dbUser.email,
+          displayName: dbUser.displayName,
+          photoURL: dbUser.photoURL,
+          bio: dbUser.bio,
+          preferredLanguage: dbUser.preferredLanguage || 'en',
+          preferences: dbUser.preferences || {},
+          streakCount: dbUser.streakCount || 1,
+          lastVisitDate: dbUser.lastVisitDate || getJakartaDateKey(),
+          isVip: Boolean(dbUser.isVip),
+        },
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Email sign-in failed.',
+      });
+    }
+  });
+
   app.get('/api/auth/google/url', (req: Request, res: Response) => {
     const clientId = getPrimaryGoogleClientId();
     const clientSecret = getGoogleClientSecret();
@@ -4296,11 +4481,7 @@ async function startServer() {
       });
       return;
     }
-    const baseOrigin = (
-      process.env.APP_URL ||
-      process.env.SITE_URL ||
-      resolveOrigin(req)
-    )
+    const baseOrigin = (getConfiguredSiteUrl() || resolveOrigin(req))
       .trim()
       .replace(/\/+$/, '');
     const redirectUri = `${baseOrigin}/api/auth/google/callback`;
@@ -4428,7 +4609,7 @@ async function startServer() {
         res.type('text/html; charset=utf-8').send(
           `<!doctype html><html><body><script>
             if (window.opener) {
-              window.opener.postMessage(${safePayload}, '*');
+              window.opener.postMessage(${safePayload}, ${JSON.stringify(parsedState.origin)});
               window.close();
             } else {
               window.location.replace('/account');
@@ -4661,7 +4842,7 @@ async function startServer() {
   }
 
   function verifyAdminPayoutAuth(req: Request, res: Response): boolean {
-    const configuredSecret = (process.env.ADMIN_PAYOUT_SECRET || '').trim();
+    const configuredSecret = getAdminPayoutSecret();
     if (!configuredSecret) {
       res.status(503).json({
         ok: false,
@@ -6828,6 +7009,8 @@ async function startServer() {
         '/latest': 'latest',
         '/vip': 'vip',
         '/account': 'dashboard',
+        '/rewards': 'dashboard',
+        '/referral': 'dashboard',
       };
 
       const sectionPage = sectionPageMap[lowerCleanPath];

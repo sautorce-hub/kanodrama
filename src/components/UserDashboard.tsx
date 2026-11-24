@@ -214,8 +214,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       id: 'rewards',
       label:
         user && typeof pointsBalance === 'number'
-          ? `${t.dashboard.tabRewards} (${pointsBalance.toLocaleString()})`
-          : t.dashboard.tabRewards,
+          ? `${language === 'id' ? 'Poin & Referral' : 'Points & Referral'} (${pointsBalance.toLocaleString()})`
+          : language === 'id'
+          ? 'Poin & Referral'
+          : 'Points & Referral',
       icon: <Coins className="w-4 h-4 text-[#D4AF37]" />,
     },
     {
@@ -289,7 +291,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 onClick={() => openAuthModal()}
                 className="px-5 py-2.5 min-h-[44px] rounded-full cd-accent-bg text-xs sm:text-sm font-semibold text-white shadow-lg"
               >
-                {t.auth.continueBtn}
+                {language === 'id' ? 'Masuk / Daftar Akun' : 'Sign In / Register'}
               </button>
             )}
             <button
@@ -351,7 +353,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           >
             <div className="flex items-center gap-1.5 text-[11px] text-[#FDE68A]">
               <Coins className="w-3.5 h-3.5 text-[#D4AF37]" />
-              <span>{t.dashboard.tabRewards}</span>
+              <span>{language === 'id' ? 'Poin & Referral' : 'Points & Referral'}</span>
             </div>
             <p className="text-2xl font-extrabold text-white mt-1 tabular-nums">
               {user && typeof pointsBalance === 'number'
@@ -366,7 +368,9 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               <span>{t.auth.gmailLoginCount}</span>
             </div>
             <p className="text-2xl font-extrabold text-white mt-1 tabular-nums">
-              {user ? Math.max(1, gmailLoginCount) : gmailLoginCount}
+              {user?.uid?.startsWith('google_')
+                ? Math.max(1, gmailLoginCount)
+                : gmailLoginCount}
             </p>
           </div>
         </div>
@@ -421,7 +425,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 onClick={() => openAuthModal()}
                 className="px-4 py-2 min-h-[40px] rounded-full bg-white text-[#09090B] text-xs font-bold shrink-0"
               >
-                {t.auth.continueBtn}
+                {language === 'id' ? 'Masuk / Daftar' : 'Sign In / Register'}
               </button>
             </div>
           )}

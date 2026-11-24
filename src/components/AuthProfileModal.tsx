@@ -15,9 +15,17 @@ import {
   AlertCircle,
   LayoutDashboard,
   Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  UserPlus,
+  LogIn,
+  Coins,
 } from 'lucide-react';
 import { renderGoogleCredentialButton } from '../config/auth';
 import { useDramaContext } from '../context/DramaContext';
+
+const EMAIL_INPUT_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 function GoogleGIcon({ className = 'w-5 h-5' }: { className?: string }) {
   return (
@@ -45,6 +53,7 @@ function GoogleGIcon({ className = 'w-5 h-5' }: { className?: string }) {
 export const AuthProfileModal: React.FC = () => {
   const {
     t,
+    language,
     user,
     authLoading,
     authError,
@@ -52,12 +61,15 @@ export const AuthProfileModal: React.FC = () => {
     authPromptReason,
     closeAuthModal,
     signInWithGoogle,
+    signInWithEmail,
+    registerAccountWithEmail,
     completeGoogleSignIn,
     signOut,
     streak,
     likedDramaIds,
     dramaWatchlistItems,
     movieWatchlistItems,
+    pointsBalance,
     gmailLoginCount,
     refreshGmailLoginCount,
     setHelpModalOpen,
@@ -65,7 +77,15 @@ export const AuthProfileModal: React.FC = () => {
 
   const [avatarBroken, setAvatarBroken] = useState(false);
   const [gsiFallbackError, setGsiFallbackError] = useState<string | null>(null);
+  const [authTab, setAuthTab] = useState<'login' | 'register'>('login');
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [displayNameInput, setDisplayNameInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
   const gsiBtnContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const isId = language === 'id';
 
   useEffect(() => {
     setAvatarBroken(false);
@@ -74,6 +94,9 @@ export const AuthProfileModal: React.FC = () => {
   useEffect(() => {
     if (!authModalOpen) {
       setGsiFallbackError(null);
+      setLocalError(null);
+      setPasswordInput('');
+      setShowPassword(false);
       return;
     }
     void refreshGmailLoginCount();
@@ -83,6 +106,14 @@ export const AuthProfileModal: React.FC = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [authModalOpen, closeAuthModal, refreshGmailLoginCount]);
+
+  useEffect(() => {
+    if (user) {
+      setPasswordInput('');
+      setLocalError(null);
+      setGsiFallbackError(null);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!authModalOpen || user || !authError || !gsiBtnContainerRef.current) return;
@@ -104,6 +135,48 @@ export const AuthProfileModal: React.FC = () => {
   if (!authModalOpen) return null;
 
   const daysRemaining = Math.max(0, 3 - streak.count);
+  const combinedError = localError || gsiFallbackError || authError;
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLocalError(null);
+    setGsiFallbackError(null);
+
+    const normalizedEmail = emailInput.trim().toLowerCase();
+    if (!EMAIL_INPUT_REGEX.test(normalizedEmail)) {
+      setLocalError(
+        isId
+          ? 'Masukkan alamat email yang valid (contoh: nama@email.com).'
+          : 'Please enter a valid email address.'
+      );
+      return;
+    }
+    if (passwordInput.length < 6 || passwordInput.length > 128) {
+      setLocalError(
+        isId
+          ? 'Kata sandi wajib 6 hingga 128 karakter.'
+          : 'Password must be between 6 and 128 characters.'
+      );
+      return;
+    }
+
+    if (authTab === 'register') {
+      const cleanName = displayNameInput.trim();
+      const signedIn = await registerAccountWithEmail(
+        normalizedEmail,
+        passwordInput,
+        cleanName || undefined
+      );
+      if (signedIn) {
+        setPasswordInput('');
+      }
+    } else {
+      const signedIn = await signInWithEmail(normalizedEmail, passwordInput);
+      if (signedIn) {
+        setPasswordInput('');
+      }
+    }
+  };
 
   const openDashboardWatchlist = (category: 'movie' | 'drama') => {
     closeAuthModal();
@@ -128,13 +201,17 @@ export const AuthProfileModal: React.FC = () => {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl bg-[#121013]/95 backdrop-blur-2xl border-t sm:border border-white/15 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+        className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-[#121013]/95 backdrop-blur-2xl border-t sm:border border-white/15 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
       >
         {/* Top Bar */}
-        <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-[#121013]/95 backdrop-blur-xl px-5 py-4 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center shadow-sm">
-              <GoogleGIcon className="w-4 h-4" />
+              {user && !user.uid.startsWith('google_') ? (
+                <Mail className="w-4 h-4 text-[#09090B]" />
+              ) : (
+                <GoogleGIcon className="w-4 h-4" />
+              )}
             </div>
             <div>
               <h2 className="text-base font-bold text-white leading-tight">
@@ -157,13 +234,13 @@ export const AuthProfileModal: React.FC = () => {
         </div>
 
         {!user ? (
-          <div className="p-5 space-y-5 pb-[max(24px,env(safe-area-inset-bottom))]">
+          <div className="p-5 space-y-4 pb-[max(24px,env(safe-area-inset-bottom))]">
             {/* Contextual Reason Banner (e.g. triggered by Movie Watchlist / Heart / Comment gate) */}
             <div className="p-3.5 rounded-2xl bg-[var(--cd-accent-soft)] border border-[var(--cd-accent)]/40 flex items-start gap-2.5">
               <Sparkles className="w-4 h-4 cd-accent-text shrink-0 mt-0.5" />
               <div className="space-y-0.5">
                 <p className="text-xs font-bold text-white">
-                  {t.auth.signInWithGoogle}
+                  {isId ? 'Masuk dengan Email atau Google' : 'Sign in with Email or Google'}
                 </p>
                 <p className="text-[11px] text-[#E4E4E7] leading-relaxed">
                   {authPromptReason || t.auth.gateReasonDefault}
@@ -171,24 +248,28 @@ export const AuthProfileModal: React.FC = () => {
               </div>
             </div>
 
-            {(authError || gsiFallbackError) && (
+            {combinedError && (
               <div className="space-y-2.5">
                 <div className="p-3 rounded-xl bg-red-500/15 border border-red-500/35 flex items-start gap-2 text-xs text-red-200">
                   <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                  <span className="leading-relaxed">{gsiFallbackError || authError}</span>
+                  <span className="leading-relaxed">{combinedError}</span>
                 </div>
-                <div ref={gsiBtnContainerRef} className="flex justify-center min-h-[42px]" />
+                {authError && (
+                  <div ref={gsiBtnContainerRef} className="flex justify-center min-h-[42px]" />
+                )}
               </div>
             )}
 
+            {/* Primary Google Sign-In Button */}
             <button
               type="button"
               disabled={authLoading}
               onClick={() => {
+                setLocalError(null);
                 setGsiFallbackError(null);
                 void signInWithGoogle();
               }}
-              className="w-full min-h-[48px] py-3 px-4 rounded-full bg-white hover:bg-[#F4F4F5] disabled:opacity-60 text-[#09090B] text-sm font-bold flex items-center justify-center gap-2.5 shadow-xl transition-all active:scale-[0.98]"
+              className="w-full min-h-[46px] py-2.5 px-4 rounded-full bg-white hover:bg-[#F4F4F5] disabled:opacity-60 text-[#09090B] text-sm font-bold flex items-center justify-center gap-2.5 shadow-xl transition-all active:scale-[0.98]"
             >
               {authLoading ? (
                 <>
@@ -203,6 +284,160 @@ export const AuthProfileModal: React.FC = () => {
               )}
             </button>
 
+            <div className="flex items-center gap-3 text-[11px] text-[#71717A]">
+              <span className="h-px flex-1 bg-white/10" />
+              <span>{isId ? 'atau dengan Email' : 'or with Email'}</span>
+              <span className="h-px flex-1 bg-white/10" />
+            </div>
+
+            {/* Masuk / Daftar Email Tabs */}
+            <div
+              role="tablist"
+              aria-label="Email authentication mode"
+              className="grid grid-cols-2 p-1 rounded-2xl bg-[#19161A] border border-white/10"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={authTab === 'login'}
+                disabled={authLoading}
+                onClick={() => {
+                  setAuthTab('login');
+                  setLocalError(null);
+                }}
+                className={`min-h-[38px] rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-all ${
+                  authTab === 'login'
+                    ? 'cd-accent-bg text-white shadow'
+                    : 'text-[#A1A1AA] hover:text-white'
+                }`}
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>{isId ? 'Masuk' : 'Sign In'}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={authTab === 'register'}
+                disabled={authLoading}
+                onClick={() => {
+                  setAuthTab('register');
+                  setLocalError(null);
+                }}
+                className={`min-h-[38px] rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-all ${
+                  authTab === 'register'
+                    ? 'cd-accent-bg text-white shadow'
+                    : 'text-[#A1A1AA] hover:text-white'
+                }`}
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>{isId ? 'Daftar' : 'Register'}</span>
+              </button>
+            </div>
+
+            {/* Email + Password Form */}
+            <form onSubmit={handleEmailSubmit} className="space-y-3" noValidate>
+              {authTab === 'register' && (
+                <div className="space-y-1">
+                  <label
+                    htmlFor="kano-auth-name"
+                    className="block text-[11px] font-semibold text-[#D4D4D8]"
+                  >
+                    {isId ? 'Nama Tampilan (opsional)' : 'Display Name (optional)'}
+                  </label>
+                  <input
+                    id="kano-auth-name"
+                    type="text"
+                    maxLength={60}
+                    autoComplete="name"
+                    value={displayNameInput}
+                    onChange={(e) => setDisplayNameInput(e.target.value)}
+                    disabled={authLoading}
+                    placeholder={isId ? 'Contoh: Raka Drama' : 'e.g. Kano Viewer'}
+                    className="w-full min-h-[42px] px-3.5 py-2 rounded-xl bg-[#0D0C10] border border-white/10 focus:border-[var(--cd-accent)] focus:outline-none text-sm text-white disabled:opacity-60"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="kano-auth-email"
+                  className="block text-[11px] font-semibold text-[#D4D4D8]"
+                >
+                  Email
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-[#71717A] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    id="kano-auth-email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    disabled={authLoading}
+                    placeholder="nama@email.com"
+                    className="w-full min-h-[42px] pl-10 pr-3.5 py-2 rounded-xl bg-[#0D0C10] border border-white/10 focus:border-[var(--cd-accent)] focus:outline-none text-sm text-white disabled:opacity-60"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="kano-auth-password"
+                  className="block text-[11px] font-semibold text-[#D4D4D8]"
+                >
+                  {isId ? 'Kata Sandi' : 'Password'}
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-[#71717A] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    id="kano-auth-password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    maxLength={128}
+                    autoComplete={authTab === 'register' ? 'new-password' : 'current-password'}
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    disabled={authLoading}
+                    placeholder={isId ? 'Minimal 6 karakter' : 'At least 6 characters'}
+                    className="w-full min-h-[42px] pl-10 pr-10 py-2 rounded-xl bg-[#0D0C10] border border-white/10 focus:border-[var(--cd-accent)] focus:outline-none text-sm text-white disabled:opacity-60"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    className="p-1.5 rounded-lg text-[#A1A1AA] hover:text-white absolute right-2 top-1/2 -translate-y-1/2 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={authLoading}
+                className="w-full min-h-[44px] py-2.5 px-4 rounded-full cd-accent-bg hover:brightness-110 disabled:opacity-60 text-white text-sm font-bold flex items-center justify-center gap-2 shadow-lg transition-all active:scale-[0.98]"
+              >
+                {authLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>{t.auth.signingIn}</span>
+                  </>
+                ) : authTab === 'register' ? (
+                  <>
+                    <UserPlus className="w-4 h-4" />
+                    <span>{isId ? 'Daftar dengan Email' : 'Create Email Account'}</span>
+                  </>
+                ) : (
+                  <>
+                    <LogIn className="w-4 h-4" />
+                    <span>{isId ? 'Masuk dengan Email' : 'Sign In with Email'}</span>
+                  </>
+                )}
+              </button>
+            </form>
+
             <div className="pt-2 border-t border-white/10 space-y-2">
               <div className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#2A1016] to-[#19161A] border border-[#991B1B]/50 flex items-center justify-between text-xs">
                 <span className="inline-flex items-center gap-2 text-[#FCA5A5] font-semibold">
@@ -213,6 +448,29 @@ export const AuthProfileModal: React.FC = () => {
                   {gmailLoginCount}
                 </span>
               </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  closeAuthModal();
+                  window.dispatchEvent(
+                    new CustomEvent('hd:navigate', {
+                      detail: { tab: 'rewards', subTab: 'rewards' },
+                    })
+                  );
+                }}
+                className="w-full min-h-[42px] px-4 py-2 rounded-2xl bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-xs font-bold text-[#FDE68A] flex items-center justify-between transition-colors"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Coins className="w-4 h-4 text-[#D4AF37]" />
+                  <span>
+                    {isId
+                      ? 'Lihat Sistem Poin & Referral (Tukar IDR / USD)'
+                      : 'View Points & Referral System (Redeem IDR / USD)'}
+                  </span>
+                </span>
+                <ChevronRight className="w-4 h-4 text-[#D4AF37]" />
+              </button>
 
               <button
                 type="button"
@@ -345,7 +603,9 @@ export const AuthProfileModal: React.FC = () => {
                   <span className="truncate">{t.auth.gmailLoginCount}</span>
                 </div>
                 <p className="text-lg font-extrabold text-white mt-1 tabular-nums">
-                  {Math.max(1, gmailLoginCount)}
+                  {user.uid.startsWith('google_')
+                    ? Math.max(1, gmailLoginCount)
+                    : gmailLoginCount}
                 </p>
               </div>
             </div>
@@ -374,6 +634,30 @@ export const AuthProfileModal: React.FC = () => {
                   <Bookmark className="w-4 h-4 text-[#D4AF37]" />
                   <span>
                     {t.sections.dramaWatchlistTitle} ({dramaWatchlistItems.length})
+                  </span>
+                </span>
+                <ChevronRight className="w-4 h-4 text-[#D4AF37]" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  closeAuthModal();
+                  window.dispatchEvent(
+                    new CustomEvent('hd:navigate', {
+                      detail: { tab: 'rewards', subTab: 'rewards' },
+                    })
+                  );
+                }}
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#231B0E] to-[#19161A] hover:brightness-110 border border-[#D4AF37]/45 text-xs font-bold text-[#FDE68A] flex items-center justify-between transition-all"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  <Coins className="w-4 h-4 text-[#D4AF37]" />
+                  <span>
+                    {isId ? 'Poin & Referral' : 'Points & Referral'}
+                    {typeof pointsBalance === 'number'
+                      ? ` (${pointsBalance.toLocaleString()} ${t.rewards.pointsUnit})`
+                      : ''}
                   </span>
                 </span>
                 <ChevronRight className="w-4 h-4 text-[#D4AF37]" />

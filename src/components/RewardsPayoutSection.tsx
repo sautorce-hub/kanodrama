@@ -9,6 +9,7 @@ import {
   Clock,
   Coins,
   Copy,
+  Flame,
   Gift,
   Globe2,
   Lock,
@@ -42,6 +43,11 @@ interface PayoutMethodDescriptor {
   category: 'ewallet_idr' | 'bank_idr' | 'global_usd' | 'crypto_usd';
 }
 
+interface DailyMissionMilestoneConfig {
+  minutes: number;
+  bonusPoints: number;
+}
+
 interface PayoutConfig {
   usdToIdrRate: number;
   pointsPerUsd: number;
@@ -53,6 +59,9 @@ interface PayoutConfig {
   claimCooldownSeconds: number;
   dailyCheckinPoints: number;
   watchEpisodePoints: number;
+  watchMinutePoints: number;
+  dailyMissionMaxWatchSeconds: number;
+  dailyMissionMilestones: DailyMissionMilestoneConfig[];
   referralQualifySeconds: number;
   referralBonusPoints: number;
   maxDailyReferrals: number;
@@ -126,6 +135,9 @@ interface UserPointsSummary {
   totalRedeemed: number;
   todayEarned: number;
   maxDailyEarnPoints: number;
+  todayWatchSeconds?: number;
+  todayWatchPointsEarned?: number;
+  dailyMissionMaxWatchSeconds?: number;
   estimatedUsd: number;
   estimatedIdr: number;
   lastClaimAt: string | null;
@@ -150,30 +162,37 @@ interface LivePayoutFeedItem {
 }
 
 const DEFAULT_CONFIG: PayoutConfig = {
-  usdToIdrRate: 16000,
-  pointsPerUsd: 10000,
+  usdToIdrRate: 18200,
+  pointsPerUsd: 20000,
   minPayoutIdr: 50000,
   minPayoutUsd: 5,
-  minPayoutPointsIdr: 31250,
-  minPayoutPointsUsd: 50000,
-  maxDailyEarnPoints: 500,
+  minPayoutPointsIdr: 54946,
+  minPayoutPointsUsd: 100000,
+  maxDailyEarnPoints: 5000,
   claimCooldownSeconds: 45,
-  dailyCheckinPoints: 50,
-  watchEpisodePoints: 25,
+  dailyCheckinPoints: 100,
+  watchEpisodePoints: 50,
+  watchMinutePoints: 5,
+  dailyMissionMaxWatchSeconds: 3600,
+  dailyMissionMilestones: [
+    { minutes: 15, bonusPoints: 25 },
+    { minutes: 30, bonusPoints: 50 },
+    { minutes: 60, bonusPoints: 100 },
+  ],
   referralQualifySeconds: 3600,
-  referralBonusPoints: 500,
+  referralBonusPoints: 1000,
   maxDailyReferrals: 5,
   maxWeeklyReferrals: 15,
   maxDailyVerifiedWatchSeconds: 28800,
   methods: [
-    { id: 'dana', label: 'DANA', currency: 'IDR', countryCode: 'ID', minPoints: 31250, category: 'ewallet_idr' },
-    { id: 'gopay', label: 'GoPay', currency: 'IDR', countryCode: 'ID', minPoints: 31250, category: 'ewallet_idr' },
-    { id: 'ovo', label: 'OVO', currency: 'IDR', countryCode: 'ID', minPoints: 31250, category: 'ewallet_idr' },
-    { id: 'bank_transfer', label: 'Transfer Bank (IDR)', currency: 'IDR', countryCode: 'ID', minPoints: 31250, category: 'bank_idr' },
-    { id: 'paypal', label: 'PayPal', currency: 'USD', countryCode: 'US', minPoints: 50000, category: 'global_usd' },
-    { id: 'usdt_polygon', label: 'USDT (Polygon)', currency: 'USD', countryCode: 'SG', minPoints: 50000, category: 'crypto_usd' },
-    { id: 'usdt_trc20', label: 'USDT (TRC20)', currency: 'USD', countryCode: 'PH', minPoints: 50000, category: 'crypto_usd' },
-    { id: 'wise', label: 'Wise', currency: 'USD', countryCode: 'MY', minPoints: 50000, category: 'global_usd' },
+    { id: 'dana', label: 'DANA', currency: 'IDR', countryCode: 'ID', minPoints: 54946, category: 'ewallet_idr' },
+    { id: 'gopay', label: 'GoPay', currency: 'IDR', countryCode: 'ID', minPoints: 54946, category: 'ewallet_idr' },
+    { id: 'ovo', label: 'OVO', currency: 'IDR', countryCode: 'ID', minPoints: 54946, category: 'ewallet_idr' },
+    { id: 'bank_transfer', label: 'Transfer Bank (IDR)', currency: 'IDR', countryCode: 'ID', minPoints: 54946, category: 'bank_idr' },
+    { id: 'paypal', label: 'PayPal', currency: 'USD', countryCode: 'US', minPoints: 100000, category: 'global_usd' },
+    { id: 'usdt_polygon', label: 'USDT (Polygon)', currency: 'USD', countryCode: 'SG', minPoints: 100000, category: 'crypto_usd' },
+    { id: 'usdt_trc20', label: 'USDT (TRC20)', currency: 'USD', countryCode: 'PH', minPoints: 100000, category: 'crypto_usd' },
+    { id: 'wise', label: 'Wise', currency: 'USD', countryCode: 'MY', minPoints: 100000, category: 'global_usd' },
   ],
 };
 
@@ -185,12 +204,13 @@ function formatUsd(amount: number): string {
   return `$${Math.max(0, amount).toFixed(2)}`;
 }
 
-function formatRelativeTime(iso: string, lang: string): string {
+function formatRelativeTime(iso: string, lang: string, nowMs = Date.now()): string {
   const ts = Date.parse(iso);
   if (!Number.isFinite(ts)) return '';
-  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  const diffSec = Math.max(0, Math.floor((nowMs - ts) / 1000));
   const isId = lang === 'id';
-  if (diffSec < 60) return isId ? 'baru saja' : 'just now';
+  if (diffSec < 10) return isId ? 'baru saja' : 'just now';
+  if (diffSec < 60) return isId ? `${diffSec} dtk lalu` : `${diffSec}s ago`;
   const mins = Math.floor(diffSec / 60);
   if (mins < 60) return isId ? `${mins} mnt lalu` : `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
@@ -236,6 +256,7 @@ export const RewardsPayoutSection: React.FC = () => {
     null
   );
   const [liveFeed, setLiveFeed] = useState<LivePayoutFeedItem[]>([]);
+  const [liveNowTick, setLiveNowTick] = useState<number>(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [claimingCheckin, setClaimingCheckin] = useState(false);
   const [copiedRef, setCopiedRef] = useState(false);
@@ -247,7 +268,7 @@ export const RewardsPayoutSection: React.FC = () => {
     language === 'id' ? 'dana' : 'paypal'
   );
   const [pointsInput, setPointsInput] = useState<string>(() =>
-    language === 'id' ? '31250' : '50000'
+    language === 'id' ? '54946' : '100000'
   );
   const [destinationInput, setDestinationInput] = useState<string>('');
   const [holderNameInput, setHolderNameInput] = useState<string>(user?.displayName || '');
@@ -326,6 +347,20 @@ export const RewardsPayoutSection: React.FC = () => {
     void loadPointsData();
   }, [loadPointsData]);
 
+  // Keep Live Payout History rolling every 10s + relative timestamps ticking every 1s
+  useEffect(() => {
+    const feedTimer = window.setInterval(() => {
+      void loadLiveFeed();
+    }, 10_000);
+    const tickTimer = window.setInterval(() => {
+      setLiveNowTick(Date.now());
+    }, 1_000);
+    return () => {
+      window.clearInterval(feedTimer);
+      window.clearInterval(tickTimer);
+    };
+  }, [loadLiveFeed]);
+
   useEffect(() => {
     if (user?.displayName && !holderNameInput.trim()) {
       setHolderNameInput(user.displayName);
@@ -338,6 +373,9 @@ export const RewardsPayoutSection: React.FC = () => {
         evt as CustomEvent<{
           summary?: UserPointsSummary;
           verifiedWatchSeconds?: number;
+          todayWatchSeconds?: number;
+          todayWatchPointsEarned?: number;
+          pointsBalance?: number | null;
           referralQualified?: boolean;
           referralBound?: boolean;
         }>
@@ -348,7 +386,38 @@ export const RewardsPayoutSection: React.FC = () => {
       if (typeof detail?.verifiedWatchSeconds === 'number') {
         const nextSec = detail.verifiedWatchSeconds;
         setReferralSummary((prev) =>
-          prev ? { ...prev, verifiedWatchSeconds: nextSec } : prev
+          prev
+            ? {
+                ...prev,
+                verifiedWatchSeconds: nextSec,
+                todayWatchSeconds:
+                  typeof detail.todayWatchSeconds === 'number'
+                    ? detail.todayWatchSeconds
+                    : prev.todayWatchSeconds,
+              }
+            : prev
+        );
+      }
+      if (
+        typeof detail?.todayWatchSeconds === 'number' ||
+        typeof detail?.todayWatchPointsEarned === 'number' ||
+        typeof detail?.pointsBalance === 'number'
+      ) {
+        setSummary((prev) =>
+          prev
+            ? {
+                ...prev,
+                ...(typeof detail.pointsBalance === 'number'
+                  ? { balance: detail.pointsBalance }
+                  : {}),
+                ...(typeof detail.todayWatchSeconds === 'number'
+                  ? { todayWatchSeconds: detail.todayWatchSeconds }
+                  : {}),
+                ...(typeof detail.todayWatchPointsEarned === 'number'
+                  ? { todayWatchPointsEarned: detail.todayWatchPointsEarned }
+                  : {}),
+              }
+            : prev
         );
       }
       if (detail?.referralQualified || detail?.referralBound) {
@@ -614,6 +683,27 @@ export const RewardsPayoutSection: React.FC = () => {
     )
   );
 
+  const missionMaxSeconds = Math.max(
+    60,
+    summary?.dailyMissionMaxWatchSeconds ?? config.dailyMissionMaxWatchSeconds ?? 3600
+  );
+  const missionMaxMinutes = Math.floor(missionMaxSeconds / 60);
+  const todayWatchSeconds = Math.max(
+    0,
+    summary?.todayWatchSeconds ?? referralSummary?.todayWatchSeconds ?? 0
+  );
+  const cappedMissionWatchSeconds = Math.min(todayWatchSeconds, missionMaxSeconds);
+  const todayMissionMinutes = Math.floor(cappedMissionWatchSeconds / 60);
+  const missionWatchPct = Math.min(
+    100,
+    Math.round((cappedMissionWatchSeconds / missionMaxSeconds) * 100)
+  );
+  const todayWatchPointsEarned = Math.max(0, summary?.todayWatchPointsEarned ?? 0);
+  const maxWatchMissionPoints =
+    missionMaxMinutes * (config.watchMinutePoints || 5) +
+    (config.dailyMissionMilestones || []).reduce((acc, m) => acc + m.bonusPoints, 0);
+  const usd5Points = Math.max(1000, config.pointsPerUsd * 5);
+
   return (
     <div className="space-y-6">
       {/* Top Overview: Balance Card + Rules */}
@@ -634,13 +724,20 @@ export const RewardsPayoutSection: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => openAuthModal()}
-                className="px-6 py-2.5 min-h-[44px] rounded-full cd-accent-bg text-xs sm:text-sm font-bold text-white shadow-lg hover:brightness-110 transition-all"
-              >
-                {t.auth.continueBtn}
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => openAuthModal()}
+                  className="px-6 py-2.5 min-h-[44px] rounded-full cd-accent-bg text-xs sm:text-sm font-bold text-white shadow-lg hover:brightness-110 transition-all"
+                >
+                  {t.auth.continueBtn}
+                </button>
+                <span className="text-xs text-[#D4AF37] font-semibold tabular-nums">
+                  {usd5Points.toLocaleString()} {t.rewards.pointsUnit} = $5.00 ·{' '}
+                  {config.minPayoutPointsIdr.toLocaleString()} {t.rewards.pointsUnit} ={' '}
+                  {formatIdr(config.minPayoutIdr)}
+                </span>
+              </div>
             </div>
           ) : (
             <>
@@ -689,7 +786,8 @@ export const RewardsPayoutSection: React.FC = () => {
                       {t.rewards.dailyProgress}
                     </span>
                     <span className="text-white font-bold tabular-nums">
-                      {summary?.todayEarned ?? 0} / {summary?.maxDailyEarnPoints ?? config.maxDailyEarnPoints}{' '}
+                      {(summary?.todayEarned ?? 0).toLocaleString()} /{' '}
+                      {(summary?.maxDailyEarnPoints ?? config.maxDailyEarnPoints).toLocaleString()}{' '}
                       {t.rewards.pointsUnit}
                     </span>
                   </div>
@@ -713,8 +811,8 @@ export const RewardsPayoutSection: React.FC = () => {
                   </div>
                   <p className="text-[11px] text-[#71717A] tabular-nums">
                     {language === 'id'
-                      ? `Hari ini: ${Math.floor((referralSummary?.todayWatchSeconds || 0) / 60)} ${t.rewards.minutesUnit}`
-                      : `Today: ${Math.floor((referralSummary?.todayWatchSeconds || 0) / 60)} ${t.rewards.minutesUnit}`}
+                      ? `Hari ini: ${Math.floor(todayWatchSeconds / 60)} ${t.rewards.minutesUnit}`
+                      : `Today: ${Math.floor(todayWatchSeconds / 60)} ${t.rewards.minutesUnit}`}
                   </p>
                 </div>
               </div>
@@ -737,13 +835,14 @@ export const RewardsPayoutSection: React.FC = () => {
                       ? t.rewards.dailyCheckinDone
                       : (summary?.cooldownSecondsRemaining ?? 0) > 0
                       ? `${t.rewards.cooldownWait} ${summary?.cooldownSecondsRemaining}s`
-                      : t.rewards.dailyCheckinBtn}
+                      : `${t.rewards.dailyCheckinBtn.replace(/\(\+[^)]+\)/, '')} (+${config.dailyCheckinPoints.toLocaleString()} ${t.rewards.pointsUnit})`}
                   </span>
                 </button>
 
                 <span className="text-[11px] text-[#A1A1AA] tabular-nums">
-                  {config.pointsPerUsd.toLocaleString()} {t.rewards.pointsUnit} = $1.00 ={' '}
-                  {formatIdr(config.usdToIdrRate)}
+                  {usd5Points.toLocaleString()} {t.rewards.pointsUnit} = $5.00 ·{' '}
+                  {config.minPayoutPointsIdr.toLocaleString()} {t.rewards.pointsUnit} ={' '}
+                  {formatIdr(config.minPayoutIdr)}
                 </span>
               </div>
             </>
@@ -759,11 +858,27 @@ export const RewardsPayoutSection: React.FC = () => {
           <ul className="space-y-2.5 text-xs text-[#D4D4D8] leading-relaxed">
             <li className="flex items-start gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-[#D4AF37] mt-1.5 shrink-0" />
-              <span>{t.rewards.ruleWatch}</span>
+              <span>
+                {language === 'id'
+                  ? `Rate tukar poin: ${usd5Points.toLocaleString()} poin = $5.00 USD (${config.pointsPerUsd.toLocaleString()} poin = $1.00 = ${formatIdr(config.usdToIdrRate)}).`
+                  : `Exchange rate: ${usd5Points.toLocaleString()} pts = $5.00 USD (${config.pointsPerUsd.toLocaleString()} pts = $1.00 = ${formatIdr(config.usdToIdrRate)}).`}
+              </span>
             </li>
             <li className="flex items-start gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-[#D4AF37] mt-1.5 shrink-0" />
-              <span>{t.rewards.ruleCheckin}</span>
+              <span>
+                {language === 'id'
+                  ? `Misi Harian Nonton (maks. 1 jam/hari): +${config.watchMinutePoints} poin/menit + bonus 15m/30m/60m hingga +${maxWatchMissionPoints.toLocaleString()} poin/hari.`
+                  : `Daily Watch Mission (max 1h/day): +${config.watchMinutePoints} pts/min + 15m/30m/60m bonuses up to +${maxWatchMissionPoints.toLocaleString()} pts/day.`}
+              </span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#D4AF37] mt-1.5 shrink-0" />
+              <span>
+                {language === 'id'
+                  ? `Check-in harian memberi +${config.dailyCheckinPoints} poin & nonton episode baru +${config.watchEpisodePoints} poin (batas harian ${config.maxDailyEarnPoints.toLocaleString()} poin).`
+                  : `Daily check-in gives +${config.dailyCheckinPoints} pts & new episode watch +${config.watchEpisodePoints} pts (daily cap ${config.maxDailyEarnPoints.toLocaleString()} pts).`}
+              </span>
             </li>
             <li className="flex items-start gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
@@ -789,38 +904,179 @@ export const RewardsPayoutSection: React.FC = () => {
               <span className="w-1.5 h-1.5 rounded-full bg-purple-400 mt-1.5 shrink-0" />
               <span>{t.rewards.referralRule1h}</span>
             </li>
-            <li className="flex items-start gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#EF4444] mt-1.5 shrink-0" />
-              <span>{t.rewards.ruleReview}</span>
-            </li>
           </ul>
         </div>
       </div>
 
-      {/* Referral Program & 1-Hour Active Watch Verification */}
-      {user && referralSummary && (
-        <div className="rounded-3xl bg-[var(--cd-surface)] border border-white/10 p-5 sm:p-6 space-y-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="space-y-1 max-w-2xl">
-              <div className="flex items-center gap-2">
-                <Gift className="w-5 h-5 text-[#D4AF37]" />
-                <h2 className="text-base sm:text-lg font-bold text-white">
-                  {t.rewards.referralTitle}
-                </h2>
-              </div>
-              <p className="text-xs text-[#A1A1AA] leading-relaxed">
-                {t.rewards.referralSubtitle}
-              </p>
+      {/* Daily Watch Missions (Max 1 Hour / Day) */}
+      <div className="rounded-3xl bg-[var(--cd-surface)] border border-emerald-500/25 p-5 sm:p-6 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Flame className="w-5 h-5 text-[#EF4444]" />
+              <h2 className="text-base sm:text-lg font-bold text-white">
+                {language === 'id'
+                  ? 'Misi Harian Nonton (Maks. 1 Jam / Hari)'
+                  : 'Daily Watch Missions (Max 1 Hour / Day)'}
+              </h2>
             </div>
+            <p className="text-xs text-[#A1A1AA]">
+              {language === 'id'
+                ? `Tonton video dengan counter aktif (kecepatan 1x, tab aktif): +${config.watchMinutePoints} poin setiap menit hingga ${missionMaxMinutes} menit/hari + bonus milestone.`
+                : `Watch videos with live counter active (1x speed, active tab): +${config.watchMinutePoints} pts per minute up to ${missionMaxMinutes} min/day + milestone bonuses.`}
+            </p>
+          </div>
 
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#D4AF37]/15 border border-[#D4AF37]/30 text-xs font-extrabold text-[#D4AF37] tabular-nums">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>
-                +{referralSummary.referralBonusPoints.toLocaleString()} {t.rewards.pointsUnit} /{' '}
-                {qualifyMinutes} {t.rewards.minutesUnit}
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-xs font-extrabold text-emerald-300 tabular-nums">
+            <span>
+              +{todayWatchPointsEarned.toLocaleString()} / {maxWatchMissionPoints.toLocaleString()}{' '}
+              {t.rewards.pointsUnit}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-2 p-4 rounded-2xl bg-[#0D0C10] border border-white/10">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="font-semibold text-[#D4D4D8]">
+              {language === 'id'
+                ? 'Progres Nonton Misi Hari Ini (Reset 00:00 WIB)'
+                : "Today's Mission Watch Progress (Resets 00:00 WIB)"}
+            </span>
+            <span className="font-extrabold text-white tabular-nums">
+              {todayMissionMinutes} / {missionMaxMinutes} {t.rewards.minutesUnit} ({missionWatchPct}%)
+            </span>
+          </div>
+          <div className="w-full h-2.5 rounded-full bg-white/10 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-[#EF4444] via-[#D4AF37] to-emerald-400 transition-all duration-500"
+              style={{ width: `${Math.max(2, missionWatchPct)}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="p-3.5 rounded-2xl bg-[#0D0C10] border border-white/10 flex flex-col justify-between gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-white">
+                {language === 'id' ? 'Nonton Aktif / Menit' : 'Active Watch / Min'}
+              </span>
+              <span className="text-xs font-extrabold text-[#D4AF37] tabular-nums">
+                +{config.watchMinutePoints} {t.rewards.pointsUnit}
               </span>
             </div>
+            <p className="text-[11px] text-[#A1A1AA] tabular-nums">
+              {todayMissionMinutes}/{missionMaxMinutes} {t.rewards.minutesUnit} ·{' '}
+              {language === 'id' ? 'Maks' : 'Max'}{' '}
+              {(missionMaxMinutes * config.watchMinutePoints).toLocaleString()}{' '}
+              {t.rewards.pointsUnit}
+            </p>
           </div>
+
+          {(config.dailyMissionMilestones || []).map((tier) => {
+            const reached = todayMissionMinutes >= tier.minutes;
+            return (
+              <div
+                key={tier.minutes}
+                className={`p-3.5 rounded-2xl border flex flex-col justify-between gap-2 transition-colors ${
+                  reached
+                    ? 'bg-emerald-500/10 border-emerald-500/35'
+                    : 'bg-[#0D0C10] border-white/10'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-white">
+                    {language === 'id'
+                      ? `Target ${tier.minutes} Menit`
+                      : `${tier.minutes}-Min Milestone`}
+                  </span>
+                  <span
+                    className={`text-xs font-extrabold tabular-nums ${
+                      reached ? 'text-emerald-300' : 'text-[#D4AF37]'
+                    }`}
+                  >
+                    +{tier.bonusPoints.toLocaleString()} {t.rewards.pointsUnit}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-[#A1A1AA] tabular-nums">
+                    {Math.min(todayMissionMinutes, tier.minutes)}/{tier.minutes}{' '}
+                    {t.rewards.minutesUnit}
+                  </span>
+                  <span
+                    className={`font-bold ${
+                      reached ? 'text-emerald-300' : 'text-[#71717A]'
+                    }`}
+                  >
+                    {reached
+                      ? language === 'id'
+                        ? 'Terklaim Otomatis'
+                        : 'Auto-Credited'
+                      : language === 'id'
+                      ? 'Berjalan'
+                      : 'In Progress'}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Referral Program & 1-Hour Active Watch Verification */}
+      <div
+        id="referral-program"
+        className="rounded-3xl bg-[var(--cd-surface)] border border-[#D4AF37]/25 p-5 sm:p-6 space-y-5"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1 max-w-2xl">
+            <div className="flex items-center gap-2">
+              <Gift className="w-5 h-5 text-[#D4AF37]" />
+              <h2 className="text-base sm:text-lg font-bold text-white">
+                {t.rewards.referralTitle}
+              </h2>
+            </div>
+            <p className="text-xs text-[#A1A1AA] leading-relaxed">
+              {t.rewards.referralSubtitle}
+            </p>
+          </div>
+
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#D4AF37]/15 border border-[#D4AF37]/30 text-xs font-extrabold text-[#D4AF37] tabular-nums">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>
+              +{(referralSummary?.referralBonusPoints ?? config.referralBonusPoints).toLocaleString()}{' '}
+              {t.rewards.pointsUnit} / {qualifyMinutes} {t.rewards.minutesUnit}
+            </span>
+          </div>
+        </div>
+
+        {!user ? (
+          <div className="p-4 sm:p-5 rounded-2xl bg-[#0D0C10] border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-xs sm:text-sm font-bold text-white">
+                {language === 'id'
+                  ? 'Dapatkan Link & Kode Referral Pribadi Anda'
+                  : 'Get Your Personal Referral Link & Code'}
+              </p>
+              <p className="text-xs text-[#A1A1AA] leading-relaxed">
+                {t.rewards.referralRule1h}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openAuthModal()}
+              className="px-5 py-2.5 min-h-[42px] rounded-full bg-[#D4AF37] text-[#09090B] text-xs font-extrabold hover:brightness-110 transition-all shrink-0"
+            >
+              {language === 'id'
+                ? 'Masuk untuk Ambil Link Referral'
+                : 'Sign In to Get Referral Link'}
+            </button>
+          </div>
+        ) : !referralSummary ? (
+          <div className="p-4 rounded-2xl bg-[#0D0C10] border border-white/10 text-xs text-[#A1A1AA]">
+            {t.sections.loading}
+          </div>
+        ) : (
+          <>
 
           {/* Share Link + KPI Summary */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -951,8 +1207,9 @@ export const RewardsPayoutSection: React.FC = () => {
               })}
             </div>
           )}
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
       {/* Withdrawal Form + Live Payout Feed */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
@@ -1051,8 +1308,8 @@ export const RewardsPayoutSection: React.FC = () => {
               <div className="flex flex-wrap gap-1.5">
                 {[
                   activeMethodObj.minPoints,
-                  50000,
                   100000,
+                  200000,
                   ...(summary && summary.balance > activeMethodObj.minPoints
                     ? [summary.balance]
                     : []),
@@ -1190,37 +1447,50 @@ export const RewardsPayoutSection: React.FC = () => {
           </div>
 
           <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
-            {liveFeed.map((item) => (
-              <div
-                key={item.id}
-                className="p-3 rounded-2xl bg-[#0D0C10] border border-white/10 flex items-center justify-between gap-3"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-white">
-                      {item.maskedUser}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] font-semibold text-[#D4D4D8]">
-                      {item.countryCode} • {item.methodLabel}
+            {liveFeed.map((item, idx) => {
+              const itemTs = Date.parse(item.createdAt);
+              const isJustNow = Number.isFinite(itemTs) && liveNowTick - itemTs < 18_000;
+              return (
+                <div
+                  key={item.id}
+                  className={`p-3 rounded-2xl border flex items-center justify-between gap-3 transition-all duration-300 ${
+                    idx === 0 || isJustNow
+                      ? 'bg-emerald-950/20 border-emerald-500/35'
+                      : 'bg-[#0D0C10] border-white/10'
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white">
+                        {item.maskedUser}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] font-semibold text-[#D4D4D8]">
+                        {item.countryCode} • {item.methodLabel}
+                      </span>
+                      {isJustNow && (
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-[9px] font-extrabold text-emerald-300 uppercase">
+                          LIVE
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-[#71717A] mt-0.5 tabular-nums">
+                      {formatRelativeTime(item.createdAt, language, liveNowTick)}
+                    </p>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <p className="text-xs sm:text-sm font-extrabold text-emerald-300 tabular-nums">
+                      {item.currency === 'IDR'
+                        ? formatIdr(item.idrAmount)
+                        : formatUsd(item.usdAmount)}
+                    </p>
+                    <span className="text-[10px] font-semibold text-emerald-400/90 uppercase">
+                      {item.status === 'paid' ? t.rewards.statusPaid : t.rewards.statusApproved}
                     </span>
                   </div>
-                  <p className="text-[11px] text-[#71717A] mt-0.5 tabular-nums">
-                    {formatRelativeTime(item.createdAt, language)}
-                  </p>
                 </div>
-
-                <div className="text-right shrink-0">
-                  <p className="text-xs sm:text-sm font-extrabold text-emerald-300 tabular-nums">
-                    {item.currency === 'IDR'
-                      ? formatIdr(item.idrAmount)
-                      : formatUsd(item.usdAmount)}
-                  </p>
-                  <span className="text-[10px] font-semibold text-emerald-400/90 uppercase">
-                    {item.status === 'paid' ? t.rewards.statusPaid : t.rewards.statusApproved}
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

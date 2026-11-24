@@ -2,11 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Search,
   X,
-  Globe,
-  ChevronDown,
   Check,
   Menu,
-  Loader2,
   Palette,
   User,
   Flame,
@@ -20,12 +17,13 @@ import {
   LayoutDashboard,
   Layers,
   Clapperboard,
+  Coins,
 } from 'lucide-react';
 import { CoffeeDramaLogo } from './CoffeeDramaLogo';
 import { PWAInstallButton } from './PWAInstallBanner';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { useDramaContext } from '../context/DramaContext';
-import { DEFAULT_SITE_ORIGIN, getLanguageMeta } from '../i18n/helpers';
+import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import type {
   AccentThemeId,
   LanguageCode,
@@ -75,6 +73,8 @@ function getNavTabPath(tab: NavTab): string {
     case 'mylist':
     case 'dashboard':
       return '/account';
+    case 'rewards':
+      return '/rewards';
     default:
       return '/';
   }
@@ -91,7 +91,8 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   onSelectTab,
   onOpenProviderHub,
 }) => {
-  const { t, user, myListItems } = useDramaContext();
+  const { t, language, user, myListItems, pointsBalance } = useDramaContext();
+  const rewardsLabel = language === 'id' ? 'Poin & Referral' : 'Points & Referral';
 
   const primaryItems: Array<{
     id: NavTab;
@@ -135,6 +136,13 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
       label: t.nav.watchlist,
       icon: <Bookmark className="w-4 h-4 shrink-0" />,
       badge: myListItems.length > 0 ? myListItems.length : undefined,
+    },
+    {
+      id: 'rewards',
+      label: rewardsLabel,
+      icon: <Coins className="w-4 h-4 shrink-0 text-[#D4AF37]" />,
+      badge:
+        user && typeof pointsBalance === 'number' ? pointsBalance : undefined,
     },
     {
       id: 'dashboard',
@@ -253,6 +261,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     t,
     user,
     streak,
+    pointsBalance,
     openAuthModal,
     myListItems,
     accentTheme,
@@ -305,6 +314,11 @@ export const Navbar: React.FC<NavbarProps> = ({
       icon: <Layers className="w-4 h-4 text-[#D4AF37]" />,
     },
     { id: 'mylist', label: t.nav.watchlist },
+    {
+      id: 'rewards',
+      label: language === 'id' ? 'Poin & Referral' : 'Points & Referral',
+      icon: <Coins className="w-4 h-4 text-[#D4AF37]" />,
+    },
     { id: 'dashboard', label: t.nav.dashboard },
     {
       id: 'movies',
@@ -313,13 +327,17 @@ export const Navbar: React.FC<NavbarProps> = ({
     },
   ];
 
-  const currentLang = getLanguageMeta(language);
+  const mobileGridTabs = mobileDrawerTabs.filter(
+    (tab) => tab.id !== 'rewards' && tab.id !== 'movies'
+  );
+  const mobileRewardsTab = mobileDrawerTabs.find((tab) => tab.id === 'rewards');
+  const mobileMoviesTab = mobileDrawerTabs.find((tab) => tab.id === 'movies');
 
   return (
     <header className="sticky top-0 z-40 bg-[var(--cd-bg)]/95 backdrop-blur-xl border-b border-white/5">
       <div className="max-w-[1600px] mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
-        {/* Left Zone: Brand Logo */}
-        <div className="flex items-center gap-4 min-w-0">
+        {/* Left Zone: Brand Logo (never compressed or overlapped on mobile) */}
+        <div className="flex items-center gap-3 shrink-0">
           <a
             href={`${DEFAULT_SITE_ORIGIN}/`}
             onClick={(e) => {
@@ -335,12 +353,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           </a>
         </div>
 
-        {/* Right Zone: PWA Install, Theme Accent Switcher, Language Switcher, Search, Account */}
-        <div ref={rightRef} className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        {/* Right Zone: Clean mobile controls (Search, Points, Menu); Theme & Language move into Mobile Drawer */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
           <PWAInstallButton variant="header" />
 
-          {/* Accent Theme & Contrast Customizer */}
-          <div className="relative">
+          {/* Accent Theme & Contrast Customizer (Desktop / Tablet md+, moved to Mobile Drawer on phones) */}
+          <div ref={rightRef} className="hidden md:block relative">
             <button
               type="button"
               onClick={() => {
@@ -407,25 +425,69 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          {/* Language Switcher */}
-          <LanguageSwitcher
-            variant="header"
-            loading={languageLoading}
-            onChangeLanguage={onChangeLanguage}
-          />
+          {/* Language Switcher (Desktop / Tablet md+, moved to Mobile Drawer on phones) */}
+          <div className="hidden md:block">
+            <LanguageSwitcher
+              variant="header"
+              loading={languageLoading}
+              onChangeLanguage={onChangeLanguage}
+            />
+          </div>
 
           {/* Search Modal Button */}
           <button
             type="button"
             onClick={onOpenSearchModal}
-            className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-xs text-[#FAFAFA] hover:text-white transition-colors"
+            className="inline-flex items-center justify-center gap-1.5 p-2 md:px-3 md:py-1.5 rounded-lg bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-xs text-[#FAFAFA] hover:text-white transition-colors shrink-0"
             aria-label={t.nav.search}
           >
-            <Search className="w-3.5 h-3.5 cd-accent-text" />
+            <Search className="w-4 h-4 md:w-3.5 md:h-3.5 cd-accent-text" />
             <span className="hidden lg:inline text-[#A1A1AA]">
               {t.nav.search}
             </span>
           </button>
+
+          {/* Direct Poin & Referral Shortcut (Compact on mobile, expanded on desktop) */}
+          <a
+            href={`${DEFAULT_SITE_ORIGIN}/rewards`}
+            onClick={(e) => {
+              if (!isPlainLeftClick(e)) return;
+              e.preventDefault();
+              onSelectTab('rewards');
+            }}
+            aria-label={language === 'id' ? 'Poin & Referral' : 'Points & Referral'}
+            title={language === 'id' ? 'Poin, Referral & Penarikan' : 'Points, Referral & Payout'}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+              activeTab === 'rewards'
+                ? 'bg-[#D4AF37] border-[#D4AF37] text-[#09090B] shadow'
+                : 'bg-[#D4AF37]/15 border-[#D4AF37]/40 hover:border-[#D4AF37] text-[#FDE68A]'
+            }`}
+          >
+            <Coins
+              className={`w-3.5 h-3.5 shrink-0 ${
+                activeTab === 'rewards' ? 'text-[#09090B]' : 'text-[#D4AF37]'
+              }`}
+            />
+            <span className="tabular-nums max-w-[92px] sm:max-w-none truncate">
+              {user && typeof pointsBalance === 'number' ? (
+                <>
+                  {pointsBalance.toLocaleString()}{' '}
+                  <span className="hidden sm:inline">
+                    {language === 'id' ? 'Poin' : 'Pts'}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="sm:hidden">
+                    {language === 'id' ? 'Poin' : 'Pts'}
+                  </span>
+                  <span className="hidden sm:inline">
+                    {language === 'id' ? 'Poin & Referral' : 'Points & Referral'}
+                  </span>
+                </>
+              )}
+            </span>
+          </a>
 
           {/* Daily Watch Streak Pill (Desktop lg+) */}
           {user && streak.count > 0 && (
@@ -481,7 +543,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={() => setMobileMenuOpen((prev) => !prev)}
-            className="md:hidden p-2 rounded-lg text-[#FAFAFA] hover:bg-white/5"
+            className="md:hidden p-2 rounded-lg bg-[var(--cd-surface)] border border-[var(--cd-border)] text-[#FAFAFA] hover:border-[var(--cd-accent)] transition-colors shrink-0"
             aria-label="Toggle navigation menu"
             aria-expanded={mobileMenuOpen}
           >
@@ -494,53 +556,161 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Responsive Mobile Menu Drawer (Movies anchored at the very bottom) */}
+      {/* Responsive Mobile Menu Drawer (Theme, Contrast, Language & Clean Navigation Grid) */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-white/10 bg-[var(--cd-bg)]/95 backdrop-blur-xl px-4 py-3 space-y-1">
-          {mobileDrawerTabs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            const isMoviesRow = tab.id === 'movies';
-            const tabPath = getNavTabPath(tab.id);
-            return (
+        <div className="md:hidden border-t border-white/10 bg-[var(--cd-bg)]/98 backdrop-blur-xl max-h-[calc(100dvh-3.5rem)] overflow-y-auto overscroll-contain px-3.5 py-3.5 space-y-3.5 shadow-2xl">
+          {/* Display Theme, Contrast & Language Controls (moved from cramped mobile top bar) */}
+          <div className="rounded-2xl bg-[var(--cd-surface)] border border-white/10 p-3 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-white">
+                <Palette className="w-3.5 h-3.5 cd-accent-text" />
+                <span>{t.engagement.themeTitle}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setHighContrast(!highContrast)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
+                  highContrast
+                    ? 'cd-accent-bg border-[var(--cd-accent)] text-white'
+                    : 'bg-black/30 border-white/10 text-[#D4D4D8]'
+                }`}
+              >
+                {highContrast
+                  ? t.engagement.highContrast
+                  : t.engagement.standardContrast}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-4 gap-1.5">
+              {ACCENT_PRESETS.map((preset) => {
+                const active = accentTheme === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => setAccentTheme(preset.id)}
+                    aria-label={preset.name}
+                    aria-pressed={active}
+                    className={`px-2 py-2 rounded-xl text-[11px] flex flex-col items-center justify-center gap-1 border transition-colors ${
+                      active
+                        ? 'bg-white/10 border-white/30 text-white font-semibold'
+                        : 'bg-black/25 border-white/5 text-[#A1A1AA] hover:text-white'
+                    }`}
+                  >
+                    <span
+                      className="w-4 h-4 rounded-full border border-white/30 shrink-0"
+                      style={{ backgroundColor: preset.color }}
+                    />
+                    <span className="truncate w-full text-center">
+                      {preset.name.split(' ')[0]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <LanguageSwitcher
+              variant="drawer"
+              loading={languageLoading}
+              onChangeLanguage={onChangeLanguage}
+            />
+          </div>
+
+          {/* Primary Navigation Grid */}
+          <div className="grid grid-cols-2 gap-1.5">
+            {mobileGridTabs.map((tab) => {
+              const isActive = activeTab === tab.id;
+              const tabPath = getNavTabPath(tab.id);
+              return (
+                <a
+                  key={tab.id}
+                  href={`${DEFAULT_SITE_ORIGIN}${tabPath}`}
+                  onClick={(e) => {
+                    if (!isPlainLeftClick(e)) return;
+                    e.preventDefault();
+                    onSelectTab(tab.id);
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`min-h-[40px] px-3 py-2 rounded-xl text-xs font-medium flex items-center justify-between gap-2 border transition-colors ${
+                    isActive
+                      ? 'bg-[var(--cd-accent-soft)] border-[var(--cd-accent)]/45 cd-accent-text font-semibold'
+                      : 'bg-white/[0.03] border-white/5 text-[#FAFAFA] hover:bg-white/[0.07]'
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-2 min-w-0">
+                    {tab.icon}
+                    <span className="truncate">{tab.label}</span>
+                  </span>
+                  {tab.id === 'mylist' && myListItems.length > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-white/10 text-[10px] font-bold tabular-nums shrink-0">
+                      {myListItems.length}
+                    </span>
+                  )}
+                </a>
+              );
+            })}
+          </div>
+
+          {/* Dedicated Poin & Referral Shortcut Row */}
+          {mobileRewardsTab && (
+            <a
+              href={`${DEFAULT_SITE_ORIGIN}/rewards`}
+              onClick={(e) => {
+                if (!isPlainLeftClick(e)) return;
+                e.preventDefault();
+                onSelectTab('rewards');
+                setMobileMenuOpen(false);
+              }}
+              className={`w-full min-h-[42px] px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-2 border transition-colors ${
+                activeTab === 'rewards'
+                  ? 'bg-[#D4AF37] border-[#D4AF37] text-[#09090B]'
+                  : 'bg-[#D4AF37]/12 border-[#D4AF37]/35 text-[#FDE68A]'
+              }`}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Coins
+                  className={`w-4 h-4 shrink-0 ${
+                    activeTab === 'rewards' ? 'text-[#09090B]' : 'text-[#D4AF37]'
+                  }`}
+                />
+                <span>{mobileRewardsTab.label}</span>
+              </span>
+              {user && typeof pointsBalance === 'number' && (
+                <span className="tabular-nums font-extrabold">
+                  {pointsBalance.toLocaleString()} {language === 'id' ? 'Poin' : 'Pts'}
+                </span>
+              )}
+            </a>
+          )}
+
+          {/* Movies Anchored at Bottom */}
+          {mobileMoviesTab && (
+            <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
               <a
-                key={tab.id}
-                href={`${DEFAULT_SITE_ORIGIN}${tabPath}`}
+                href={`${DEFAULT_SITE_ORIGIN}/movies`}
                 onClick={(e) => {
                   if (!isPlainLeftClick(e)) return;
                   e.preventDefault();
-                  onSelectTab(tab.id);
+                  onSelectTab('movies');
                   setMobileMenuOpen(false);
                 }}
-                className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium flex items-center justify-between ${
-                  isMoviesRow ? 'mt-2 pt-3 border-t border-white/10' : ''
-                } ${
-                  isActive
-                    ? 'bg-[var(--cd-accent-soft)] cd-accent-text font-semibold'
-                    : 'text-[#FAFAFA] hover:bg-white/5'
+                className={`flex-1 min-h-[42px] px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between border transition-colors ${
+                  activeTab === 'movies'
+                    ? 'cd-accent-bg border-[var(--cd-accent)] text-white'
+                    : 'bg-white/[0.04] border-white/10 text-[#FAFAFA] hover:bg-white/[0.08]'
                 }`}
               >
                 <span className="inline-flex items-center gap-2">
-                  {tab.icon}
-                  <span>{tab.label}</span>
+                  {mobileMoviesTab.icon}
+                  <span>{mobileMoviesTab.label}</span>
                 </span>
-                {tab.id === 'mylist' && myListItems.length > 0 && (
-                  <span className="text-xs tabular-nums">
-                    {myListItems.length}
-                  </span>
-                )}
               </a>
-            );
-          })}
-          <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2 text-xs text-[#A1A1AA]">
-            <span className="inline-flex items-center gap-1.5">
-              <Globe className="w-3.5 h-3.5 cd-accent-text" />
-              {currentLang.label} ({currentLang.shortLabel})
-            </span>
-            <PWAInstallButton
-              variant="menu"
-              onAction={() => setMobileMenuOpen(false)}
-            />
-          </div>
+              <PWAInstallButton
+                variant="menu"
+                onAction={() => setMobileMenuOpen(false)}
+              />
+            </div>
+          )}
         </div>
       )}
     </header>

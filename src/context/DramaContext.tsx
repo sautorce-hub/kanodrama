@@ -13,7 +13,9 @@ import {
   fetchCurrentAuthSession,
   getClientDeviceFingerprint,
   getPendingReferralCode,
+  loginWithEmail,
   preloadGoogleAuth,
+  registerWithEmail,
   signInWithRealGoogle,
   signOutRealGoogle,
   type GoogleAuthResult,
@@ -171,12 +173,24 @@ interface DramaContextValue {
   openAuthModal: (reason?: string, onSuccess?: (u: GoogleUser) => void) => void;
   closeAuthModal: () => void;
   signInWithGoogle: () => Promise<GoogleUser | null>;
+  signInWithEmail: (email: string, password: string) => Promise<GoogleUser | null>;
+  registerAccountWithEmail: (
+    email: string,
+    password: string,
+    displayName?: string
+  ) => Promise<GoogleUser | null>;
   completeGoogleSignIn: (result: GoogleAuthResult) => GoogleUser;
   signOut: () => Promise<void>;
   requireAuth: (reason: string, action: (u: GoogleUser) => void) => Promise<void>;
   gmailLoginCount: number;
   refreshGmailLoginCount: () => Promise<number>;
   pointsBalance: number | null;
+  todayWatchSeconds: number;
+  todayWatchPointsEarned: number;
+  dailyMissionMaxWatchSeconds: number;
+  watchMinutePoints: number;
+  dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
+  pointsPerUsd: number;
   refreshPointsBalance: () => Promise<number | null>;
   getAuthHeaders: (extra?: Record<string, string>) => Record<string, string>;
   visitorId: string;
@@ -462,6 +476,18 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const sessionTokenRef = useRef<string | null>(null);
   const popupLoginInFlightRef = useRef<boolean>(false);
   const [pointsBalance, setPointsBalance] = useState<number | null>(null);
+  const [todayWatchSeconds, setTodayWatchSeconds] = useState<number>(0);
+  const [todayWatchPointsEarned, setTodayWatchPointsEarned] = useState<number>(0);
+  const [dailyMissionMaxWatchSeconds, setDailyMissionMaxWatchSeconds] = useState<number>(3600);
+  const [watchMinutePoints, setWatchMinutePoints] = useState<number>(5);
+  const [dailyMissionMilestones, setDailyMissionMilestones] = useState<
+    Array<{ minutes: number; bonusPoints: number }>
+  >([
+    { minutes: 15, bonusPoints: 25 },
+    { minutes: 30, bonusPoints: 50 },
+    { minutes: 60, bonusPoints: 100 },
+  ]);
+  const [pointsPerUsd, setPointsPerUsd] = useState<number>(20000);
   const claimedWatchRewardRef = useRef<Set<string>>(new Set());
   const lastWatchClaimAttemptRef = useRef<number>(0);
   const watchStreamSessionIdRef = useRef<string>(
@@ -495,12 +521,61 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       if (!res.ok) return null;
       const data = (await res.json()) as {
         ok?: boolean;
-        summary?: { balance?: number } | null;
+        summary?: {
+          balance?: number;
+          todayWatchSeconds?: number;
+          todayWatchPointsEarned?: number;
+          dailyMissionMaxWatchSeconds?: number;
+        } | null;
+        config?: {
+          watchMinutePoints?: number;
+          dailyMissionMaxWatchSeconds?: number;
+          dailyMissionMilestones?: Array<{ minutes: number; bonusPoints: number }>;
+          pointsPerUsd?: number;
+        } | null;
       };
-      if (data.ok && typeof data.summary?.balance === 'number') {
-        const nextBal = Math.max(0, Math.floor(data.summary.balance));
-        setPointsBalance(nextBal);
-        return nextBal;
+      if (data.config) {
+        if (typeof data.config.watchMinutePoints === 'number' && data.config.watchMinutePoints > 0) {
+          setWatchMinutePoints(Math.floor(data.config.watchMinutePoints));
+        }
+        if (
+          typeof data.config.dailyMissionMaxWatchSeconds === 'number' &&
+          data.config.dailyMissionMaxWatchSeconds > 0
+        ) {
+          setDailyMissionMaxWatchSeconds(Math.floor(data.config.dailyMissionMaxWatchSeconds));
+        }
+        if (
+          Array.isArray(data.config.dailyMissionMilestones) &&
+          data.config.dailyMissionMilestones.length > 0
+        ) {
+          setDailyMissionMilestones(data.config.dailyMissionMilestones);
+        }
+        if (typeof data.config.pointsPerUsd === 'number' && data.config.pointsPerUsd > 0) {
+          setPointsPerUsd(Math.floor(data.config.pointsPerUsd));
+        }
+      }
+      if (data.ok && data.summary) {
+        if (typeof data.summary.todayWatchSeconds === 'number') {
+          setTodayWatchSeconds(Math.max(0, Math.floor(data.summary.todayWatchSeconds)));
+        }
+        if (typeof data.summary.todayWatchPointsEarned === 'number') {
+          setTodayWatchPointsEarned(
+            Math.max(0, Math.floor(data.summary.todayWatchPointsEarned))
+          );
+        }
+        if (
+          typeof data.summary.dailyMissionMaxWatchSeconds === 'number' &&
+          data.summary.dailyMissionMaxWatchSeconds > 0
+        ) {
+          setDailyMissionMaxWatchSeconds(
+            Math.floor(data.summary.dailyMissionMaxWatchSeconds)
+          );
+        }
+        if (typeof data.summary.balance === 'number') {
+          const nextBal = Math.max(0, Math.floor(data.summary.balance));
+          setPointsBalance(nextBal);
+          return nextBal;
+        }
       }
     } catch {
       // Ignore transient network errors
@@ -1539,6 +1614,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const openAuthModal = useCallback(
     (reason?: string, onSuccess?: (u: GoogleUser) => void) => {
       setAuthError(null);
+      setAuthLoading(false);
       setAuthPromptReason(reason ?? null);
       pendingAuthCallbackRef.current = onSuccess ?? null;
       setAuthModalOpen(true);
@@ -1547,6 +1623,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const closeAuthModal = useCallback(() => {
+    popupLoginInFlightRef.current = false;
+    setAuthLoading(false);
     setAuthModalOpen(false);
     setAuthPromptReason(null);
     setAuthError(null);
@@ -1641,6 +1719,52 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [language, completeGoogleSignIn]);
 
+  const signInWithEmail = useCallback(
+    async (email: string, password: string): Promise<GoogleUser | null> => {
+      setAuthError(null);
+      setAuthLoading(true);
+      popupLoginInFlightRef.current = true;
+      try {
+        const result = await loginWithEmail({ email, password });
+        return completeGoogleSignIn(result);
+      } catch (err) {
+        setAuthError(
+          err instanceof Error ? err.message : 'Email sign-in failed.'
+        );
+        return null;
+      } finally {
+        popupLoginInFlightRef.current = false;
+        setAuthLoading(false);
+      }
+    },
+    [completeGoogleSignIn]
+  );
+
+  const registerAccountWithEmail = useCallback(
+    async (
+      email: string,
+      password: string,
+      displayName?: string
+    ): Promise<GoogleUser | null> => {
+      setAuthError(null);
+      setAuthLoading(true);
+      popupLoginInFlightRef.current = true;
+      try {
+        const result = await registerWithEmail({ email, password, displayName });
+        return completeGoogleSignIn(result);
+      } catch (err) {
+        setAuthError(
+          err instanceof Error ? err.message : 'Email registration failed.'
+        );
+        return null;
+      } finally {
+        popupLoginInFlightRef.current = false;
+        setAuthLoading(false);
+      }
+    },
+    [completeGoogleSignIn]
+  );
+
   const signOut = useCallback(async () => {
     const activeToken = sessionTokenRef.current;
     sessionTokenRef.current = null;
@@ -1651,6 +1775,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     }
     setUser(null);
     setPointsBalance(null);
+    setTodayWatchSeconds(0);
+    setTodayWatchPointsEarned(0);
     claimedWatchRewardRef.current.clear();
     setMovieListItemsRaw([]);
     setStreak(EMPTY_STREAK);
@@ -1664,27 +1790,9 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         action(user);
         return;
       }
-      setAuthError(null);
-      setAuthLoading(true);
-      popupLoginInFlightRef.current = true;
-      try {
-        const result = await signInWithRealGoogle();
-        const mapped = completeGoogleSignIn(result);
-        action(mapped);
-      } catch (err) {
-        setAuthLoading(false);
-        openAuthModal(reason, (signedInUser) => action(signedInUser));
-        setAuthError(
-          err instanceof Error
-            ? err.message
-            : TRANSLATIONS[language].auth.authErrorPopupBlocked
-        );
-      } finally {
-        popupLoginInFlightRef.current = false;
-        setAuthLoading(false);
-      }
+      openAuthModal(reason, (signedInUser) => action(signedInUser));
     },
-    [user, language, openAuthModal, completeGoogleSignIn]
+    [user, openAuthModal]
   );
 
   const setAccentTheme = useCallback((theme: AccentThemeId) => {
@@ -2377,7 +2485,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         }).catch(() => {});
       }
 
-      // Verified active watch heartbeat (~30s interval, foreground visible tab, 1x speed, playing)
+      // Verified active watch heartbeat (~20s interval, foreground visible tab, 1x speed, playing)
       if (user && !immediate && typeof document !== 'undefined') {
         const tabVisible = !document.hidden;
         const videos = Array.from(document.querySelectorAll('video'));
@@ -2395,7 +2503,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           isPlaying &&
           playbackRate >= 0.75 &&
           playbackRate <= 1.15 &&
-          (isNewMedia || elapsedSinceHb >= 30_000)
+          (isNewMedia || elapsedSinceHb >= 20_000)
         ) {
           lastWatchHeartbeatMediaRef.current = epSessionKey;
           lastWatchHeartbeatSentAtRef.current = nowMs;
@@ -2419,17 +2527,54 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
               const hb = (await res.json().catch(() => null)) as {
                 ok?: boolean;
                 verifiedWatchSeconds?: number;
+                todayWatchSeconds?: number;
+                awardedWatchPoints?: number;
+                todayWatchPointsEarned?: number;
+                dailyMissionMaxWatchSeconds?: number;
+                pointsBalance?: number | null;
                 referralQualified?: boolean;
               } | null;
-              if (hb && typeof hb.verifiedWatchSeconds === 'number') {
+              if (hb) {
+                if (typeof hb.todayWatchSeconds === 'number') {
+                  setTodayWatchSeconds(Math.max(0, Math.floor(hb.todayWatchSeconds)));
+                }
+                if (typeof hb.todayWatchPointsEarned === 'number') {
+                  setTodayWatchPointsEarned(
+                    Math.max(0, Math.floor(hb.todayWatchPointsEarned))
+                  );
+                }
+                if (
+                  typeof hb.dailyMissionMaxWatchSeconds === 'number' &&
+                  hb.dailyMissionMaxWatchSeconds > 0
+                ) {
+                  setDailyMissionMaxWatchSeconds(
+                    Math.floor(hb.dailyMissionMaxWatchSeconds)
+                  );
+                }
+                if (typeof hb.pointsBalance === 'number') {
+                  setPointsBalance(Math.max(0, Math.floor(hb.pointsBalance)));
+                }
+                if (typeof hb.awardedWatchPoints === 'number' && hb.awardedWatchPoints > 0) {
+                  pushToast(
+                    `+${hb.awardedWatchPoints.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit}!`,
+                    'gold'
+                  );
+                }
                 if (hb.referralQualified) {
                   void refreshPointsBalance();
                 }
-                if (typeof window !== 'undefined') {
+                if (
+                  typeof window !== 'undefined' &&
+                  typeof hb.verifiedWatchSeconds === 'number'
+                ) {
                   window.dispatchEvent(
                     new CustomEvent('kd:points-updated', {
                       detail: {
                         verifiedWatchSeconds: hb.verifiedWatchSeconds,
+                        todayWatchSeconds: hb.todayWatchSeconds,
+                        awardedWatchPoints: hb.awardedWatchPoints,
+                        todayWatchPointsEarned: hb.todayWatchPointsEarned,
+                        pointsBalance: hb.pointsBalance,
                         referralQualified: Boolean(hb.referralQualified),
                       },
                     })
@@ -2489,6 +2634,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       refreshLiveBadges,
       getAuthHeaders,
       refreshPointsBalance,
+      pushToast,
+      language,
     ]
   );
 
@@ -2812,12 +2959,20 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       openAuthModal,
       closeAuthModal,
       signInWithGoogle,
+      signInWithEmail,
+      registerAccountWithEmail,
       completeGoogleSignIn,
       signOut,
       requireAuth,
       gmailLoginCount,
       refreshGmailLoginCount,
       pointsBalance,
+      todayWatchSeconds,
+      todayWatchPointsEarned,
+      dailyMissionMaxWatchSeconds,
+      watchMinutePoints,
+      dailyMissionMilestones,
+      pointsPerUsd,
       refreshPointsBalance,
       getAuthHeaders,
       visitorId,
@@ -2891,12 +3046,20 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       openAuthModal,
       closeAuthModal,
       signInWithGoogle,
+      signInWithEmail,
+      registerAccountWithEmail,
       completeGoogleSignIn,
       signOut,
       requireAuth,
       gmailLoginCount,
       refreshGmailLoginCount,
       pointsBalance,
+      todayWatchSeconds,
+      todayWatchPointsEarned,
+      dailyMissionMaxWatchSeconds,
+      watchMinutePoints,
+      dailyMissionMilestones,
+      pointsPerUsd,
       refreshPointsBalance,
       getAuthHeaders,
       visitorId,
