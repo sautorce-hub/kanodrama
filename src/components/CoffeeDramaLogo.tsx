@@ -8,7 +8,7 @@ export const KanoDramaLogo: React.FC<LogoProps> = ({ className = '' }) => {
   const [imgFailed, setImgFailed] = useState(false);
 
   return (
-    <div className={`inline-flex items-center gap-2 sm:gap-2.5 select-none shrink-0 ${className}`}>
+    <div className={`inline-flex items-center gap-1.5 sm:gap-2.5 select-none shrink-0 ${className}`}>
       {imgFailed ? (
         <svg
           width="32"
@@ -37,7 +37,7 @@ export const KanoDramaLogo: React.FC<LogoProps> = ({ className = '' }) => {
           className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-cover shrink-0 shadow-sm"
         />
       )}
-      <span className="text-[17px] sm:text-xl font-extrabold tracking-tight leading-none whitespace-nowrap shrink-0">
+      <span className="text-[15px] sm:text-xl font-extrabold tracking-tight leading-none whitespace-nowrap shrink-0">
         <span className="text-[#FF2442]">kano</span>
         <span className="text-white">drama</span>
       </span>

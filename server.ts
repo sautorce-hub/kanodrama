@@ -18,6 +18,7 @@ import {
   buildGmailAccountKey,
   claimDailyCheckinInDb,
   claimWatchEpisodeInDb,
+  claimWatchMilestoneInDb,
   createCommentInDb,
   createPayoutRequestInDb,
   deleteWatchHistoryInDb,
@@ -2704,7 +2705,7 @@ function injectPageMetadataIntoHtml(
                 name: 'Bagaimana cara nonton drama dapat poin di KanoDrama?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'Daftar atau masuk dengan akun Anda, lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +5 poin per menit hingga 60 menit per hari, +15 poin episode baru (minimal 15 detik), check-in harian + bonus streak harian, dan bonus milestone 15, 30, dan 60 menit (reset pukul 00.00 waktu lokal Anda).',
+                  text: 'Daftar atau masuk dengan akun Anda, lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +20 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), +200 poin episode baru (minimal 15 detik), check-in harian +500 poin, dan bonus milestone 15, 30, dan 60 menit yang dapat diklaim setelah target tercapai (reset pukul 00.00 waktu lokal Anda).',
                 },
               },
               {
@@ -2712,15 +2713,15 @@ function injectPageMetadataIntoHtml(
                 name: 'Berapa nilai tukar poin dan minimal penarikan saldo DANA, Bank, PayPal, atau USDT?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'Nilai tukar resmi adalah 20.000 poin = $1.00 USD = Rp 18.200. Penarikan lokal IDR (DANA, GoPay, OVO, ShopeePay, LinkAja, Bank Transfer BCA/BRI/BNI/Mandiri/Jago/SeaBank) minimal Rp 50.000, dan penarikan global (PayPal, Wise, USDT Polygon/TRC20/BEP20/ERC20) minimal $5.00 USD.',
+                  text: 'Nilai tukar resmi adalah 100.000 poin = 1 USDT ($1.00 USD) = Rp 18.200. Penarikan lokal IDR (DANA, GoPay, OVO, ShopeePay, LinkAja, Bank Transfer BCA/BRI/BNI/Mandiri/Jago/SeaBank) minimal Rp 50.000, dan penarikan global (PayPal, Wise, USDT Polygon/TRC20/BEP20/ERC20) minimal $5.00 USD.',
                 },
               },
               {
                 '@type': 'Question',
-                name: 'Bagaimana cara mendapatkan bonus referral +1.000 poin?',
+                name: 'Bagaimana cara mendapatkan bonus referral +5.000 poin?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'Bagikan link referral resmi kano-drama.xyz Anda. Setelah teman mendaftar dan menyelesaikan total 1 jam (60 menit) waktu tonton aktif terverifikasi, +1.000 poin otomatis masuk ke saldo Anda.',
+                  text: 'Bagikan link referral resmi kano-drama.xyz Anda. Setelah teman mendaftar dan menyelesaikan total 1 jam (60 menit) waktu tonton aktif terverifikasi, +5.000 poin otomatis masuk ke saldo Anda.',
                 },
               },
             ],
@@ -2849,16 +2850,16 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
       <section>
         <h2>Cara Mengumpulkan Poin KanoDrama</h2>
         <ul>
-          <li>Tonton drama pendek &amp; film aktif (kecepatan normal): +5 poin per menit (maksimal 60 menit/hari).</li>
-          <li>Bonus episode baru: +15 poin per episode setelah minimal 15 detik menonton terverifikasi.</li>
-          <li>Check-in harian &amp; streak beruntun (reset pukul 00:00 waktu lokal Anda).</li>
-          <li>Bonus milestone harian: +25 poin (15 menit), +50 poin (30 menit), dan +100 poin (60 menit).</li>
-          <li>Program Referral KanoDrama: +1.000 poin setelah teman menyelesaikan 1 jam waktu tonton terverifikasi.</li>
+          <li>Tonton drama pendek &amp; film aktif (kecepatan normal): +20 poin per menit otomatis (maksimal 60 menit/hari) × multiplier level akun (Bronze 1.0x hingga Platinum 1.6x).</li>
+          <li>Bonus episode baru: +200 poin per episode setelah minimal 15 detik menonton terverifikasi.</li>
+          <li>Check-in harian &amp; streak beruntun: +500 poin/hari (reset pukul 00.00 waktu lokal Anda).</li>
+          <li>Bonus milestone harian (klaim manual setelah target tercapai): +100 poin (15 menit), +200 poin (30 menit), dan +400 poin (60 menit).</li>
+          <li>Program Referral KanoDrama: +5.000 poin setelah teman menyelesaikan 1 jam waktu tonton terverifikasi.</li>
         </ul>
       </section>
       <section>
         <h2>Konversi Poin &amp; Metode Penarikan Resmi</h2>
-        <p>20.000 poin = $1.00 USD = Rp 18.200 IDR. Minimal penarikan lokal Rp 50.000 ke DANA, GoPay, OVO, ShopeePay, LinkAja, serta transfer bank BCA, BRI, BNI, Mandiri, BSI, CIMB Niaga, Bank Jago, SeaBank, Permata, dan BTN. Minimal penarikan global $5.00 USD ke PayPal, Wise, dan USDT (Polygon, TRC20, BEP20, ERC20).</p>
+        <p>100.000 poin = 1 USDT ($1.00 USD) = Rp 18.200 IDR. Minimal penarikan lokal Rp 50.000 ke DANA, GoPay, OVO, ShopeePay, LinkAja, serta transfer bank BCA, BRI, BNI, Mandiri, BSI, CIMB Niaga, Bank Jago, SeaBank, Permata, dan BTN. Minimal penarikan global $5.00 USD ke PayPal, Wise, dan USDT (Polygon, TRC20, BEP20, ERC20).</p>
       </section>
       <nav aria-label="Navigation"><a href="${brandOrigin}/">Home</a> · <a href="${brandOrigin}/explore">Explore Drama</a> · <a href="${brandOrigin}/movies">Movies</a> · <a href="${brandOrigin}/providers">Providers</a> · <a href="${brandOrigin}/trending">Trending</a></nav>
     </main>`;
@@ -5225,6 +5226,56 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         res.json({
           ok: true,
           awardedPoints: result.entry?.points ?? cfg.watchEpisodePoints,
+          entry: result.entry,
+          summary: result.summary,
+          config: cfg,
+        });
+        return;
+      }
+
+      if (action === 'watch_milestone') {
+        const milestoneMinutes = Math.floor(
+          Number(req.body?.milestoneMinutes ?? req.body?.minutes) || 0
+        );
+        const result = await claimWatchMilestoneInDb({
+          userId: session.uid,
+          milestoneMinutes,
+          displayName: session.displayName,
+          timeZone: extractUserTimeZone(req),
+        });
+
+        if (!result.ok) {
+          const statusCode =
+            result.reason === 'daily_cap_reached' ||
+            result.reason === 'daily_watch_cap_reached'
+              ? 429
+              : result.reason === 'duplicate_claim'
+              ? 409
+              : 400;
+          const message =
+            result.reason === 'duplicate_claim'
+              ? 'Bonus milestone ini sudah diklaim untuk periode hari ini.'
+              : result.reason === 'milestone_not_reached'
+              ? `Target menonton aktif ${milestoneMinutes} menit hari ini belum tercapai.`
+              : result.reason === 'daily_watch_cap_reached'
+              ? `Batas poin nonton harian (${cfg.maxDailyWatchPoints.toLocaleString()} pts) hari ini sudah tercapai.`
+              : result.reason === 'daily_cap_reached'
+              ? `Batas poin harian (${cfg.maxDailyEarnPoints.toLocaleString()} pts) hari ini sudah tercapai.`
+              : 'Milestone menit menonton tidak valid.';
+          res.status(statusCode).json({
+            ok: false,
+            reason: result.reason,
+            error: message,
+            summary: result.summary,
+            config: cfg,
+          });
+          return;
+        }
+
+        res.json({
+          ok: true,
+          milestoneMinutes: result.milestoneMinutes,
+          awardedPoints: result.awardedPoints ?? result.entry?.points ?? 0,
           entry: result.entry,
           summary: result.summary,
           config: cfg,

@@ -31,6 +31,7 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
   className = '',
 }) => {
   const {
+    t,
     user,
     language,
     pointsBalance,
@@ -39,6 +40,8 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
     dailyMissionMaxWatchSeconds,
     watchMinutePoints,
     dailyMissionMilestones,
+    dailyMissionStatuses,
+    accountLevelInfo,
     pointsPerUsd,
     openAuthModal,
     refreshPointsBalance,
@@ -125,7 +128,7 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
     100,
     Math.round((cappedMissionSec / maxMissionSeconds) * 100)
   );
-  const fiveUsdPoints = Math.max(1000, (pointsPerUsd || 20000) * 5);
+  const oneUsdtPoints = Math.max(1000, pointsPerUsd || 100000);
   const balanceDisplay = Math.max(0, pointsBalance ?? 0);
 
   const statusText = isActivelyCounting
@@ -273,15 +276,22 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
                 </span>
               </p>
             </div>
-            <span
-              className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                isActivelyCounting
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-              }`}
-            >
-              {statusText}
-            </span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {accountLevelInfo && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-[#D4AF37]/15 text-[#FDE68A] border border-[#D4AF37]/35">
+                  {accountLevelInfo.tierName} {accountLevelInfo.multiplier}x
+                </span>
+              )}
+              <span
+                className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                  isActivelyCounting
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                }`}
+              >
+                {statusText}
+              </span>
+            </div>
           </div>
 
           {/* Per-minute live progress */}
@@ -331,17 +341,30 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
             </div>
             <div className="grid grid-cols-3 gap-1.5 pt-1">
               {(dailyMissionMilestones || []).map((tier) => {
-                const hit = completedMinutes >= tier.minutes;
+                const statusMatch = dailyMissionStatuses.find(
+                  (m) => m.minutes === tier.minutes
+                );
+                const hit = statusMatch ? statusMatch.reached : completedMinutes >= tier.minutes;
+                const claimed = Boolean(statusMatch?.claimed);
                 return (
                   <div
                     key={tier.minutes}
                     className={`px-2 py-1 rounded-lg border text-center text-[10px] font-bold tabular-nums ${
-                      hit
+                      claimed
                         ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
+                        : hit
+                        ? 'bg-[#F43F5E]/20 border-[#F43F5E]/55 text-rose-200'
                         : 'bg-white/5 border-white/10 text-[#A1A1AA]'
                     }`}
                   >
-                    <div>{tier.minutes}m</div>
+                    <div>
+                      {tier.minutes}m{' '}
+                      {claimed
+                        ? '✓'
+                        : hit
+                        ? `· ${t.rewards.milestoneClaimBtn}`
+                        : ''}
+                    </div>
                     <div className="text-[#D4AF37]">+{tier.bonusPoints}</div>
                   </div>
                 );
@@ -349,8 +372,8 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
             </div>
             <p className="text-[10px] text-[#A1A1AA] tabular-nums">
               {isId
-                ? `Terperoleh hari ini: +${todayWatchPointsEarned.toLocaleString()} poin · Rate: ${fiveUsdPoints.toLocaleString()} poin = $5.00`
-                : `Earned today: +${todayWatchPointsEarned.toLocaleString()} pts · Rate: ${fiveUsdPoints.toLocaleString()} pts = $5.00`}
+                ? `Terperoleh hari ini: +${todayWatchPointsEarned.toLocaleString()} ${t.rewards.pointsUnit} · Rate: ${oneUsdtPoints.toLocaleString()} ${t.rewards.pointsUnit} = 1 USDT`
+                : `Earned today: +${todayWatchPointsEarned.toLocaleString()} ${t.rewards.pointsUnit} · Rate: ${oneUsdtPoints.toLocaleString()} ${t.rewards.pointsUnit} = 1 USDT`}
             </p>
           </div>
 

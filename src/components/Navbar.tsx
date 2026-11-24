@@ -335,7 +335,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-40 bg-[var(--cd-bg)]/95 backdrop-blur-xl border-b border-white/5">
-      <div className="max-w-[1600px] mx-auto px-3 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4">
+      <div className="max-w-[1600px] mx-auto px-2.5 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-4">
         {/* Left Zone: Brand Logo (never compressed or overlapped on mobile) */}
         <div className="flex items-center gap-3 shrink-0">
           <a
@@ -353,26 +353,27 @@ export const Navbar: React.FC<NavbarProps> = ({
           </a>
         </div>
 
-        {/* Right Zone: Clean mobile controls (Search, Points, Menu); Theme & Language move into Mobile Drawer */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 min-w-0">
+        {/* Right Zone: Theme, Language, Search, Points, and Mobile Menu */}
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0 min-w-0">
           <PWAInstallButton variant="header" />
 
-          {/* Accent Theme & Contrast Customizer (Desktop / Tablet md+, moved to Mobile Drawer on phones) */}
-          <div ref={rightRef} className="hidden md:block relative">
+          {/* Accent Theme & Contrast Customizer */}
+          <div ref={rightRef} className="relative">
             <button
               type="button"
               onClick={() => {
                 setThemeMenuOpen((prev) => !prev);
+                setMobileMenuOpen(false);
               }}
               aria-label={t.engagement.themeTitle}
               aria-expanded={themeMenuOpen}
-              className="p-2 rounded-lg bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-[#FAFAFA] transition-colors"
+              className="p-1.5 sm:p-2 rounded-lg bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-[#FAFAFA] transition-colors"
             >
               <Palette className="w-4 h-4 cd-accent-text" />
             </button>
 
             {themeMenuOpen && (
-              <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-[#141418]/95 backdrop-blur-xl border border-white/15 shadow-2xl p-3 z-50 space-y-3">
+              <div className="fixed inset-x-3 top-[3.75rem] sm:inset-auto sm:absolute sm:right-0 sm:top-full sm:mt-2 sm:w-56 rounded-2xl bg-[#141418]/95 backdrop-blur-xl border border-white/15 shadow-2xl p-3 z-50 space-y-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-[#A1A1AA]">
                   {t.engagement.themeTitle}
                 </p>
@@ -425,8 +426,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </div>
 
-          {/* Language Switcher (Desktop / Tablet md+, moved to Mobile Drawer on phones) */}
-          <div className="hidden md:block">
+          {/* Language Switcher */}
+          <div>
             <LanguageSwitcher
               variant="header"
               loading={languageLoading}
@@ -438,7 +439,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             type="button"
             onClick={onOpenSearchModal}
-            className="inline-flex items-center justify-center gap-1.5 p-2 md:px-3 md:py-1.5 rounded-lg bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-xs text-[#FAFAFA] hover:text-white transition-colors shrink-0"
+            className="inline-flex items-center justify-center gap-1.5 p-1.5 sm:p-2 md:px-3 md:py-1.5 rounded-lg bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-xs text-[#FAFAFA] hover:text-white transition-colors shrink-0"
             aria-label={t.nav.search}
           >
             <Search className="w-4 h-4 md:w-3.5 md:h-3.5 cd-accent-text" />
@@ -457,7 +458,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             }}
             aria-label={language === 'id' ? 'Poin & Referral' : 'Points & Referral'}
             title={language === 'id' ? 'Poin, Referral & Penarikan' : 'Points, Referral & Payout'}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+            className={`inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-full border text-[11px] sm:text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
               activeTab === 'rewards'
                 ? 'bg-[#D4AF37] border-[#D4AF37] text-[#09090B] shadow'
                 : 'bg-[#D4AF37]/15 border-[#D4AF37]/40 hover:border-[#D4AF37] text-[#FDE68A]'
@@ -468,7 +469,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 activeTab === 'rewards' ? 'text-[#09090B]' : 'text-[#D4AF37]'
               }`}
             />
-            <span className="tabular-nums max-w-[92px] sm:max-w-none truncate">
+            <span className="tabular-nums max-w-[76px] sm:max-w-none truncate">
               {user && typeof pointsBalance === 'number' ? (
                 <>
                   {pointsBalance.toLocaleString()}{' '}
@@ -542,8 +543,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Mobile Drawer Trigger */}
           <button
             type="button"
-            onClick={() => setMobileMenuOpen((prev) => !prev)}
-            className="md:hidden p-2 rounded-lg bg-[var(--cd-surface)] border border-[var(--cd-border)] text-[#FAFAFA] hover:border-[var(--cd-accent)] transition-colors shrink-0"
+            onClick={() => {
+              setMobileMenuOpen((prev) => !prev);
+              setThemeMenuOpen(false);
+            }}
+            className="md:hidden p-1.5 sm:p-2 rounded-lg bg-[var(--cd-surface)] border border-[var(--cd-border)] text-[#FAFAFA] hover:border-[var(--cd-accent)] transition-colors shrink-0"
             aria-label="Toggle navigation menu"
             aria-expanded={mobileMenuOpen}
           >

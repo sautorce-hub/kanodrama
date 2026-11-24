@@ -4,9 +4,11 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Banknote,
+  Calendar,
   CalendarCheck2,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -18,11 +20,15 @@ import {
   Globe2,
   Link2,
   Lock,
+  Play,
   PlayCircle,
   RefreshCw,
+  Search,
   Share2,
+  Shield,
   ShieldCheck,
   Sparkles,
+  Star,
   Users,
   Wallet,
   X,
@@ -31,6 +37,121 @@ import { useDramaContext } from '../context/DramaContext';
 import { getProductionReferralUrl } from '../config/auth';
 import { PaymentMethodLogo } from './PaymentMethodLogo';
 import { RewardsSeoContent } from './RewardsSeoContent';
+
+const GoldCoinIcon: React.FC<{ className?: string }> = ({ className = 'w-6 h-6' }) => (
+  <svg viewBox="0 0 36 36" className={className} aria-hidden="true">
+    <defs>
+      <linearGradient id="kdCoinOuter" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#FDE047" />
+        <stop offset="50%" stopColor="#F59E0B" />
+        <stop offset="100%" stopColor="#B45309" />
+      </linearGradient>
+      <linearGradient id="kdCoinInner" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#FEF08A" />
+        <stop offset="100%" stopColor="#D97706" />
+      </linearGradient>
+    </defs>
+    <circle cx="18" cy="18" r="16" fill="url(#kdCoinOuter)" stroke="#FEF08A" strokeWidth="1.5" />
+    <circle cx="18" cy="18" r="11.5" fill="url(#kdCoinInner)" stroke="#92400E" strokeOpacity="0.35" strokeWidth="1" />
+    <path
+      d="M12.5 22V14.5l3 2.5 2.5-3.5 2.5 3.5 3-2.5V22h-11Z"
+      fill="#78350F"
+      fillOpacity="0.82"
+    />
+  </svg>
+);
+
+const CoinStackArt: React.FC<{ level: 1 | 2 | 3 | 4 }> = ({ level }) => {
+  if (level === 1) {
+    return (
+      <div className="relative w-9 h-9 flex items-center justify-center">
+        <GoldCoinIcon className="w-7 h-7 drop-shadow-[0_4px_8px_rgba(245,158,11,0.35)]" />
+      </div>
+    );
+  }
+  if (level === 2) {
+    return (
+      <div className="relative w-9 h-9 flex items-center justify-center">
+        <GoldCoinIcon className="w-6 h-6 -translate-x-1.5 translate-y-0.5 opacity-90" />
+        <GoldCoinIcon className="w-6 h-6 translate-x-1.5 -translate-y-0.5 drop-shadow-[0_4px_8px_rgba(245,158,11,0.4)]" />
+      </div>
+    );
+  }
+  if (level === 3) {
+    return (
+      <div className="relative w-10 h-9 flex items-center justify-center">
+        <GoldCoinIcon className="w-5 h-5 absolute left-0.5 bottom-0.5 opacity-85" />
+        <GoldCoinIcon className="w-5 h-5 absolute right-0.5 bottom-0.5 opacity-95" />
+        <GoldCoinIcon className="w-6 h-6 relative -translate-y-1 drop-shadow-[0_4px_8px_rgba(245,158,11,0.45)]" />
+      </div>
+    );
+  }
+  return (
+    <div className="relative w-11 h-9 flex items-center justify-center">
+      <GoldCoinIcon className="w-5 h-5 absolute left-0 bottom-0 opacity-85" />
+      <GoldCoinIcon className="w-5 h-5 absolute right-0 bottom-0 opacity-90" />
+      <GoldCoinIcon className="w-5 h-5 absolute left-2 top-0.5 opacity-95" />
+      <GoldCoinIcon className="w-6 h-6 relative translate-y-0.5 drop-shadow-[0_4px_10px_rgba(250,204,21,0.55)]" />
+      <span className="absolute -top-0.5 right-0.5 text-[10px] text-amber-200 leading-none">✦</span>
+    </div>
+  );
+};
+
+const GiftBoxHeroIllustration: React.FC = () => (
+  <svg
+    viewBox="0 0 180 140"
+    className="w-32 h-24 sm:w-44 sm:h-32 shrink-0 select-none drop-shadow-[0_12px_28px_rgba(225,29,72,0.28)]"
+    aria-hidden="true"
+  >
+    <defs>
+      <linearGradient id="kdBoxBody" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#F43F5E" />
+        <stop offset="100%" stopColor="#9F1239" />
+      </linearGradient>
+      <linearGradient id="kdBoxLid" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#FB7185" />
+        <stop offset="100%" stopColor="#E11D48" />
+      </linearGradient>
+      <linearGradient id="kdRibbon" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#FEF08A" />
+        <stop offset="100%" stopColor="#D97706" />
+      </linearGradient>
+    </defs>
+
+    {/* Floating Coins */}
+    <g>
+      <circle cx="32" cy="36" r="10" fill="url(#kdRibbon)" stroke="#FEF9C3" strokeWidth="1.2" />
+      <circle cx="152" cy="40" r="8.5" fill="url(#kdRibbon)" stroke="#FEF9C3" strokeWidth="1" />
+      <circle cx="144" cy="96" r="11" fill="url(#kdRibbon)" stroke="#FEF9C3" strokeWidth="1.2" />
+      <circle cx="38" cy="88" r="7.5" fill="url(#kdRibbon)" stroke="#FEF9C3" strokeWidth="1" />
+      <circle cx="90" cy="20" r="8" fill="url(#kdRibbon)" stroke="#FEF9C3" strokeWidth="1" />
+    </g>
+
+    {/* Sparkles */}
+    <path d="M52 20l2 5 5 2-5 2-2 5-2-5-5-2 5-2 2-5Z" fill="#FEF08A" opacity="0.9" />
+    <path d="M132 18l1.5 3.5 3.5 1.5-3.5 1.5-1.5 3.5-1.5-3.5-3.5-1.5 3.5-1.5 1.5-3.5Z" fill="#FDE047" opacity="0.8" />
+    <circle cx="24" cy="64" r="2" fill="#FDA4AF" opacity="0.8" />
+    <circle cx="160" cy="68" r="2.2" fill="#FDE047" opacity="0.85" />
+
+    {/* Gift Box Body */}
+    <rect x="48" y="64" width="84" height="56" rx="10" fill="url(#kdBoxBody)" />
+    <rect x="83" y="64" width="14" height="56" fill="url(#kdRibbon)" />
+    <rect x="48" y="64" width="84" height="6" fill="#000000" fillOpacity="0.18" />
+
+    {/* Tilted Open Gift Lid */}
+    <g transform="rotate(-8 90 54)">
+      <rect x="42" y="42" width="96" height="18" rx="6" fill="url(#kdBoxLid)" />
+      <rect x="83" y="42" width="14" height="18" fill="url(#kdRibbon)" />
+      {/* Ribbon Bow */}
+      <path
+        d="M90 42c-10-12-26-10-22 0 3 6 14 4 22 0Zm0 0c10-12 26-10 22 0-3 6-14 4-22 0Z"
+        fill="url(#kdRibbon)"
+        stroke="#FEF9C3"
+        strokeWidth="1"
+      />
+    </g>
+  </svg>
+);
 
 type PayoutMethod =
   | 'dana'
@@ -90,6 +211,50 @@ interface DailyMissionMilestoneStatus extends DailyMissionMilestoneConfig {
   claimedAt: string | null;
 }
 
+type AccountLevelTierId = 'bronze' | 'silver' | 'gold' | 'platinum';
+
+interface AccountLevelTierSummary {
+  level: number;
+  tierId: AccountLevelTierId;
+  tierName: string;
+  minTotalEarned: number;
+  minVerifiedWatchSeconds: number;
+  multiplier: number;
+  bonusPercent: number;
+  watchMinutePoints: number;
+  dailyCheckinPoints: number;
+  watchEpisodePoints: number;
+  dailyMissionMilestones: DailyMissionMilestoneConfig[];
+}
+
+interface AccountLevelNextTierInfo {
+  level: number;
+  tierId: AccountLevelTierId;
+  tierName: string;
+  multiplier: number;
+  bonusPercent: number;
+  minTotalEarned: number;
+  minVerifiedWatchSeconds: number;
+  remainingPoints: number;
+  remainingWatchSeconds: number;
+}
+
+interface AccountLevelStatus {
+  level: number;
+  tierId: AccountLevelTierId;
+  tierName: string;
+  multiplier: number;
+  bonusPercent: number;
+  watchMinutePoints: number;
+  dailyCheckinPoints: number;
+  watchEpisodePoints: number;
+  dailyMissionMilestones: DailyMissionMilestoneConfig[];
+  totalEarned: number;
+  verifiedWatchSeconds: number;
+  nextTier: AccountLevelNextTierInfo | null;
+  progressPct: number;
+}
+
 interface PayoutConfig {
   usdToIdrRate: number;
   pointsPerUsd: number;
@@ -98,6 +263,7 @@ interface PayoutConfig {
   minPayoutPointsIdr: number;
   minPayoutPointsUsd: number;
   maxDailyEarnPoints: number;
+  maxDailyWatchPoints?: number;
   claimCooldownSeconds: number;
   dailyCheckinPoints: number;
   watchEpisodePoints: number;
@@ -109,6 +275,7 @@ interface PayoutConfig {
   maxDailyReferrals: number;
   maxWeeklyReferrals: number;
   maxDailyVerifiedWatchSeconds: number;
+  levelTiers?: AccountLevelTierSummary[];
   methods: PayoutMethodDescriptor[];
   banks?: IndonesianBankOption[];
   usdtNetworks?: UsdtNetworkOption[];
@@ -188,6 +355,8 @@ interface UserPointsSummary {
   todayWatchSeconds?: number;
   todayWatchPointsEarned?: number;
   dailyMissionMaxWatchSeconds?: number;
+  verifiedWatchSeconds?: number;
+  levelInfo?: AccountLevelStatus;
   estimatedUsd: number;
   estimatedIdr: number;
   lastClaimAt: string | null;
@@ -238,40 +407,111 @@ const DEFAULT_USDT_NETWORKS: UsdtNetworkOption[] = [
 
 const DEFAULT_CONFIG: PayoutConfig = {
   usdToIdrRate: 18200,
-  pointsPerUsd: 20000,
+  pointsPerUsd: 100000,
   minPayoutIdr: 50000,
   minPayoutUsd: 5,
-  minPayoutPointsIdr: 54946,
-  minPayoutPointsUsd: 100000,
-  maxDailyEarnPoints: 5000,
+  minPayoutPointsIdr: 274726,
+  minPayoutPointsUsd: 500000,
+  maxDailyEarnPoints: 25000,
+  maxDailyWatchPoints: 3500,
   claimCooldownSeconds: 45,
-  dailyCheckinPoints: 100,
-  watchEpisodePoints: 50,
-  watchMinutePoints: 5,
+  dailyCheckinPoints: 500,
+  watchEpisodePoints: 200,
+  watchMinutePoints: 20,
   dailyMissionMaxWatchSeconds: 3600,
   dailyMissionMilestones: [
-    { minutes: 15, bonusPoints: 25 },
-    { minutes: 30, bonusPoints: 50 },
-    { minutes: 60, bonusPoints: 100 },
+    { minutes: 15, bonusPoints: 100 },
+    { minutes: 30, bonusPoints: 200 },
+    { minutes: 60, bonusPoints: 400 },
   ],
   referralQualifySeconds: 3600,
-  referralBonusPoints: 1000,
+  referralBonusPoints: 5000,
   maxDailyReferrals: 5,
   maxWeeklyReferrals: 15,
   maxDailyVerifiedWatchSeconds: 28800,
+  levelTiers: [
+    {
+      level: 1,
+      tierId: 'bronze',
+      tierName: 'Bronze',
+      minTotalEarned: 0,
+      minVerifiedWatchSeconds: 0,
+      multiplier: 1.0,
+      bonusPercent: 0,
+      watchMinutePoints: 20,
+      dailyCheckinPoints: 500,
+      watchEpisodePoints: 200,
+      dailyMissionMilestones: [
+        { minutes: 15, bonusPoints: 100 },
+        { minutes: 30, bonusPoints: 200 },
+        { minutes: 60, bonusPoints: 400 },
+      ],
+    },
+    {
+      level: 2,
+      tierId: 'silver',
+      tierName: 'Silver',
+      minTotalEarned: 20000,
+      minVerifiedWatchSeconds: 7200,
+      multiplier: 1.2,
+      bonusPercent: 20,
+      watchMinutePoints: 24,
+      dailyCheckinPoints: 600,
+      watchEpisodePoints: 240,
+      dailyMissionMilestones: [
+        { minutes: 15, bonusPoints: 120 },
+        { minutes: 30, bonusPoints: 240 },
+        { minutes: 60, bonusPoints: 480 },
+      ],
+    },
+    {
+      level: 3,
+      tierId: 'gold',
+      tierName: 'Gold',
+      minTotalEarned: 100000,
+      minVerifiedWatchSeconds: 36000,
+      multiplier: 1.4,
+      bonusPercent: 40,
+      watchMinutePoints: 28,
+      dailyCheckinPoints: 700,
+      watchEpisodePoints: 280,
+      dailyMissionMilestones: [
+        { minutes: 15, bonusPoints: 140 },
+        { minutes: 30, bonusPoints: 280 },
+        { minutes: 60, bonusPoints: 560 },
+      ],
+    },
+    {
+      level: 4,
+      tierId: 'platinum',
+      tierName: 'Platinum',
+      minTotalEarned: 300000,
+      minVerifiedWatchSeconds: 108000,
+      multiplier: 1.6,
+      bonusPercent: 60,
+      watchMinutePoints: 32,
+      dailyCheckinPoints: 800,
+      watchEpisodePoints: 320,
+      dailyMissionMilestones: [
+        { minutes: 15, bonusPoints: 160 },
+        { minutes: 30, bonusPoints: 320 },
+        { minutes: 60, bonusPoints: 640 },
+      ],
+    },
+  ],
   methods: [
-    { id: 'dana', label: 'DANA', currency: 'IDR', countryCode: 'ID', minPoints: 54946, category: 'ewallet_idr' },
-    { id: 'gopay', label: 'GoPay', currency: 'IDR', countryCode: 'ID', minPoints: 54946, category: 'ewallet_idr' },
-    { id: 'ovo', label: 'OVO', currency: 'IDR', countryCode: 'ID', minPoints: 54946, category: 'ewallet_idr' },
-    { id: 'shopeepay', label: 'ShopeePay', currency: 'IDR', countryCode: 'ID', minPoints: 54946, category: 'ewallet_idr' },
-    { id: 'linkaja', label: 'LinkAja', currency: 'IDR', countryCode: 'ID', minPoints: 54946, category: 'ewallet_idr' },
-    { id: 'bank_transfer', label: 'Transfer Bank (IDR)', currency: 'IDR', countryCode: 'ID', minPoints: 54946, category: 'bank_idr' },
-    { id: 'paypal', label: 'PayPal', currency: 'USD', countryCode: 'US', minPoints: 100000, category: 'global_usd' },
-    { id: 'wise', label: 'Wise', currency: 'USD', countryCode: 'MY', minPoints: 100000, category: 'global_usd' },
-    { id: 'usdt_polygon', label: 'USDT (Polygon)', currency: 'USD', countryCode: 'SG', minPoints: 100000, category: 'crypto_usd' },
-    { id: 'usdt_trc20', label: 'USDT (TRC20)', currency: 'USD', countryCode: 'PH', minPoints: 100000, category: 'crypto_usd' },
-    { id: 'usdt_bep20', label: 'USDT (BEP20)', currency: 'USD', countryCode: 'SG', minPoints: 100000, category: 'crypto_usd' },
-    { id: 'usdt_erc20', label: 'USDT (ERC20)', currency: 'USD', countryCode: 'SG', minPoints: 100000, category: 'crypto_usd' },
+    { id: 'dana', label: 'DANA', currency: 'IDR', countryCode: 'ID', minPoints: 274726, category: 'ewallet_idr' },
+    { id: 'gopay', label: 'GoPay', currency: 'IDR', countryCode: 'ID', minPoints: 274726, category: 'ewallet_idr' },
+    { id: 'ovo', label: 'OVO', currency: 'IDR', countryCode: 'ID', minPoints: 274726, category: 'ewallet_idr' },
+    { id: 'shopeepay', label: 'ShopeePay', currency: 'IDR', countryCode: 'ID', minPoints: 274726, category: 'ewallet_idr' },
+    { id: 'linkaja', label: 'LinkAja', currency: 'IDR', countryCode: 'ID', minPoints: 274726, category: 'ewallet_idr' },
+    { id: 'bank_transfer', label: 'Transfer Bank (IDR)', currency: 'IDR', countryCode: 'ID', minPoints: 274726, category: 'bank_idr' },
+    { id: 'paypal', label: 'PayPal', currency: 'USD', countryCode: 'US', minPoints: 500000, category: 'global_usd' },
+    { id: 'wise', label: 'Wise', currency: 'USD', countryCode: 'MY', minPoints: 500000, category: 'global_usd' },
+    { id: 'usdt_polygon', label: 'USDT (Polygon)', currency: 'USD', countryCode: 'SG', minPoints: 500000, category: 'crypto_usd' },
+    { id: 'usdt_trc20', label: 'USDT (TRC20)', currency: 'USD', countryCode: 'PH', minPoints: 500000, category: 'crypto_usd' },
+    { id: 'usdt_bep20', label: 'USDT (BEP20)', currency: 'USD', countryCode: 'SG', minPoints: 500000, category: 'crypto_usd' },
+    { id: 'usdt_erc20', label: 'USDT (ERC20)', currency: 'USD', countryCode: 'SG', minPoints: 500000, category: 'crypto_usd' },
   ],
   banks: DEFAULT_BANKS,
   usdtNetworks: DEFAULT_USDT_NETWORKS,
@@ -315,15 +555,17 @@ const RelativeTimeText: React.FC<{ iso: string; lang: string }> = React.memo(
 );
 RelativeTimeText.displayName = 'RelativeTimeText';
 
-// Isolated WIB (UTC+7) 00:00 reset countdown widget
-const WibResetCountdown: React.FC<{ lang: string }> = React.memo(({ lang }) => {
+// Isolated 00:00 reset countdown widget (WIB UTC+7 for Indonesian, UTC for all other languages)
+const ResetCountdown: React.FC<{ lang: string }> = React.memo(({ lang }) => {
   const [label, setLabel] = useState('');
+  const isWib = lang === 'id';
 
   useEffect(() => {
+    const offsetMs = isWib ? 7 * 3600 * 1000 : 0;
     const update = () => {
       const now = Date.now();
-      const wibMs = now + 7 * 3600 * 1000;
-      const elapsedToday = wibMs % (24 * 3600 * 1000);
+      const tzMs = now + offsetMs;
+      const elapsedToday = tzMs % (24 * 3600 * 1000);
       const remSec = Math.max(0, Math.floor((24 * 3600 * 1000 - elapsedToday) / 1000));
       const h = Math.floor(remSec / 3600);
       const m = Math.floor((remSec % 3600) / 60);
@@ -337,15 +579,15 @@ const WibResetCountdown: React.FC<{ lang: string }> = React.memo(({ lang }) => {
       if (!document.hidden) update();
     }, 1000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [isWib]);
 
   return (
     <span className="tabular-nums font-mono text-[11px] text-[#A1A1AA]">
-      {lang === 'id' ? `Reset 00:00 WIB (${label})` : `Resets 00:00 WIB (${label})`}
+      {isWib ? `Reset 00:00 WIB (${label})` : `Resets 00:00 UTC (${label})`}
     </span>
   );
 });
-WibResetCountdown.displayName = 'WibResetCountdown';
+ResetCountdown.displayName = 'ResetCountdown';
 
 function generateIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -512,6 +754,7 @@ export const RewardsPayoutSection: React.FC = () => {
   const [liveFeed, setLiveFeed] = useState<LivePayoutFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [claimingCheckin, setClaimingCheckin] = useState(false);
+  const [claimingMilestoneMinutes, setClaimingMilestoneMinutes] = useState<number | null>(null);
 
   // Ledger & Payout History pagination states
   const [ledgerRows, setLedgerRows] = useState<PointsLedgerItem[]>([]);
@@ -541,10 +784,13 @@ export const RewardsPayoutSection: React.FC = () => {
     language === 'id' ? 'dana' : 'paypal'
   );
   const [selectedBankCode, setSelectedBankCode] = useState<string>('BCA');
+  const [bankDropdownOpen, setBankDropdownOpen] = useState(false);
+  const [bankSearchQuery, setBankSearchQuery] = useState('');
+  const bankDropdownRef = useRef<HTMLDivElement | null>(null);
   const [selectedUsdtMethod, setSelectedUsdtMethod] =
     useState<PayoutMethod>('usdt_polygon');
   const [pointsInput, setPointsInput] = useState<string>(() =>
-    language === 'id' ? '54946' : '100000'
+    language === 'id' ? '274726' : '500000'
   );
   const [destinationInput, setDestinationInput] = useState<string>('');
   const [holderNameInput, setHolderNameInput] = useState<string>(user?.displayName || '');
@@ -560,6 +806,44 @@ export const RewardsPayoutSection: React.FC = () => {
   const PAYOUT_PAGE_SIZE = 8;
 
   const banks = useMemo(() => config.banks || DEFAULT_BANKS, [config.banks]);
+  const selectedBankObj = useMemo(
+    () => banks.find((b) => b.code === selectedBankCode) || banks[0],
+    [banks, selectedBankCode]
+  );
+  const filteredBanks = useMemo(() => {
+    const q = bankSearchQuery.trim().toLowerCase();
+    if (!q) return banks;
+    return banks.filter(
+      (b) =>
+        b.label.toLowerCase().includes(q) ||
+        b.shortName.toLowerCase().includes(q) ||
+        b.code.toLowerCase().includes(q)
+    );
+  }, [banks, bankSearchQuery]);
+
+  useEffect(() => {
+    if (!bankDropdownOpen) return;
+    const onOutsideClick = (e: MouseEvent) => {
+      if (
+        bankDropdownRef.current &&
+        !bankDropdownRef.current.contains(e.target as Node)
+      ) {
+        setBankDropdownOpen(false);
+      }
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setBankDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', onOutsideClick);
+    window.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onOutsideClick);
+      window.removeEventListener('keydown', onEsc);
+    };
+  }, [bankDropdownOpen]);
+
+  const [showLevelTiers, setShowLevelTiers] = useState(false);
+
   const usdtNetworks = useMemo(
     () => config.usdtNetworks || DEFAULT_USDT_NETWORKS,
     [config.usdtNetworks]
@@ -948,7 +1232,7 @@ export const RewardsPayoutSection: React.FC = () => {
             ? ` (termasuk bonus streak +${data.streakBonus})`
             : '';
         pushToast(
-          `+${data.awardedPoints || config.dailyCheckinPoints} ${t.rewards.pointsUnit}${bonusNote}!`,
+          `+${data.awardedPoints || effectiveDailyCheckinPoints} ${t.rewards.pointsUnit}${bonusNote}!`,
           'gold'
         );
         void refreshPointsBalance();
@@ -967,6 +1251,67 @@ export const RewardsPayoutSection: React.FC = () => {
       });
     } finally {
       setClaimingCheckin(false);
+    }
+  };
+
+  const handleClaimMilestone = async (milestoneMinutes: number) => {
+    if (!user) {
+      openAuthModal();
+      return;
+    }
+    if (claimingMilestoneMinutes !== null) return;
+    setClaimingMilestoneMinutes(milestoneMinutes);
+    setFormFeedback(null);
+    try {
+      const res = await fetch('/api/points/claim', {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          action: 'watch_milestone',
+          milestoneMinutes,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        awardedPoints?: number;
+        error?: string;
+        summary?: UserPointsSummary;
+      };
+      if (res.status === 503) {
+        setDbAvailable(false);
+        setDbErrorMsg(data.error || 'Database PostgreSQL belum terhubung.');
+        return;
+      }
+      if (data.summary) {
+        setSummary(data.summary);
+        setLedgerRows(data.summary.ledger || []);
+        setLedgerTotal(Number(data.summary.ledgerTotal ?? (data.summary.ledger || []).length));
+      }
+      if (res.ok && data.ok) {
+        const awarded = Number(data.awardedPoints) || 0;
+        pushToast(
+          `+${awarded.toLocaleString()} ${t.rewards.pointsUnit} (${milestoneMinutes} ${t.rewards.milestoneMinSuffix})!`,
+          'gold'
+        );
+        void refreshPointsBalance();
+      } else {
+        setFormFeedback({
+          type: 'error',
+          message:
+            data.error ||
+            (isId ? 'Gagal mengklaim bonus milestone.' : 'Unable to claim milestone bonus'),
+        });
+      }
+    } catch {
+      setFormFeedback({
+        type: 'error',
+        message: isId
+          ? 'Gagal terhubung ke server saat klaim milestone.'
+          : 'Network error while claiming milestone bonus',
+      });
+    } finally {
+      setClaimingMilestoneMinutes(null);
     }
   };
 
@@ -1329,20 +1674,124 @@ export const RewardsPayoutSection: React.FC = () => {
     100,
     Math.round((cappedMissionWatchSeconds / missionMaxSeconds) * 100)
   );
+  const levelTiers = useMemo(
+    () =>
+      config.levelTiers && config.levelTiers.length > 0
+        ? config.levelTiers
+        : DEFAULT_CONFIG.levelTiers || [],
+    [config.levelTiers]
+  );
+
+  const activeLevelInfo = useMemo<AccountLevelStatus>(() => {
+    if (summary?.levelInfo) return summary.levelInfo;
+    const baseTier = levelTiers[0] || {
+      level: 1,
+      tierId: 'bronze' as const,
+      tierName: 'Bronze',
+      minTotalEarned: 0,
+      minVerifiedWatchSeconds: 0,
+      multiplier: 1.0,
+      bonusPercent: 0,
+      watchMinutePoints: config.watchMinutePoints || 20,
+      dailyCheckinPoints: config.dailyCheckinPoints || 500,
+      watchEpisodePoints: config.watchEpisodePoints || 200,
+      dailyMissionMilestones: config.dailyMissionMilestones || [],
+    };
+    const secondTier = levelTiers[1] || null;
+    return {
+      level: baseTier.level,
+      tierId: baseTier.tierId,
+      tierName: baseTier.tierName,
+      multiplier: baseTier.multiplier,
+      bonusPercent: baseTier.bonusPercent,
+      watchMinutePoints: baseTier.watchMinutePoints,
+      dailyCheckinPoints: baseTier.dailyCheckinPoints,
+      watchEpisodePoints: baseTier.watchEpisodePoints,
+      dailyMissionMilestones: baseTier.dailyMissionMilestones,
+      totalEarned: 0,
+      verifiedWatchSeconds: 0,
+      nextTier: secondTier
+        ? {
+            level: secondTier.level,
+            tierId: secondTier.tierId,
+            tierName: secondTier.tierName,
+            multiplier: secondTier.multiplier,
+            bonusPercent: secondTier.bonusPercent,
+            minTotalEarned: secondTier.minTotalEarned,
+            minVerifiedWatchSeconds: secondTier.minVerifiedWatchSeconds,
+            remainingPoints: secondTier.minTotalEarned,
+            remainingWatchSeconds: secondTier.minVerifiedWatchSeconds,
+          }
+        : null,
+      progressPct: 0,
+    };
+  }, [summary?.levelInfo, levelTiers, config]);
+
+  const effectiveWatchMinutePoints = activeLevelInfo.watchMinutePoints || config.watchMinutePoints || 20;
+  const effectiveDailyCheckinPoints = activeLevelInfo.dailyCheckinPoints || config.dailyCheckinPoints || 500;
+  const effectiveWatchEpisodePoints = activeLevelInfo.watchEpisodePoints || config.watchEpisodePoints || 200;
+
   const todayWatchPointsEarned = Math.max(0, summary?.todayWatchPointsEarned ?? 0);
-  const maxWatchMissionPoints =
-    missionMaxMinutes * (config.watchMinutePoints || 5) +
-    (config.dailyMissionMilestones || []).reduce((acc, m) => acc + m.bonusPoints, 0);
-  const usd5Points = Math.max(1000, config.pointsPerUsd * 5);
+  const effectiveMilestoneConfigs =
+    activeLevelInfo.dailyMissionMilestones && activeLevelInfo.dailyMissionMilestones.length > 0
+      ? activeLevelInfo.dailyMissionMilestones
+      : config.dailyMissionMilestones || [];
+  const rawLevelWatchMax =
+    missionMaxMinutes * effectiveWatchMinutePoints +
+    effectiveMilestoneConfigs.reduce((acc, m) => acc + m.bonusPoints, 0);
+  const dailyWatchCap = Math.max(
+    effectiveWatchMinutePoints,
+    config.maxDailyWatchPoints || 3500
+  );
+  const maxWatchMissionPoints = Math.min(dailyWatchCap, rawLevelWatchMax);
+  const oneUsdtPoints = Math.max(1000, config.pointsPerUsd || 100000);
 
   const checkinStreak = summary?.checkinStreak ?? 0;
+  const cycleDayProgress =
+    checkinStreak > 0 ? ((checkinStreak - 1) % 7) + 1 : 0;
+  const activeCheckinDay = summary?.dailyCheckinClaimedToday
+    ? Math.max(1, cycleDayProgress)
+    : Math.min(7, cycleDayProgress + 1);
+  const weeklyCheckinMaxPoints =
+    effectiveDailyCheckinPoints * 7 + 50;
+
+  const tierMeta = useMemo(() => {
+    const id = activeLevelInfo.tierId;
+    if (id === 'platinum') {
+      return {
+        label: isId ? `Level Platinum` : `Platinum level`,
+        badgeClass: 'border-cyan-300/50 bg-cyan-500/15 text-cyan-200',
+        barClass: 'from-cyan-400 to-indigo-400',
+      };
+    }
+    if (id === 'gold') {
+      return {
+        label: isId ? `Level Gold` : `Gold level`,
+        badgeClass: 'border-yellow-400/50 bg-yellow-500/15 text-yellow-200',
+        barClass: 'from-amber-400 to-yellow-300',
+      };
+    }
+    if (id === 'silver') {
+      return {
+        label: isId ? `Level Silver` : `Silver level`,
+        badgeClass: 'border-slate-300/45 bg-slate-400/15 text-slate-100',
+        barClass: 'from-slate-300 to-slate-100',
+      };
+    }
+    return {
+      label: isId ? `Level Bronze` : `Bronze level`,
+      badgeClass: 'border-amber-500/35 bg-amber-500/10 text-amber-200/90',
+      barClass: 'from-[#F43F5E] to-[#FBBF24]',
+    };
+  }, [activeLevelInfo.tierId, isId]);
+
   const milestoneStatuses: DailyMissionMilestoneStatus[] =
     summary?.milestones && summary.milestones.length > 0
       ? summary.milestones
-      : (config.dailyMissionMilestones || []).map((m) => ({
+      : effectiveMilestoneConfigs.map((m) => ({
           ...m,
           reached: todayMissionMinutes >= m.minutes,
-          claimed: todayMissionMinutes >= m.minutes,
+          claimed: false,
           claimedAt: null,
         }));
 
@@ -1350,7 +1799,7 @@ export const RewardsPayoutSection: React.FC = () => {
   const payoutMaxPage = Math.max(0, Math.ceil(payoutTotal / PAYOUT_PAGE_SIZE) - 1);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Honest PostgreSQL Disconnected Alert */}
       {!dbAvailable && (
         <div
@@ -1384,303 +1833,665 @@ export const RewardsPayoutSection: React.FC = () => {
         </div>
       )}
 
-      {/* Wallet Overview & Daily Check-In + Streak */}
-      <section className="rounded-2xl bg-[#111015] border border-[#D4AF37]/30 divide-y divide-white/10">
-        {!user ? (
-          <div className="p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl bg-[#D4AF37]/15 border border-[#D4AF37]/35 flex items-center justify-center shrink-0 text-[#D4AF37]">
-                <Lock className="w-5 h-5" />
-              </div>
-              <div className="space-y-1.5">
-                <h2 className="text-lg sm:text-xl font-extrabold text-white">
-                  {t.rewards.loginRequiredTitle}
-                </h2>
-                <p className="text-xs sm:text-sm text-[#D4D4D8] leading-relaxed max-w-2xl">
-                  {t.rewards.loginRequiredDesc}
-                </p>
-                <p className="text-xs text-[#D4AF37] font-semibold tabular-nums">
-                  {usd5Points.toLocaleString()} {t.rewards.pointsUnit} = $5.00 USD ·{' '}
-                  {config.minPayoutPointsIdr.toLocaleString()} {t.rewards.pointsUnit} ={' '}
-                  {formatIdr(config.minPayoutIdr)}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => openAuthModal()}
-              className="px-6 py-2.5 min-h-[44px] rounded-xl cd-accent-bg text-xs sm:text-sm font-bold text-white shadow-lg hover:brightness-110 transition-all whitespace-nowrap shrink-0"
-            >
-              {t.auth.continueBtn}
-            </button>
-          </div>
-        ) : (
-          <>
-            {/* Top Balance + Action Row */}
-            <div className="p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 text-xs font-semibold text-[#D4AF37]">
-                  <Coins className="w-4 h-4" />
-                  <span>{t.rewards.balanceTitle}</span>
-                  <span className="text-white/25">·</span>
-                  <WibResetCountdown lang={language} />
-                </div>
-                <div className="flex items-baseline gap-2.5">
-                  <span className="text-3xl sm:text-4xl font-extrabold text-white tabular-nums tracking-tight">
-                    {(summary?.balance ?? 0).toLocaleString()}
-                  </span>
-                  <span className="text-sm font-semibold text-[#D4AF37]">
-                    {t.rewards.pointsUnit}
-                  </span>
-                </div>
-                <p className="text-xs text-[#A1A1AA] tabular-nums">
-                  {t.rewards.estimatedValue}:{' '}
-                  <strong className="text-white">
-                    {formatUsd(summary?.estimatedUsd ?? 0)}
-                  </strong>{' '}
-                  ·{' '}
-                  <strong className="text-emerald-300">
-                    {formatIdr(summary?.estimatedIdr ?? 0)}
-                  </strong>
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleDailyCheckin}
-                  disabled={
-                    !dbAvailable ||
-                    claimingCheckin ||
-                    Boolean(summary?.dailyCheckinClaimedToday) ||
-                    (summary?.cooldownSecondsRemaining ?? 0) > 0
-                  }
-                  className="inline-flex items-center gap-2 px-5 py-2.5 min-h-[44px] rounded-xl bg-[#D4AF37] text-[#09090B] text-xs sm:text-sm font-extrabold hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap shrink-0"
-                >
-                  <Sparkles className="w-4 h-4 shrink-0" />
-                  <span>
-                    {summary?.dailyCheckinClaimedToday
-                      ? t.rewards.dailyCheckinDone
-                      : (summary?.cooldownSecondsRemaining ?? 0) > 0
-                      ? `${t.rewards.cooldownWait} ${summary?.cooldownSecondsRemaining}s`
-                      : `${t.rewards.dailyCheckinBtn.replace(/\(\+[^)]+\)/, '').trim()} (+${config.dailyCheckinPoints} ${t.rewards.pointsUnit})`}
-                  </span>
-                </button>
-
+      {/* 1. Coin Balance Hero Card (Matching Screenshot Reference) */}
+      <section className="relative overflow-hidden rounded-3xl border border-rose-500/25 bg-gradient-to-br from-[#2B101E] via-[#17111C] to-[#100F16] p-5 sm:p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)]">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-12 -top-12 w-56 h-56 rounded-full bg-rose-500/20 blur-3xl"
+        />
+        <div className="relative flex items-center justify-between gap-3 sm:gap-4">
+          <div className="space-y-3 min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm sm:text-base font-bold text-[#FDE68A]">
+                {isId ? 'Saldo Koin' : 'Coin balance'}
+              </span>
+              {user && (
                 <button
                   type="button"
                   onClick={() => void loadPointsData()}
                   disabled={loading}
                   aria-label="Refresh points data"
-                  className="p-2.5 min-h-[44px] min-w-[44px] rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-[#D4D4D8] flex items-center justify-center transition-colors shrink-0"
+                  className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-[#D4D4D8] transition-colors"
                 >
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
-              </div>
+              )}
             </div>
 
-            {/* 4-Column Wallet Accounting Strip + 7-Day WIB Streak */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-white/10">
-              <div className="p-4 sm:p-5 space-y-1">
-                <p className="text-[11px] font-medium text-[#A1A1AA]">
-                  {isId ? 'Total Poin Diperoleh' : 'Lifetime Points Earned'}
-                </p>
-                <p className="text-lg sm:text-xl font-extrabold text-emerald-300 tabular-nums">
-                  +{(summary?.totalEarned ?? 0).toLocaleString()}
-                </p>
-              </div>
-              <div className="p-4 sm:p-5 space-y-1">
-                <p className="text-[11px] font-medium text-[#A1A1AA]">
-                  {isId ? 'Tertahan untuk Penarikan' : 'Held in Pending Payouts'}
-                </p>
-                <p className="text-lg sm:text-xl font-extrabold text-amber-300 tabular-nums">
-                  {(summary?.totalHeld ?? 0).toLocaleString()}
-                </p>
-              </div>
-              <div className="p-4 sm:p-5 space-y-1">
-                <p className="text-[11px] font-medium text-[#A1A1AA]">
-                  {isId ? 'Total Poin Ditarik' : 'Total Points Withdrawn'}
-                </p>
-                <p className="text-lg sm:text-xl font-extrabold text-white tabular-nums">
-                  {(summary?.totalWithdrawn ?? summary?.totalRedeemed ?? 0).toLocaleString()}
-                </p>
-              </div>
-              <div className="p-4 sm:p-5 space-y-1.5">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="text-[#A1A1AA] font-medium">
-                    {t.rewards.dailyProgress}
-                  </span>
-                  <span className="text-white font-bold tabular-nums">
-                    {(summary?.todayEarned ?? 0).toLocaleString()} /{' '}
-                    {(summary?.maxDailyEarnPoints ?? config.maxDailyEarnPoints).toLocaleString()}
-                  </span>
-                </div>
-                <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-[#D4AF37] to-[#EF4444] rounded-full transition-all duration-300"
-                    style={{ width: `${Math.max(2, dailyPct)}%` }}
-                  />
-                </div>
-              </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-semibold ${tierMeta.badgeClass}`}
+              >
+                <Star className="w-3.5 h-3.5" />
+                <span>{tierMeta.label}</span>
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-emerald-500/35 bg-emerald-500/10 text-[11px] font-bold text-emerald-300 tabular-nums">
+                {activeLevelInfo.multiplier.toFixed(1)}x{' '}
+                {activeLevelInfo.bonusPercent > 0
+                  ? `(+${activeLevelInfo.bonusPercent}%)`
+                  : isId
+                  ? '(Standar)'
+                  : '(Base)'}
+              </span>
             </div>
 
-            {/* 7-Day WIB Streak & Verified Watch Status Bar */}
-            <div className="p-4 sm:px-6 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-[#0B0B0F]/60">
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="inline-flex items-center gap-1.5 text-xs font-bold text-white">
-                  <CalendarCheck2 className="w-4 h-4 text-[#D4AF37]" />
-                  <span>
-                    {isId ? 'Streak Check-In WIB:' : 'WIB Check-In Streak:'}{' '}
-                    <span className="text-[#D4AF37] tabular-nums">
-                      {checkinStreak} {isId ? 'hari' : 'days'}
-                    </span>
-                  </span>
-                </div>
-                <div className="flex items-center gap-1">
-                  {[1, 2, 3, 4, 5, 6, 7].map((dayNum) => {
-                    const filled = checkinStreak > 0 && ((checkinStreak - 1) % 7) + 1 >= dayNum;
-                    return (
-                      <span
-                        key={dayNum}
-                        title={
-                          dayNum === 7
-                            ? isId
-                              ? 'Hari ke-7: +50 bonus poin'
-                              : 'Day 7: +50 bonus pts'
-                            : `Day ${dayNum}`
-                        }
-                        className={`w-6 h-6 rounded-md text-[10px] font-bold flex items-center justify-center border tabular-nums ${
-                          filled
-                            ? 'bg-[#D4AF37]/20 border-[#D4AF37] text-[#D4AF37]'
-                            : 'bg-white/[0.03] border-white/10 text-[#71717A]'
-                        }`}
-                      >
-                        {dayNum === 7 ? '7+' : dayNum}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 text-xs text-[#A1A1AA] tabular-nums">
-                <PlayCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>
-                  {t.rewards.verifiedWatchProgress}:{' '}
-                  <strong className="text-emerald-300">
-                    {verifiedWatchMinutes} {t.rewards.minutesUnit}
-                  </strong>{' '}
-                  ({isId ? 'Hari ini' : 'Today'}:{' '}
-                  {Math.floor(todayWatchSeconds / 60)} {t.rewards.minutesUnit})
+            <div className="space-y-1">
+              <div className="flex items-center gap-2.5">
+                <GoldCoinIcon className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 drop-shadow-[0_4px_12px_rgba(245,158,11,0.45)]" />
+                <span className="text-4xl sm:text-5xl font-extrabold text-white tabular-nums tracking-tight leading-none">
+                  {user ? (summary?.balance ?? 0).toLocaleString() : '0'}
+                </span>
+                <span className="text-sm sm:text-base font-semibold text-[#D4D4D8] self-end pb-1">
+                  {t.rewards.pointsUnit}
                 </span>
               </div>
+
+              <p className="text-xs text-[#D4D4D8]/85 tabular-nums pl-0.5">
+                {user ? (
+                  <>
+                    {t.rewards.estimatedValue}:{' '}
+                    <strong className="text-white">
+                      {formatUsd(summary?.estimatedUsd ?? 0)}
+                    </strong>{' '}
+                    ·{' '}
+                    <strong className="text-emerald-300">
+                      {formatIdr(summary?.estimatedIdr ?? 0)}
+                    </strong>
+                  </>
+                ) : (
+                  <>
+                    {oneUsdtPoints.toLocaleString()} {t.rewards.pointsUnit} = 1 USDT ({formatIdr(config.usdToIdrRate)}) ·{' '}
+                    {config.minPayoutPointsIdr.toLocaleString()} {t.rewards.pointsUnit} ={' '}
+                    {formatIdr(config.minPayoutIdr)}
+                  </>
+                )}
+              </p>
             </div>
-          </>
+
+            {!user && (
+              <div className="pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => openAuthModal()}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-[#F43F5E] to-[#DB2777] hover:brightness-110 text-xs sm:text-sm font-bold text-white shadow-lg transition-all"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>{t.auth.continueBtn}</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-center shrink-0">
+            <GiftBoxHeroIllustration />
+          </div>
+        </div>
+
+        {/* Account Level Progression & Active Rate Perks */}
+        <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-bold text-white">
+                {activeLevelInfo.nextTier
+                  ? isId
+                    ? `Progres ke Level ${activeLevelInfo.nextTier.tierName} (${activeLevelInfo.nextTier.multiplier.toFixed(1)}x)`
+                    : `Progress to ${activeLevelInfo.nextTier.tierName} (${activeLevelInfo.nextTier.multiplier.toFixed(1)}x)`
+                  : isId
+                  ? 'Level Maksimal Tercapai (Platinum 1.6x)'
+                  : 'Max Level Reached (Platinum 1.6x)'}
+              </span>
+              <span className="text-[#A1A1AA] tabular-nums">
+                {activeLevelInfo.progressPct}%
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowLevelTiers((prev) => !prev)}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#FDE68A] hover:text-white transition-colors"
+            >
+              <span>
+                {showLevelTiers
+                  ? isId
+                    ? 'Tutup Rincian Level'
+                    : 'Hide Level Tiers'
+                  : isId
+                  ? 'Lihat Semua Level (4)'
+                  : 'View All Levels (4)'}
+              </span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 transition-transform ${
+                  showLevelTiers ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+            <div
+              className={`h-full rounded-full bg-gradient-to-r ${tierMeta.barClass} transition-all duration-500`}
+              style={{
+                width: `${Math.max(activeLevelInfo.progressPct > 0 ? 4 : 0, activeLevelInfo.progressPct)}%`,
+              }}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#D4D4D8]">
+            <span className="tabular-nums">
+              {isId
+                ? `Perolehan aktif: +${effectiveWatchMinutePoints} poin/mnt · +${effectiveDailyCheckinPoints} check-in · +${effectiveWatchEpisodePoints} ep baru`
+                : `Active rates: +${effectiveWatchMinutePoints} pts/min · +${effectiveDailyCheckinPoints} check-in · +${effectiveWatchEpisodePoints} new ep`}
+            </span>
+            {activeLevelInfo.nextTier && (
+              <span className="text-[#A1A1AA] tabular-nums">
+                {isId
+                  ? `Kurang ${activeLevelInfo.nextTier.remainingPoints.toLocaleString()} poin atau ${Math.ceil(activeLevelInfo.nextTier.remainingWatchSeconds / 60).toLocaleString()} mnt nonton`
+                  : `${activeLevelInfo.nextTier.remainingPoints.toLocaleString()} pts or ${Math.ceil(activeLevelInfo.nextTier.remainingWatchSeconds / 60).toLocaleString()} min watch to unlock`}
+              </span>
+            )}
+          </div>
+
+          {showLevelTiers && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+              {levelTiers.map((tier) => {
+                const isCurrent = tier.tierId === activeLevelInfo.tierId;
+                const isUnlocked = tier.level <= activeLevelInfo.level;
+                const reqHours = Math.round(tier.minVerifiedWatchSeconds / 3600);
+                return (
+                  <div
+                    key={tier.tierId}
+                    className={`rounded-2xl p-3 border text-xs space-y-1.5 transition-colors ${
+                      isCurrent
+                        ? 'bg-white/10 border-amber-400/50 text-white'
+                        : isUnlocked
+                        ? 'bg-emerald-500/10 border-emerald-500/30 text-[#E4E4E7]'
+                        : 'bg-black/25 border-white/10 text-[#A1A1AA]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-white">
+                        Lv.{tier.level} {tier.tierName}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold tabular-nums ${
+                          isCurrent
+                            ? 'bg-amber-400 text-[#09090B]'
+                            : 'bg-white/10 text-[#FDE68A]'
+                        }`}
+                      >
+                        {tier.multiplier.toFixed(1)}x
+                      </span>
+                    </div>
+                    <p className="text-[11px] tabular-nums">
+                      +{tier.watchMinutePoints} {isId ? 'poin/mnt' : 'pts/min'} · +{tier.dailyCheckinPoints}{' '}
+                      check-in
+                    </p>
+                    <p className="text-[10px] text-[#A1A1AA] tabular-nums">
+                      {tier.minTotalEarned === 0
+                        ? isId
+                          ? 'Level awal akun baru'
+                          : 'Starter account tier'
+                        : isId
+                        ? `Syarat: ${tier.minTotalEarned.toLocaleString()} poin atau ${reqHours} jam nonton`
+                        : `Req: ${tier.minTotalEarned.toLocaleString()} pts or ${reqHours}h watch`}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Compact Ledger Summary Strip when signed in */}
+        {user && (
+          <div className="mt-4 pt-4 border-t border-white/10 grid grid-cols-3 gap-3 text-xs">
+            <div>
+              <p className="text-[11px] text-[#A1A1AA]">
+                {isId ? 'Total Diperoleh' : 'Lifetime Earned'}
+              </p>
+              <p className="font-extrabold text-emerald-300 tabular-nums mt-0.5">
+                +{(summary?.totalEarned ?? 0).toLocaleString()}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] text-[#A1A1AA]">
+                {isId ? 'Tertahan Payout' : 'Held Pending'}
+              </p>
+              <p className="font-extrabold text-amber-300 tabular-nums mt-0.5">
+                {(summary?.totalHeld ?? 0).toLocaleString()}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] text-[#A1A1AA]">
+                {isId ? 'Batas Hari Ini' : 'Daily Cap'}
+              </p>
+              <p className="font-extrabold text-white tabular-nums mt-0.5">
+                {(summary?.todayEarned ?? 0).toLocaleString()} /{' '}
+                {(summary?.maxDailyEarnPoints ?? config.maxDailyEarnPoints).toLocaleString()}
+              </p>
+            </div>
+          </div>
         )}
       </section>
 
-      {/* Daily Watch Mission (Max 1h/day + 15m/30m/60m Milestones) */}
-      <section className="rounded-2xl bg-[#111015] border border-emerald-500/25 p-5 sm:p-6 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Flame className="w-4 h-4 text-[#EF4444]" />
-              <h2 className="text-base sm:text-lg font-bold text-white">
-                {isId
-                  ? 'Misi Harian Nonton (Maks. 1 Jam / Hari)'
-                  : 'Daily Watch Missions (Max 1 Hour / Day)'}
-              </h2>
-            </div>
-            <p className="text-xs text-[#A1A1AA]">
-              {isId
-                ? `Counter aktif di video player (kecepatan 1x, tab aktif, tidak buffering): +${config.watchMinutePoints} poin/menit hingga ${missionMaxMinutes} menit/hari + bonus milestone.`
-                : `Active player counter (1x speed, visible tab, non-buffering): +${config.watchMinutePoints} pts/min up to ${missionMaxMinutes} min/day + milestone bonuses.`}
+      {/* 2. Daily Check-in Card (7-Day Visual Streak + Pill CTA + Nested WIB Status Card) */}
+      <section className="rounded-3xl bg-[#121117] border border-white/10 p-4 sm:p-6 space-y-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-0.5">
+            <p className="text-xs font-medium text-[#A1A1AA]">
+              {isId ? 'Check-in harian' : 'Daily check-in'}
             </p>
+            <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight tabular-nums">
+              {isId ? `Streak ${checkinStreak} hari` : `${checkinStreak}-day streak`}
+            </h2>
           </div>
 
-          <div className="px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-xs font-extrabold text-emerald-300 tabular-nums whitespace-nowrap">
-            +{todayWatchPointsEarned.toLocaleString()} / {maxWatchMissionPoints.toLocaleString()}{' '}
-            {t.rewards.pointsUnit}
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#1C1A24] border border-white/10 text-sm font-bold text-white tabular-nums">
+            <Flame className="w-4 h-4 text-[#FB7185]" />
+            <span>{checkinStreak}</span>
           </div>
         </div>
 
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-            <span className="font-semibold text-[#D4D4D8]">
-              {isId
-                ? 'Progres Nonton Hari Ini (Reset 00:00 WIB)'
-                : "Today's Verified Watch Progress (Resets 00:00 WIB)"}
-            </span>
-            <span className="font-extrabold text-white tabular-nums">
-              {todayMissionMinutes} / {missionMaxMinutes} {t.rewards.minutesUnit} ({missionWatchPct}%)
-            </span>
-          </div>
-          <div className="w-full h-2.5 rounded-full bg-white/10 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-[#EF4444] via-[#D4AF37] to-emerald-400 transition-all duration-500"
-              style={{ width: `${Math.max(2, missionWatchPct)}%` }}
-            />
-          </div>
-        </div>
+        {/* 7-Day Progressive Coin Tiles */}
+        <div className="grid grid-cols-7 gap-1.5 sm:gap-2.5">
+          {[1, 2, 3, 4, 5, 6, 7].map((dayNum) => {
+            const isActiveDay = dayNum === activeCheckinDay;
+            const isPastCompleted =
+              summary?.dailyCheckinClaimedToday
+                ? dayNum < cycleDayProgress
+                : dayNum <= cycleDayProgress;
+            const dayPoints =
+              dayNum === 7
+                ? effectiveDailyCheckinPoints + 50
+                : effectiveDailyCheckinPoints;
+            const coinLevel: 1 | 2 | 3 | 4 =
+              dayNum <= 2 ? 1 : dayNum <= 4 ? 2 : dayNum <= 6 ? 3 : 4;
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-          <div className="p-3.5 rounded-xl bg-[#0B0B0F] border border-white/10 flex flex-col justify-between gap-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-white">
-                {isId ? 'Nonton Aktif / Menit' : 'Active Watch / Min'}
-              </span>
-              <span className="text-xs font-extrabold text-[#D4AF37] tabular-nums">
-                +{config.watchMinutePoints} {t.rewards.pointsUnit}
-              </span>
-            </div>
-            <p className="text-[11px] text-[#A1A1AA] tabular-nums">
-              {todayMissionMinutes}/{missionMaxMinutes} {t.rewards.minutesUnit} · Maks{' '}
-              {(missionMaxMinutes * config.watchMinutePoints).toLocaleString()}{' '}
-              {t.rewards.pointsUnit}
-            </p>
-          </div>
-
-          {milestoneStatuses.map((tier) => (
-            <div
-              key={tier.minutes}
-              className={`p-3.5 rounded-xl border flex flex-col justify-between gap-1.5 transition-colors ${
-                tier.reached
-                  ? 'bg-emerald-500/10 border-emerald-500/35'
-                  : 'bg-[#0B0B0F] border-white/10'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-white">
-                  {isId ? `Milestone ${tier.minutes} Menit` : `${tier.minutes}-Min Milestone`}
-                </span>
-                <span
-                  className={`text-xs font-extrabold tabular-nums ${
-                    tier.reached ? 'text-emerald-300' : 'text-[#D4AF37]'
-                  }`}
-                >
-                  +{tier.bonusPoints} {t.rewards.pointsUnit}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="text-[#A1A1AA] tabular-nums">
-                  {Math.min(todayMissionMinutes, tier.minutes)}/{tier.minutes}{' '}
-                  {t.rewards.minutesUnit}
-                </span>
-                <span
-                  className={`font-bold ${
-                    tier.reached ? 'text-emerald-300' : 'text-[#71717A]'
-                  }`}
-                >
-                  {tier.reached
+            return (
+              <div
+                key={dayNum}
+                title={
+                  dayNum === 7
                     ? isId
-                      ? 'Terklaim'
-                      : 'Credited'
-                    : isId
-                    ? 'Berjalan'
-                    : 'In Progress'}
+                      ? `Hari ke-7: +${dayPoints} poin (termasuk bonus +50)`
+                      : `Day 7: +${dayPoints} pts (incl. +50 bonus)`
+                    : `${isId ? 'Hari' : 'Day'} ${dayNum}: +${dayPoints}`
+                }
+                className={`relative rounded-2xl py-2.5 px-1 sm:px-2 flex flex-col items-center justify-between gap-1.5 border transition-all ${
+                  isActiveDay
+                    ? 'bg-gradient-to-b from-[#F43F5E] to-[#9F1239] border-[#FDA4AF]/60 text-white shadow-[0_8px_22px_rgba(225,29,72,0.32)]'
+                    : isPastCompleted
+                    ? 'bg-[#171A21] border-emerald-500/40 text-white'
+                    : 'bg-[#191721] border-white/5 text-[#D4D4D8]'
+                }`}
+              >
+                <span
+                  className={`text-[10px] sm:text-xs font-semibold whitespace-nowrap ${
+                    isActiveDay ? 'text-white' : 'text-[#A1A1AA]'
+                  }`}
+                >
+                  {isId ? `H-${dayNum}` : `Day ${dayNum}`}
                 </span>
+
+                <CoinStackArt level={coinLevel} />
+
+                <span
+                  className={`text-[11px] sm:text-xs font-extrabold tabular-nums ${
+                    isActiveDay
+                      ? 'text-white'
+                      : isPastCompleted
+                      ? 'text-emerald-300'
+                      : 'text-[#FDE68A]'
+                  }`}
+                >
+                  +{dayPoints}
+                </span>
+
+                {isPastCompleted && !isActiveDay && (
+                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-[#09090B] flex items-center justify-center shadow">
+                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                  </span>
+                )}
               </div>
+            );
+          })}
+        </div>
+
+        {/* Full-Width Pill Check-In CTA */}
+        <button
+          type="button"
+          onClick={handleDailyCheckin}
+          disabled={
+            Boolean(user) &&
+            (!dbAvailable ||
+              claimingCheckin ||
+              Boolean(summary?.dailyCheckinClaimedToday) ||
+              (summary?.cooldownSecondsRemaining ?? 0) > 0)
+          }
+          className={`w-full py-3.5 px-5 rounded-full text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+            summary?.dailyCheckinClaimedToday
+              ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 cursor-default'
+              : 'bg-gradient-to-r from-[#F43F5E] to-[#DB2777] text-white shadow-[0_10px_28px_rgba(225,29,72,0.32)] hover:brightness-110 disabled:opacity-55 disabled:cursor-not-allowed'
+          }`}
+        >
+          {summary?.dailyCheckinClaimedToday ? (
+            <>
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{t.rewards.dailyCheckinDone}</span>
+            </>
+          ) : (summary?.cooldownSecondsRemaining ?? 0) > 0 ? (
+            <>
+              <Clock className="w-4 h-4 shrink-0" />
+              <span>
+                {t.rewards.cooldownWait} {summary?.cooldownSecondsRemaining}s
+              </span>
+            </>
+          ) : !user ? (
+            <>
+              <Play className="w-4 h-4 fill-current shrink-0" />
+              <span>
+                {isId
+                  ? `Masuk & Klaim Check-in (+${effectiveDailyCheckinPoints} Poin)`
+                  : `Sign in to Check In (+${effectiveDailyCheckinPoints} pts)`}
+              </span>
+            </>
+          ) : (
+            <>
+              <Play className="w-4 h-4 fill-current shrink-0" />
+              <span>
+                {claimingCheckin
+                  ? '...'
+                  : `${t.rewards.dailyCheckinBtn.replace(/\(\+[^)]+\)/, '').trim()} (+${effectiveDailyCheckinPoints} ${t.rewards.pointsUnit})`}
+              </span>
+            </>
+          )}
+        </button>
+
+        {/* Centered Weekly Summary */}
+        <div className="text-center space-y-1.5 pt-0.5">
+          <p className="text-sm sm:text-base font-bold text-white tabular-nums">
+            {isId ? (
+              <>
+                Kumpulkan hingga{' '}
+                <span className="text-[#FB7185]">{weeklyCheckinMaxPoints}</span>{' '}
+                poin minggu ini
+              </>
+            ) : (
+              <>
+                Collect up to{' '}
+                <span className="text-[#FB7185]">{weeklyCheckinMaxPoints}</span>{' '}
+                points this week
+              </>
+            )}
+          </p>
+          <p className="text-xs text-[#A1A1AA] max-w-lg mx-auto leading-relaxed">
+            {isId
+              ? 'Check-in direset setiap hari pukul 00:00 WIB. Hadiah bertambah dengan bonus +50 poin pada hari ke-7 beruntun.'
+              : 'Daily check-ins reset at 00:00 UTC. Keep a 7-day consecutive streak to unlock a +50 pts bonus.'}
+          </p>
+        </div>
+
+        {/* Nested Reset Protection & Verified Progress Card (Matching Screenshot Inner Box) */}
+        <div className="rounded-2xl bg-[#181620] border border-white/10 p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <span className="w-8 h-8 rounded-lg bg-slate-500/15 border border-white/10 flex items-center justify-center text-slate-300 shrink-0">
+                <Shield className="w-4 h-4" />
+              </span>
+              <span className="text-sm font-bold text-white">
+                {isId ? 'Sinkronisasi WIB & Anti-Curang' : 'UTC Streak & Verified Watch'}
+              </span>
             </div>
-          ))}
+
+            <span className="inline-flex items-center px-3 py-1 rounded-full border border-amber-500/40 bg-amber-500/10 text-[11px] font-semibold text-amber-200">
+              <ResetCountdown lang={language} />
+            </span>
+          </div>
+
+          <p className="text-xs text-[#A1A1AA] leading-relaxed">
+            {isId
+              ? 'Durasi menonton diverifikasi otomatis oleh server pada kecepatan 1x dengan tab aktif agar poin & kualifikasi referral aman.'
+              : 'Watch duration is server-verified at 1x playback speed with an active tab so your points and referral streak stay protected.'}
+          </p>
+
+          <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-[#121117] border border-white/5 text-xs">
+            <span className="inline-flex items-center gap-2 text-[#D4D4D8]">
+              <PlayCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{t.rewards.verifiedWatchProgress}</span>
+            </span>
+            <span className="font-bold text-emerald-300 tabular-nums">
+              {verifiedWatchMinutes} {t.rewards.minutesUnit}
+            </span>
+          </div>
+        </div>
+      </section>
+
+      {/* 3. Daily Watching Bonus Card (Hybrid: Auto Per-Minute + Claimable Milestone Buttons) */}
+      <section className="rounded-3xl bg-[#121117] border border-white/10 p-4 sm:p-6 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="w-10 h-10 rounded-xl bg-[#381828] border border-rose-500/25 flex items-center justify-center text-[#FB7185] shrink-0">
+              <Play className="w-4 h-4 fill-current" />
+            </span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base sm:text-lg font-extrabold text-white">
+                  {t.rewards.dailyWatchingTitle}
+                </h2>
+                {activeLevelInfo.multiplier > 1 && (
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/35 text-[10px] font-bold text-emerald-300 tabular-nums">
+                    {activeLevelInfo.tierName} {activeLevelInfo.multiplier.toFixed(1)}x
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-[#A1A1AA] tabular-nums">
+                +{effectiveWatchMinutePoints} {t.rewards.pointsUnit}/{t.rewards.milestoneMinSuffix} ({t.rewards.dailyWatchingAutoBadge.toLowerCase()},{' '}
+                {missionMaxMinutes} {t.rewards.milestoneMinSuffix}) + {t.rewards.milestoneClaimBtn}
+              </p>
+            </div>
+          </div>
+
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-semibold text-[#D4D4D8] tabular-nums">
+            <Clock className="w-3.5 h-3.5 text-[#FBBF24] shrink-0" />
+            <span>
+              {t.rewards.dailyWatchingCapLabel}: {dailyWatchCap.toLocaleString()} {t.rewards.pointsUnit}
+            </span>
+          </span>
+        </div>
+
+        <div className="flex items-baseline gap-2">
+          <GoldCoinIcon className="w-7 h-7 self-center shrink-0" />
+          <span className="text-3xl font-extrabold text-white tabular-nums tracking-tight">
+            {todayWatchPointsEarned.toLocaleString()}
+          </span>
+          <span className="text-lg font-bold text-[#A1A1AA] tabular-nums">
+            /{maxWatchMissionPoints.toLocaleString()} {t.rewards.pointsUnit}
+          </span>
+        </div>
+
+        {/* 4 Hybrid Watch Cards (Auto Per-Minute + 3 Claimable Milestone Cards) */}
+        {(() => {
+          const nextUnreachedIdx = milestoneStatuses.findIndex((m) => !m.reached);
+          const hasUnclaimedReady = milestoneStatuses.some((m) => m.reached && !m.claimed);
+          return (
+            <div className="space-y-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
+                {/* Base Auto Per-Minute Card */}
+                <div
+                  className={`rounded-2xl p-3 border flex flex-col items-center justify-between gap-2 text-center transition-colors ${
+                    todayMissionMinutes < 15
+                      ? 'bg-[#1E141B] border-[#F43F5E]'
+                      : 'bg-[#191721] border-emerald-500/40'
+                  }`}
+                >
+                  <div className="flex flex-col items-center gap-1">
+                    <GoldCoinIcon className="w-6 h-6 sm:w-7 sm:h-7" />
+                    <span className="text-xs sm:text-sm font-extrabold text-[#FBBF24] tabular-nums">
+                      +{effectiveWatchMinutePoints}/{t.rewards.milestoneMinSuffix}
+                    </span>
+                    <span className="text-[11px] text-[#A1A1AA] tabular-nums">
+                      {t.rewards.dailyWatchingActiveUnit}
+                    </span>
+                  </div>
+                  <span className="w-full py-1.5 px-2 rounded-xl bg-white/5 border border-white/10 text-[10px] sm:text-[11px] font-bold text-[#E4E4E7] inline-flex items-center justify-center gap-1">
+                    <Sparkles className="w-3 h-3 text-[#FBBF24] shrink-0" />
+                    <span>{t.rewards.dailyWatchingAutoBadge}</span>
+                  </span>
+                </div>
+
+                {milestoneStatuses.map((tier, idx) => {
+                  const isNextTarget = idx === nextUnreachedIdx;
+                  const isReadyToClaim = tier.reached && !tier.claimed;
+                  const isClaimingThis = claimingMilestoneMinutes === tier.minutes;
+                  const progressMin = Math.min(todayMissionMinutes, tier.minutes);
+
+                  return (
+                    <div
+                      key={tier.minutes}
+                      className={`relative rounded-2xl p-3 border flex flex-col items-center justify-between gap-2 text-center transition-colors ${
+                        tier.claimed
+                          ? 'bg-emerald-500/10 border-emerald-500/45'
+                          : isReadyToClaim
+                          ? 'bg-[#26121C] border-[#F43F5E] shadow-[0_0_20px_rgba(244,63,94,0.2)]'
+                          : isNextTarget
+                          ? 'bg-[#1E141B] border-[#F43F5E]/65'
+                          : 'bg-[#191721] border-white/10'
+                      }`}
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <GoldCoinIcon className="w-6 h-6 sm:w-7 sm:h-7" />
+                        <span
+                          className={`text-xs sm:text-sm font-extrabold tabular-nums ${
+                            tier.claimed
+                              ? 'text-emerald-300'
+                              : isReadyToClaim
+                              ? 'text-white'
+                              : 'text-[#FBBF24]'
+                          }`}
+                        >
+                          +{tier.bonusPoints.toLocaleString()} {t.rewards.pointsUnit}
+                        </span>
+                        <span className="text-[11px] text-[#A1A1AA] tabular-nums">
+                          {tier.minutes} {t.rewards.milestoneMinSuffix}
+                        </span>
+                      </div>
+
+                      {tier.claimed ? (
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full py-1.5 px-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-[10px] sm:text-[11px] font-bold text-emerald-300 inline-flex items-center justify-center gap-1 cursor-default"
+                        >
+                          <Check className="w-3 h-3 stroke-[3] shrink-0" />
+                          <span>{t.rewards.milestoneClaimedBtn}</span>
+                        </button>
+                      ) : isReadyToClaim ? (
+                        <button
+                          type="button"
+                          onClick={() => void handleClaimMilestone(tier.minutes)}
+                          disabled={claimingMilestoneMinutes !== null || !dbAvailable}
+                          className="w-full py-1.5 px-2 rounded-xl bg-gradient-to-r from-[#F43F5E] to-[#FB7185] hover:brightness-110 active:scale-[0.98] disabled:opacity-60 text-[10px] sm:text-[11px] font-extrabold text-white shadow-md transition-all cursor-pointer inline-flex items-center justify-center gap-1"
+                        >
+                          <Gift className="w-3 h-3 shrink-0" />
+                          <span>
+                            {isClaimingThis
+                              ? t.rewards.milestoneClaimingBtn
+                              : t.rewards.milestoneClaimBtn}
+                          </span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full py-1.5 px-2 rounded-xl bg-white/5 border border-white/10 text-[10px] sm:text-[11px] font-semibold text-[#A1A1AA] cursor-not-allowed tabular-nums inline-flex items-center justify-center gap-1"
+                        >
+                          <Lock className="w-3 h-3 shrink-0 opacity-75" />
+                          <span>
+                            {progressMin}/{tier.minutes} {t.rewards.milestoneMinSuffix}
+                          </span>
+                        </button>
+                      )}
+
+                      {tier.claimed && (
+                        <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-[#09090B] flex items-center justify-center shadow">
+                          <Check className="w-2.5 h-2.5 stroke-[3]" />
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {hasUnclaimedReady && (
+                <p className="text-[11px] font-medium text-rose-200 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2 flex items-center gap-2">
+                  <Sparkles className="w-3.5 h-3.5 text-[#FBBF24] shrink-0" />
+                  <span>{t.rewards.milestoneUnclaimedHint}</span>
+                </p>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Clean Progress Rows */}
+        <div className="space-y-3 pt-1">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs sm:text-sm">
+              <span className="text-[#D4D4D8] font-medium">
+                {t.rewards.minutesWatchedLabel}
+              </span>
+              <span className="font-bold text-white tabular-nums">
+                {todayMissionMinutes}/{missionMaxMinutes} {t.rewards.milestoneMinSuffix}
+              </span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-[#F43F5E] to-[#FBBF24] transition-all duration-500"
+                style={{ width: `${Math.max(todayMissionMinutes > 0 ? 3 : 0, missionWatchPct)}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs sm:text-sm">
+              <span className="text-[#D4D4D8] font-medium">
+                {t.rewards.watchingPointsLabel}
+              </span>
+              <span className="font-bold text-white tabular-nums">
+                {todayWatchPointsEarned.toLocaleString()}/{maxWatchMissionPoints.toLocaleString()}{' '}
+                {t.rewards.pointsUnit}
+              </span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-[#F43F5E] to-emerald-400 transition-all duration-500"
+                style={{
+                  width: `${Math.max(
+                    todayWatchPointsEarned > 0 ? 3 : 0,
+                    Math.min(
+                      100,
+                      Math.round(
+                        (todayWatchPointsEarned / Math.max(1, maxWatchMissionPoints)) * 100
+                      )
+                    )
+                  )}%`,
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="pt-1 flex items-center justify-between gap-2 text-xs text-[#A1A1AA]">
+            <span className="inline-flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-[#FBBF24] shrink-0" />
+              <span>
+                {t.rewards.todaysCheckinLabel}:{' '}
+                {summary?.dailyCheckinClaimedToday
+                  ? `${t.rewards.doneLabel} ✓`
+                  : t.rewards.notYetLabel}
+              </span>
+            </span>
+            <span className="text-[11px] tabular-nums">{missionWatchPct}%</span>
+          </div>
         </div>
       </section>
 
@@ -1908,23 +2719,35 @@ export const RewardsPayoutSection: React.FC = () => {
       </section>
 
       {/* Categorized Withdrawal Form + Real Live Payout Feed */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+      <div id="withdraw-section" className="grid grid-cols-1 xl:grid-cols-12 gap-6 scroll-mt-20">
         <form
           onSubmit={handleRequestWithdrawConfirmation}
-          className="xl:col-span-7 rounded-2xl bg-[#111015] border border-white/10 p-5 sm:p-6 space-y-5"
+          className="xl:col-span-7 rounded-3xl bg-[#121117] border border-white/10 p-5 sm:p-6 space-y-5"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Wallet className="w-5 h-5 text-[#D4AF37]" />
-              <h2 className="text-base sm:text-lg font-bold text-white">
-                {t.rewards.withdrawTitle}
-              </h2>
+            <div className="flex items-center gap-2.5">
+              <span className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-[#FBBF24]">
+                <Wallet className="w-4 h-4" />
+              </span>
+              <div>
+                <h2 className="text-base sm:text-lg font-extrabold text-white">
+                  {t.rewards.withdrawTitle}
+                </h2>
+                <p className="text-[11px] text-[#A1A1AA]">
+                  {isId
+                    ? 'Pilih metode pencairan yang diinginkan'
+                    : 'Choose your preferred payout method'}
+                </p>
+              </div>
             </div>
 
             <div className="inline-flex p-1 rounded-xl bg-[#0B0B0F] border border-white/10">
               <button
                 type="button"
-                onClick={() => setCurrencyTab('IDR')}
+                onClick={() => {
+                  setCurrencyTab('IDR');
+                  setBankDropdownOpen(false);
+                }}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                   currencyTab === 'IDR'
                     ? 'cd-accent-bg text-white shadow'
@@ -1936,7 +2759,10 @@ export const RewardsPayoutSection: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => setCurrencyTab('USD')}
+                onClick={() => {
+                  setCurrencyTab('USD');
+                  setBankDropdownOpen(false);
+                }}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                   currencyTab === 'USD'
                     ? 'cd-accent-bg text-white shadow'
@@ -1950,13 +2776,15 @@ export const RewardsPayoutSection: React.FC = () => {
           </div>
 
           {currencyTab === 'IDR' ? (
-            <div className="space-y-4">
-              {/* Group 1: E-Wallet Indonesia */}
+            <div className="space-y-3.5">
+              {/* Tidy 6-Option Method Grid (5 E-Wallets + 1 Transfer Bank card) */}
               <div className="space-y-2">
                 <span className="block text-xs font-semibold text-[#D4D4D8]">
-                  {isId ? 'E-Wallet Indonesia (Min Rp 50.000)' : 'Indonesia E-Wallets (Min Rp 50,000)'}
+                  {isId
+                    ? 'Metode Pencairan Indonesia (Min Rp 50.000)'
+                    : 'Indonesian Payout Methods (Min Rp 50,000)'}
                 </span>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                   {idrEwallets.map((m) => {
                     const active = effectiveMethod === m.id;
                     return (
@@ -1965,31 +2793,27 @@ export const RewardsPayoutSection: React.FC = () => {
                         type="button"
                         onClick={() => {
                           setSelectedMethod(m.id);
+                          setBankDropdownOpen(false);
                           if (parsedPoints < m.minPoints) {
                             setPointsInput(String(m.minPoints));
                           }
                         }}
-                        className={`p-2.5 rounded-xl border flex items-center gap-2 text-left transition-all ${
+                        className={`p-3 rounded-xl border flex items-center gap-2.5 text-left transition-all ${
                           active
-                            ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white'
+                            ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white shadow-sm'
                             : 'bg-[#0B0B0F] border-white/10 text-[#D4D4D8] hover:border-white/25'
                         }`}
                       >
                         <PaymentMethodLogo method={m.id} size="sm" />
-                        <span className="text-xs font-bold truncate">{m.label}</span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold truncate">{m.label}</p>
+                          <p className="text-[10px] text-[#A1A1AA]">E-Wallet</p>
+                        </div>
                       </button>
                     );
                   })}
-                </div>
-              </div>
 
-              {/* Group 2: Transfer Bank Lokal Indonesia */}
-              {idrBankMethod && (
-                <div className="space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-[#D4D4D8]">
-                      {isId ? 'Transfer Bank Lokal Indonesia (10 Bank)' : 'Indonesian Bank Transfer (10 Banks)'}
-                    </span>
+                  {idrBankMethod && (
                     <button
                       type="button"
                       onClick={() => {
@@ -1998,50 +2822,147 @@ export const RewardsPayoutSection: React.FC = () => {
                           setPointsInput(String(idrBankMethod.minPoints));
                         }
                       }}
-                      className={`text-[11px] font-bold px-2.5 py-1 rounded-md border transition-colors ${
+                      className={`p-3 rounded-xl border flex items-center gap-2.5 text-left transition-all ${
                         effectiveMethod === 'bank_transfer'
-                          ? 'bg-[#D4AF37]/20 border-[#D4AF37] text-[#D4AF37]'
-                          : 'bg-[#0B0B0F] border-white/10 text-[#A1A1AA] hover:text-white'
+                          ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white shadow-sm'
+                          : 'bg-[#0B0B0F] border-white/10 text-[#D4D4D8] hover:border-white/25'
                       }`}
                     >
-                      {effectiveMethod === 'bank_transfer'
-                        ? isId
-                          ? 'Dipilih: Transfer Bank'
-                          : 'Selected: Bank Transfer'
-                        : isId
-                        ? 'Pilih Transfer Bank'
-                        : 'Use Bank Transfer'}
+                      <PaymentMethodLogo
+                        method="bank_transfer"
+                        bankCode={
+                          effectiveMethod === 'bank_transfer'
+                            ? selectedBankCode
+                            : undefined
+                        }
+                        size="sm"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold truncate">
+                          {isId ? 'Transfer Bank' : 'Bank Transfer'}
+                        </p>
+                        <p className="text-[10px] text-[#A1A1AA] truncate">
+                          {effectiveMethod === 'bank_transfer' && selectedBankObj
+                            ? selectedBankObj.shortName
+                            : `${banks.length} Bank`}
+                        </p>
+                      </div>
                     </button>
-                  </div>
+                  )}
+                </div>
+              </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                    {banks.map((b) => {
-                      const active =
-                        effectiveMethod === 'bank_transfer' &&
-                        selectedBankCode === b.code;
-                      return (
-                        <button
-                          key={b.code}
-                          type="button"
-                          onClick={() => {
-                            setSelectedMethod('bank_transfer');
-                            setSelectedBankCode(b.code);
-                            if (parsedPoints < idrBankMethod.minPoints) {
-                              setPointsInput(String(idrBankMethod.minPoints));
+              {/* Clean Single-Row Searchable Bank Dropdown — Shown ONLY when Transfer Bank is selected */}
+              {idrBankMethod && effectiveMethod === 'bank_transfer' && (
+                <div ref={bankDropdownRef} className="relative space-y-1.5">
+                  <label className="block text-xs font-semibold text-[#D4D4D8]">
+                    {isId ? 'Pilih Bank Tujuan' : 'Select Destination Bank'}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBankSearchQuery('');
+                      setBankDropdownOpen((prev) => !prev);
+                    }}
+                    aria-expanded={bankDropdownOpen}
+                    className="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl bg-[#0B0B0F] border border-white/15 hover:border-[#D4AF37]/60 flex items-center justify-between gap-3 text-left transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <PaymentMethodLogo
+                        method="bank_transfer"
+                        bankCode={selectedBankObj?.code}
+                        size="sm"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-xs sm:text-sm font-bold text-white truncate">
+                          {selectedBankObj?.label || selectedBankCode}
+                        </p>
+                        {selectedBankObj && (
+                          <p className="text-[11px] text-[#A1A1AA] tabular-nums">
+                            {isId
+                              ? `Nomor rekening ${
+                                  selectedBankObj.minDigits === selectedBankObj.maxDigits
+                                    ? `${selectedBankObj.minDigits}`
+                                    : `${selectedBankObj.minDigits}-${selectedBankObj.maxDigits}`
+                                } digit`
+                              : `${selectedBankObj.minDigits}-${selectedBankObj.maxDigits} digits`}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <ChevronDown
+                      className={`w-4 h-4 text-[#A1A1AA] shrink-0 transition-transform ${
+                        bankDropdownOpen ? 'rotate-180 text-[#D4AF37]' : ''
+                      }`}
+                    />
+                  </button>
+
+                  {bankDropdownOpen && (
+                    <div className="absolute left-0 right-0 top-full mt-1.5 z-30 rounded-2xl bg-[#16151E] border border-white/15 shadow-[0_18px_40px_rgba(0,0,0,0.8)] overflow-hidden">
+                      <div className="p-2.5 border-b border-white/10">
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-[#71717A] absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            value={bankSearchQuery}
+                            onChange={(e) => setBankSearchQuery(e.target.value)}
+                            placeholder={
+                              isId ? 'Cari nama atau kode bank...' : 'Search bank name...'
                             }
-                          }}
-                          className={`p-2 rounded-xl border flex items-center gap-2 text-left transition-all ${
-                            active
-                              ? 'bg-[#D4AF37]/15 border-[#D4AF37] text-white'
-                              : 'bg-[#0B0B0F] border-white/10 text-[#D4D4D8] hover:border-white/25'
-                          }`}
-                        >
-                          <PaymentMethodLogo method="bank_transfer" bankCode={b.code} size="sm" />
-                          <span className="text-xs font-bold truncate">{b.shortName}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                            autoFocus
+                            className="w-full pl-8 pr-3 py-2 rounded-lg bg-[#0B0B0F] border border-white/10 focus:border-[#D4AF37] focus:outline-none text-xs text-white placeholder:text-[#71717A]"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="max-h-60 overflow-y-auto divide-y divide-white/5 p-1">
+                        {filteredBanks.length === 0 ? (
+                          <p className="py-4 text-center text-xs text-[#A1A1AA]">
+                            {isId ? 'Bank tidak ditemukan' : 'No matching bank'}
+                          </p>
+                        ) : (
+                          filteredBanks.map((b) => {
+                            const isPicked = selectedBankCode === b.code;
+                            return (
+                              <button
+                                key={b.code}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedBankCode(b.code);
+                                  setSelectedMethod('bank_transfer');
+                                  setBankDropdownOpen(false);
+                                }}
+                                className={`w-full px-3 py-2.5 rounded-xl flex items-center justify-between gap-2 text-left transition-colors ${
+                                  isPicked
+                                    ? 'bg-[#D4AF37]/15 text-white'
+                                    : 'text-[#D4D4D8] hover:bg-white/5'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <PaymentMethodLogo
+                                    method="bank_transfer"
+                                    bankCode={b.code}
+                                    size="sm"
+                                  />
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-bold truncate">{b.label}</p>
+                                    <p className="text-[10px] text-[#A1A1AA] tabular-nums">
+                                      {b.minDigits === b.maxDigits
+                                        ? `${b.minDigits} digit`
+                                        : `${b.minDigits}-${b.maxDigits} digit`}
+                                    </p>
+                                  </div>
+                                </div>
+                                {isPicked && (
+                                  <Check className="w-4 h-4 text-[#D4AF37] shrink-0" />
+                                )}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -2573,9 +3494,11 @@ export const RewardsPayoutSection: React.FC = () => {
         minPayoutUsd={config.minPayoutUsd}
         minPayoutPointsIdr={config.minPayoutPointsIdr}
         minPayoutPointsUsd={config.minPayoutPointsUsd}
-        dailyCheckinPoints={config.dailyCheckinPoints}
-        watchEpisodePoints={config.watchEpisodePoints}
-        watchMinutePoints={config.watchMinutePoints}
+        dailyCheckinPoints={effectiveDailyCheckinPoints}
+        watchEpisodePoints={effectiveWatchEpisodePoints}
+        watchMinutePoints={effectiveWatchMinutePoints}
+        dailyMissionMilestones={effectiveMilestoneConfigs}
+        levelTiers={levelTiers}
         referralBonusPoints={config.referralBonusPoints}
         maxDailyEarnPoints={config.maxDailyEarnPoints}
         isSignedIn={Boolean(user)}

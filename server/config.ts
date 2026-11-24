@@ -31,20 +31,21 @@ function parseBoundedFloatEnv(
 
 export const REWARDS_DEFAULTS = {
   usdToIdrRate: 18_200,
-  pointsPerUsd: 20_000, // 100.000 poin = $5.00 USD
+  pointsPerUsd: 100_000, // 100.000 poin = 1 USDT ($1.00 USD)
   minPayoutIdr: 50_000,
   minPayoutUsd: 5.0,
-  maxDailyEarnPoints: 5_000,
+  maxDailyEarnPoints: 25_000,
+  maxDailyWatchPoints: 3_500, // Batas poin nonton harian (per-menit + milestone)
   claimCooldownSeconds: 45,
-  dailyCheckinPoints: 100,
-  watchEpisodePoints: 50,
-  watchMinutePoints: 5, // +5 poin / menit nonton aktif (maks 60 menit/hari = 300 poin)
+  dailyCheckinPoints: 500,
+  watchEpisodePoints: 200,
+  watchMinutePoints: 20, // WATCH_POINTS_PER_MINUTE default +20 poin / menit nonton aktif
   dailyMissionMaxWatchSeconds: 3_600, // Maksimal 1 jam (60 menit) misi nonton harian
-  dailyMission15mPoints: 25,
-  dailyMission30mPoints: 50,
-  dailyMission60mPoints: 100,
+  dailyMission15mPoints: 100,
+  dailyMission30mPoints: 200,
+  dailyMission60mPoints: 400,
   referralQualifySeconds: 3_600, // 1 hour active verified watch
-  referralBonusPoints: 1_000,
+  referralBonusPoints: 5_000,
   maxDailyReferrals: 5,
   maxWeeklyReferrals: 15,
   maxDailyVerifiedWatchSeconds: 28_800, // 8 hours/day telemetry cap
@@ -204,6 +205,92 @@ export interface DailyMissionMilestoneConfig {
   bonusPoints: number;
 }
 
+export type AccountLevelTierId = 'bronze' | 'silver' | 'gold' | 'platinum';
+
+export interface AccountLevelTierConfig {
+  level: number;
+  tierId: AccountLevelTierId;
+  tierName: string;
+  minTotalEarned: number;
+  minVerifiedWatchSeconds: number;
+  multiplier: number;
+  bonusPercent: number;
+}
+
+export interface AccountLevelTierSummary extends AccountLevelTierConfig {
+  watchMinutePoints: number;
+  dailyCheckinPoints: number;
+  watchEpisodePoints: number;
+  dailyMissionMilestones: DailyMissionMilestoneConfig[];
+}
+
+export interface AccountLevelNextTierInfo {
+  level: number;
+  tierId: AccountLevelTierId;
+  tierName: string;
+  multiplier: number;
+  bonusPercent: number;
+  minTotalEarned: number;
+  minVerifiedWatchSeconds: number;
+  remainingPoints: number;
+  remainingWatchSeconds: number;
+}
+
+export interface AccountLevelStatus {
+  level: number;
+  tierId: AccountLevelTierId;
+  tierName: string;
+  multiplier: number;
+  bonusPercent: number;
+  watchMinutePoints: number;
+  dailyCheckinPoints: number;
+  watchEpisodePoints: number;
+  dailyMissionMilestones: DailyMissionMilestoneConfig[];
+  totalEarned: number;
+  verifiedWatchSeconds: number;
+  nextTier: AccountLevelNextTierInfo | null;
+  progressPct: number;
+}
+
+export const ACCOUNT_LEVEL_TIERS: readonly AccountLevelTierConfig[] = [
+  {
+    level: 1,
+    tierId: 'bronze',
+    tierName: 'Bronze',
+    minTotalEarned: 0,
+    minVerifiedWatchSeconds: 0,
+    multiplier: 1.0,
+    bonusPercent: 0,
+  },
+  {
+    level: 2,
+    tierId: 'silver',
+    tierName: 'Silver',
+    minTotalEarned: 20_000,
+    minVerifiedWatchSeconds: 7_200, // 2 hours verified active watch
+    multiplier: 1.2,
+    bonusPercent: 20,
+  },
+  {
+    level: 3,
+    tierId: 'gold',
+    tierName: 'Gold',
+    minTotalEarned: 100_000,
+    minVerifiedWatchSeconds: 36_000, // 10 hours verified active watch
+    multiplier: 1.4,
+    bonusPercent: 40,
+  },
+  {
+    level: 4,
+    tierId: 'platinum',
+    tierName: 'Platinum',
+    minTotalEarned: 300_000,
+    minVerifiedWatchSeconds: 108_000, // 30 hours verified active watch
+    multiplier: 1.6,
+    bonusPercent: 60,
+  },
+] as const;
+
 export interface RewardsRuntimeValues {
   usdToIdrRate: number;
   pointsPerUsd: number;
@@ -212,6 +299,7 @@ export interface RewardsRuntimeValues {
   minPayoutPointsIdr: number;
   minPayoutPointsUsd: number;
   maxDailyEarnPoints: number;
+  maxDailyWatchPoints: number;
   claimCooldownSeconds: number;
   dailyCheckinPoints: number;
   watchEpisodePoints: number;
@@ -236,7 +324,7 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     process.env.POINTS_PER_USD,
     REWARDS_DEFAULTS.pointsPerUsd,
     100,
-    1_000_000
+    10_000_000
   );
   const minPayoutIdr = parseBoundedIntEnv(
     process.env.MIN_PAYOUT_IDR,
@@ -258,7 +346,19 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     process.env.MAX_DAILY_EARN_POINTS,
     REWARDS_DEFAULTS.maxDailyEarnPoints,
     50,
-    50_000
+    500_000
+  );
+  const maxDailyWatchPoints = parseBoundedIntEnv(
+    process.env.MAX_DAILY_WATCH_POINTS,
+    REWARDS_DEFAULTS.maxDailyWatchPoints,
+    20,
+    200_000
+  );
+  const watchMinutePoints = parseBoundedIntEnv(
+    process.env.WATCH_POINTS_PER_MINUTE,
+    REWARDS_DEFAULTS.watchMinutePoints,
+    1,
+    5_000
   );
   const claimCooldownSeconds = parseBoundedIntEnv(
     process.env.CLAIM_COOLDOWN_SECONDS,
@@ -276,7 +376,7 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     process.env.REFERRAL_BONUS_POINTS,
     REWARDS_DEFAULTS.referralBonusPoints,
     50,
-    50_000
+    500_000
   );
   const maxDailyReferrals = parseBoundedIntEnv(
     process.env.MAX_DAILY_REFERRALS,
@@ -305,10 +405,11 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     minPayoutPointsIdr,
     minPayoutPointsUsd,
     maxDailyEarnPoints,
+    maxDailyWatchPoints,
     claimCooldownSeconds,
     dailyCheckinPoints: REWARDS_DEFAULTS.dailyCheckinPoints,
     watchEpisodePoints: REWARDS_DEFAULTS.watchEpisodePoints,
-    watchMinutePoints: REWARDS_DEFAULTS.watchMinutePoints,
+    watchMinutePoints,
     dailyMissionMaxWatchSeconds: REWARDS_DEFAULTS.dailyMissionMaxWatchSeconds,
     dailyMissionMilestones: [
       { minutes: 15, bonusPoints: REWARDS_DEFAULTS.dailyMission15mPoints },
@@ -322,3 +423,111 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     maxDailyVerifiedWatchSeconds,
   };
 }
+
+function scaleLevelPoints(basePoints: number, multiplier: number): number {
+  return Math.max(1, Math.round(basePoints * multiplier));
+}
+
+export function getAccountLevelTiersSummary(
+  baseCfg: Pick<
+    RewardsRuntimeValues,
+    | 'watchMinutePoints'
+    | 'dailyCheckinPoints'
+    | 'watchEpisodePoints'
+    | 'dailyMissionMilestones'
+  >
+): AccountLevelTierSummary[] {
+  return ACCOUNT_LEVEL_TIERS.map((tier) => ({
+    ...tier,
+    watchMinutePoints: scaleLevelPoints(baseCfg.watchMinutePoints, tier.multiplier),
+    dailyCheckinPoints: scaleLevelPoints(baseCfg.dailyCheckinPoints, tier.multiplier),
+    watchEpisodePoints: scaleLevelPoints(baseCfg.watchEpisodePoints, tier.multiplier),
+    dailyMissionMilestones: baseCfg.dailyMissionMilestones.map((ms) => ({
+      minutes: ms.minutes,
+      bonusPoints: scaleLevelPoints(ms.bonusPoints, tier.multiplier),
+    })),
+  }));
+}
+
+export function resolveAccountLevelStatus(
+  totalEarnedRaw: number,
+  verifiedWatchSecondsRaw: number,
+  baseCfg: Pick<
+    RewardsRuntimeValues,
+    | 'watchMinutePoints'
+    | 'dailyCheckinPoints'
+    | 'watchEpisodePoints'
+    | 'dailyMissionMilestones'
+  >
+): AccountLevelStatus {
+  const totalEarned = Math.max(0, Math.floor(Number(totalEarnedRaw) || 0));
+  const verifiedWatchSeconds = Math.max(0, Math.floor(Number(verifiedWatchSecondsRaw) || 0));
+
+  let activeIdx = 0;
+  for (let i = 0; i < ACCOUNT_LEVEL_TIERS.length; i += 1) {
+    const tier = ACCOUNT_LEVEL_TIERS[i];
+    if (
+      totalEarned >= tier.minTotalEarned ||
+      verifiedWatchSeconds >= tier.minVerifiedWatchSeconds
+    ) {
+      activeIdx = i;
+    }
+  }
+
+  const activeTier = ACCOUNT_LEVEL_TIERS[activeIdx];
+  const nextTierCfg =
+    activeIdx + 1 < ACCOUNT_LEVEL_TIERS.length
+      ? ACCOUNT_LEVEL_TIERS[activeIdx + 1]
+      : null;
+
+  let progressPct = 100;
+  let nextTier: AccountLevelNextTierInfo | null = null;
+  if (nextTierCfg) {
+    const ptsSpan = Math.max(1, nextTierCfg.minTotalEarned - activeTier.minTotalEarned);
+    const ptsDone = Math.max(0, totalEarned - activeTier.minTotalEarned);
+    const ptsPct = Math.min(100, Math.round((ptsDone / ptsSpan) * 100));
+
+    const secSpan = Math.max(
+      1,
+      nextTierCfg.minVerifiedWatchSeconds - activeTier.minVerifiedWatchSeconds
+    );
+    const secDone = Math.max(0, verifiedWatchSeconds - activeTier.minVerifiedWatchSeconds);
+    const secPct = Math.min(100, Math.round((secDone / secSpan) * 100));
+
+    progressPct = Math.max(ptsPct, secPct);
+    nextTier = {
+      level: nextTierCfg.level,
+      tierId: nextTierCfg.tierId,
+      tierName: nextTierCfg.tierName,
+      multiplier: nextTierCfg.multiplier,
+      bonusPercent: nextTierCfg.bonusPercent,
+      minTotalEarned: nextTierCfg.minTotalEarned,
+      minVerifiedWatchSeconds: nextTierCfg.minVerifiedWatchSeconds,
+      remainingPoints: Math.max(0, nextTierCfg.minTotalEarned - totalEarned),
+      remainingWatchSeconds: Math.max(
+        0,
+        nextTierCfg.minVerifiedWatchSeconds - verifiedWatchSeconds
+      ),
+    };
+  }
+
+  return {
+    level: activeTier.level,
+    tierId: activeTier.tierId,
+    tierName: activeTier.tierName,
+    multiplier: activeTier.multiplier,
+    bonusPercent: activeTier.bonusPercent,
+    watchMinutePoints: scaleLevelPoints(baseCfg.watchMinutePoints, activeTier.multiplier),
+    dailyCheckinPoints: scaleLevelPoints(baseCfg.dailyCheckinPoints, activeTier.multiplier),
+    watchEpisodePoints: scaleLevelPoints(baseCfg.watchEpisodePoints, activeTier.multiplier),
+    dailyMissionMilestones: baseCfg.dailyMissionMilestones.map((ms) => ({
+      minutes: ms.minutes,
+      bonusPoints: scaleLevelPoints(ms.bonusPoints, activeTier.multiplier),
+    })),
+    totalEarned,
+    verifiedWatchSeconds,
+    nextTier,
+    progressPct,
+  };
+}
+

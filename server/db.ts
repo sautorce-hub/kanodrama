@@ -4,10 +4,14 @@ import path from 'node:path';
 import { Pool, type PoolClient, type PoolConfig, type QueryResult, type QueryResultRow } from 'pg';
 import {
   ANTI_CHEAT_DEFAULTS,
+  type AccountLevelStatus,
+  type AccountLevelTierSummary,
   type DailyMissionMilestoneConfig,
+  getAccountLevelTiersSummary,
   getDatabaseUrl,
   getRewardsRuntimeValues,
   isPgSslRequired,
+  resolveAccountLevelStatus,
 } from './config.ts';
 
 let pool: Pool | null = null;
@@ -3839,6 +3843,7 @@ export interface PayoutRuntimeConfig {
   minPayoutPointsIdr: number;
   minPayoutPointsUsd: number;
   maxDailyEarnPoints: number;
+  maxDailyWatchPoints: number;
   claimCooldownSeconds: number;
   dailyCheckinPoints: number;
   watchEpisodePoints: number;
@@ -3850,6 +3855,7 @@ export interface PayoutRuntimeConfig {
   maxDailyReferrals: number;
   maxWeeklyReferrals: number;
   maxDailyVerifiedWatchSeconds: number;
+  levelTiers: AccountLevelTierSummary[];
   methods: PayoutMethodDescriptor[];
   banks: IndonesianBankOption[];
   usdtNetworks: UsdtNetworkOption[];
@@ -3909,6 +3915,8 @@ export interface UserPointsSummary {
   todayWatchSeconds: number;
   todayWatchPointsEarned: number;
   dailyMissionMaxWatchSeconds: number;
+  verifiedWatchSeconds?: number;
+  levelInfo?: AccountLevelStatus;
   estimatedUsd: number;
   estimatedIdr: number;
   lastClaimAt: string | null;
@@ -4066,6 +4074,7 @@ export function getPayoutRuntimeConfig(): PayoutRuntimeConfig {
 
   return {
     ...runtime,
+    levelTiers: getAccountLevelTiersSummary(runtime),
     methods,
     banks: INDONESIAN_BANK_OPTIONS,
     usdtNetworks: USDT_NETWORK_OPTIONS,
@@ -4436,6 +4445,7 @@ async function queryUserPointsSummaryOnClient(
 
   const aggRes = await client.query<{
     total_earned: string;
+    lifetime_earned_for_level: string;
     total_redeemed: string;
     today_earned: string;
     today_watch_points: string;
@@ -4445,6 +4455,7 @@ async function queryUserPointsSummaryOnClient(
   }>(
     `SELECT
        COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0)::text AS total_earned,
+       COALESCE(SUM(CASE WHEN type = 'earn' AND reference_id NOT LIKE 'refund:payout:%' THEN points ELSE 0 END), 0)::text AS lifetime_earned_for_level,
        COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0)::text AS total_redeemed,
        COALESCE(SUM(
          CASE
@@ -4494,10 +4505,12 @@ async function queryUserPointsSummaryOnClient(
   );
 
   const telRes = await client.query<{
+    verified_watch_seconds: number;
     today_watch_seconds: number;
     today_date_key: string;
+    risk_flag: string;
   }>(
-    `SELECT today_watch_seconds, today_date_key
+    `SELECT verified_watch_seconds, today_watch_seconds, today_date_key, risk_flag
      FROM watch_telemetry
      WHERE user_id = $1
      LIMIT 1`,
@@ -4540,16 +4553,26 @@ async function queryUserPointsSummaryOnClient(
   const agg = aggRes.rows[0];
   const payoutAgg = payoutAggRes.rows[0];
   const totalEarned = Math.max(0, Number(agg?.total_earned) || 0);
+  const lifetimeEarnedForLevel = Math.max(
+    0,
+    Number(agg?.lifetime_earned_for_level ?? agg?.total_earned) || 0
+  );
   const totalRedeemed = Math.max(0, Number(agg?.total_redeemed) || 0);
   const totalHeld = Math.max(0, Number(payoutAgg?.total_held) || 0);
   const totalWithdrawn = Math.max(0, Number(payoutAgg?.total_withdrawn) || 0);
   const todayEarned = Math.max(0, Number(agg?.today_earned) || 0);
   const todayWatchPointsEarned = Math.max(0, Number(agg?.today_watch_points) || 0);
   const telRow = telRes.rows[0];
+  const verifiedWatchSeconds = Math.max(0, Number(telRow?.verified_watch_seconds) || 0);
   const todayWatchSeconds =
     telRow && telRow.today_date_key === todayKey
       ? Math.max(0, Number(telRow.today_watch_seconds) || 0)
       : 0;
+  const levelInfo = resolveAccountLevelStatus(
+    lifetimeEarnedForLevel,
+    verifiedWatchSeconds,
+    cfg
+  );
 
   const balance = Math.max(0, totalEarned - totalRedeemed);
   const lastClaimDate = agg?.last_claim_at instanceof Date ? agg.last_claim_at : null;
@@ -4575,7 +4598,7 @@ async function queryUserPointsSummaryOnClient(
     ? yesterdayCheckinRow.streakDay
     : 0;
 
-  const milestones: DailyMissionMilestoneStatus[] = cfg.dailyMissionMilestones.map((ms) => {
+  const milestones: DailyMissionMilestoneStatus[] = levelInfo.dailyMissionMilestones.map((ms) => {
     const refId = `mission_${ms.minutes}m:${userId}:${todayKey}`;
     const claimedAt = milestoneMap.get(refId) || null;
     return {
@@ -4649,6 +4672,8 @@ async function queryUserPointsSummaryOnClient(
     todayWatchSeconds,
     todayWatchPointsEarned,
     dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+    verifiedWatchSeconds,
+    levelInfo,
     estimatedUsd: usdAmount,
     estimatedIdr: idrAmount,
     lastClaimAt: lastClaimDate ? lastClaimDate.toISOString() : null,
@@ -4812,7 +4837,6 @@ export async function claimDailyCheckinInDb(input: {
   summary: UserPointsSummary;
 }> {
   const cfg = getPayoutRuntimeConfig();
-  const amount = cfg.dailyCheckinPoints;
 
   const activePool = await requirePointsDbPool();
   let client: PoolClient | null = null;
@@ -4856,12 +4880,14 @@ export async function claimDailyCheckinInDb(input: {
 
     const statsRes = await client.query<{
       balance: string;
+      lifetime_earned_for_level: string;
       today_earned: string;
       last_claim_at: Date | null;
     }>(
       `SELECT
          (COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0) -
           COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0))::text AS balance,
+         COALESCE(SUM(CASE WHEN type = 'earn' AND reference_id NOT LIKE 'refund:payout:%' THEN points ELSE 0 END), 0)::text AS lifetime_earned_for_level,
          COALESCE(SUM(
            CASE
              WHEN type = 'earn'
@@ -4884,7 +4910,34 @@ export async function claimDailyCheckinInDb(input: {
       [input.userId, todayKey, timeZone]
     );
 
+    const telLevelRes = await client.query<{
+      verified_watch_seconds: number;
+      today_watch_seconds: number;
+      today_date_key: string;
+      risk_flag: string;
+    }>(
+      `SELECT verified_watch_seconds, today_watch_seconds, today_date_key, risk_flag
+       FROM watch_telemetry
+       WHERE user_id = $1
+       LIMIT 1`,
+      [input.userId]
+    );
+
     const currentBalance = Math.max(0, Number(statsRes.rows[0]?.balance) || 0);
+    const lifetimeEarnedForLevel = Math.max(
+      0,
+      Number(statsRes.rows[0]?.lifetime_earned_for_level) || 0
+    );
+    const verifiedWatchSec = Math.max(
+      0,
+      Number(telLevelRes.rows[0]?.verified_watch_seconds) || 0
+    );
+    const levelInfo = resolveAccountLevelStatus(
+      lifetimeEarnedForLevel,
+      verifiedWatchSec,
+      cfg
+    );
+    const checkinAmount = levelInfo.dailyCheckinPoints;
     const todayEarned = Math.max(0, Number(statsRes.rows[0]?.today_earned) || 0);
     const lastClaimAt =
       statsRes.rows[0]?.last_claim_at instanceof Date ? statsRes.rows[0].last_claim_at : null;
@@ -4904,7 +4957,7 @@ export async function claimDailyCheckinInDb(input: {
       }
     }
 
-    if (todayEarned + amount > cfg.maxDailyEarnPoints) {
+    if (todayEarned + checkinAmount > cfg.maxDailyEarnPoints) {
       const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
       await client.query('COMMIT');
       return { ok: false, reason: 'daily_cap_reached', summary };
@@ -4920,7 +4973,11 @@ export async function claimDailyCheckinInDb(input: {
         : 1;
 
     const ledgerId = crypto.randomUUID();
-    const balanceAfter = currentBalance + amount;
+    const balanceAfter = currentBalance + checkinAmount;
+    const checkinDesc =
+      levelInfo.level > 1
+        ? `Check-in Harian (Hari ke-${streakDay} · ${levelInfo.tierName} ${levelInfo.multiplier}x)`
+        : `Check-in Harian (Hari ke-${streakDay})`;
     const inserted = await client.query<{
       id: string;
       user_id: string;
@@ -4937,8 +4994,8 @@ export async function claimDailyCheckinInDb(input: {
       [
         ledgerId,
         input.userId,
-        amount,
-        `Check-in Harian (Hari ke-${streakDay})`,
+        checkinAmount,
+        checkinDesc,
         referenceId,
         balanceAfter,
       ]
@@ -4948,7 +5005,7 @@ export async function claimDailyCheckinInDb(input: {
       `INSERT INTO daily_checkins (user_id, checkin_date, streak_day, points_awarded, ledger_id, created_at)
        VALUES ($1, $2::date, $3, $4, $5, NOW())
        ON CONFLICT (user_id, checkin_date) DO NOTHING`,
-      [input.userId, todayKey, streakDay, amount, ledgerId]
+      [input.userId, todayKey, streakDay, checkinAmount, ledgerId]
     );
 
     await client.query(
@@ -5021,7 +5078,6 @@ export async function claimWatchEpisodeInDb(input: {
   }
 
   const referenceId = `watch:${input.userId}:${cleanProvider.toLowerCase()}:${cleanDramaId}:${epNum}`;
-  const amount = cfg.watchEpisodePoints;
   const minRequired = ANTI_CHEAT_DEFAULTS.minEpisodeWatchSecForBonus;
 
   const activePool = await requirePointsDbPool();
@@ -5089,12 +5145,14 @@ export async function claimWatchEpisodeInDb(input: {
 
     const statsRes = await client.query<{
       balance: string;
+      lifetime_earned_for_level: string;
       today_earned: string;
       last_claim_at: Date | null;
     }>(
       `SELECT
          (COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0) -
           COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0))::text AS balance,
+         COALESCE(SUM(CASE WHEN type = 'earn' AND reference_id NOT LIKE 'refund:payout:%' THEN points ELSE 0 END), 0)::text AS lifetime_earned_for_level,
          COALESCE(SUM(
            CASE
              WHEN type = 'earn'
@@ -5117,7 +5175,34 @@ export async function claimWatchEpisodeInDb(input: {
       [input.userId, todayKey, timeZone]
     );
 
+    const telLevelRes = await client.query<{
+      verified_watch_seconds: number;
+      today_watch_seconds: number;
+      today_date_key: string;
+      risk_flag: string;
+    }>(
+      `SELECT verified_watch_seconds, today_watch_seconds, today_date_key, risk_flag
+       FROM watch_telemetry
+       WHERE user_id = $1
+       LIMIT 1`,
+      [input.userId]
+    );
+
     const currentBalance = Math.max(0, Number(statsRes.rows[0]?.balance) || 0);
+    const lifetimeEarnedForLevel = Math.max(
+      0,
+      Number(statsRes.rows[0]?.lifetime_earned_for_level) || 0
+    );
+    const verifiedWatchSec = Math.max(
+      0,
+      Number(telLevelRes.rows[0]?.verified_watch_seconds) || 0
+    );
+    const levelInfo = resolveAccountLevelStatus(
+      lifetimeEarnedForLevel,
+      verifiedWatchSec,
+      cfg
+    );
+    const episodeAmount = levelInfo.watchEpisodePoints;
     const todayEarned = Math.max(0, Number(statsRes.rows[0]?.today_earned) || 0);
     const lastClaimAt =
       statsRes.rows[0]?.last_claim_at instanceof Date ? statsRes.rows[0].last_claim_at : null;
@@ -5137,18 +5222,22 @@ export async function claimWatchEpisodeInDb(input: {
       }
     }
 
-    if (todayEarned + amount > cfg.maxDailyEarnPoints) {
+    if (todayEarned + episodeAmount > cfg.maxDailyEarnPoints) {
       const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
       await client.query('COMMIT');
       return { ok: false, reason: 'daily_cap_reached', summary };
     }
 
     const ledgerId = crypto.randomUUID();
-    const balanceAfter = currentBalance + amount;
+    const balanceAfter = currentBalance + episodeAmount;
     const cleanTitle = String(input.title || '').trim().slice(0, 80);
-    const desc = cleanTitle
+    const baseDesc = cleanTitle
       ? `Bonus Episode Baru: ${cleanTitle} Ep ${epNum}`
       : `Bonus Episode Baru (${cleanProvider} Ep ${epNum})`;
+    const desc =
+      levelInfo.level > 1
+        ? `${baseDesc} · ${levelInfo.tierName} ${levelInfo.multiplier}x`
+        : baseDesc;
 
     const inserted = await client.query<{
       id: string;
@@ -5163,7 +5252,7 @@ export async function claimWatchEpisodeInDb(input: {
       `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
        VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
        RETURNING id, user_id, type, points, description, reference_id, balance_after, created_at`,
-      [ledgerId, input.userId, amount, desc.slice(0, 240), referenceId.slice(0, 200), balanceAfter]
+      [ledgerId, input.userId, episodeAmount, desc.slice(0, 240), referenceId.slice(0, 200), balanceAfter]
     );
 
     await client.query(
@@ -5175,7 +5264,7 @@ export async function claimWatchEpisodeInDb(input: {
         cleanProvider.toLowerCase(),
         cleanDramaId,
         epNum,
-        amount,
+        episodeAmount,
         sessRes.rows[0]?.session_token || cleanToken,
         ledgerId,
       ]
@@ -5197,6 +5286,171 @@ export async function claimWatchEpisodeInDb(input: {
     if (err instanceof DatabaseUnavailableError) throw err;
     console.warn(
       '[PostgreSQL] claimWatchEpisodeInDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
+}
+
+export async function claimWatchMilestoneInDb(input: {
+  userId: string;
+  milestoneMinutes: number;
+  displayName?: string;
+  timeZone?: string | null;
+}): Promise<{
+  ok: boolean;
+  reason?:
+    | 'invalid_milestone'
+    | 'milestone_not_reached'
+    | 'duplicate_claim'
+    | 'daily_cap_reached'
+    | 'daily_watch_cap_reached';
+  milestoneMinutes?: number;
+  awardedPoints?: number;
+  entry?: PointsLedgerRecord;
+  summary: UserPointsSummary;
+}> {
+  const cfg = getPayoutRuntimeConfig();
+  const targetMin = Math.floor(Number(input.milestoneMinutes) || 0);
+  const validMilestone = cfg.dailyMissionMilestones.find((m) => m.minutes === targetMin);
+  if (!validMilestone) {
+    const summary = await getUserPointsSummaryFromDb(input.userId, input.timeZone);
+    return { ok: false, reason: 'invalid_milestone', summary };
+  }
+
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    await client.query('BEGIN');
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `points:${input.userId}`,
+    ]);
+
+    const { timeZone, todayKey } = await resolveUserTimeZonePg(
+      client,
+      input.userId,
+      input.timeZone,
+      true
+    );
+    const referenceId = `mission_${validMilestone.minutes}m:${input.userId}:${todayKey}`;
+
+    const dupLedger = await client.query<{ id: string }>(
+      `SELECT id FROM points_ledger WHERE reference_id = $1 LIMIT 1`,
+      [referenceId]
+    );
+    if (dupLedger.rows.length > 0) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'duplicate_claim', summary };
+    }
+
+    const telRes = await client.query<{
+      verified_watch_seconds: number;
+      today_watch_seconds: number;
+      today_date_key: string;
+      risk_flag: string;
+    }>(
+      `SELECT verified_watch_seconds, today_watch_seconds, today_date_key, risk_flag
+       FROM watch_telemetry
+       WHERE user_id = $1
+       LIMIT 1`,
+      [input.userId]
+    );
+    const telRow = telRes.rows[0];
+    const verifiedWatchSec = Math.max(0, Number(telRow?.verified_watch_seconds) || 0);
+    const effectiveTodayWatchSec =
+      telRow && telRow.today_date_key === todayKey
+        ? Math.max(0, Number(telRow.today_watch_seconds) || 0)
+        : 0;
+
+    if (effectiveTodayWatchSec < validMilestone.minutes * 60) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return {
+        ok: false,
+        reason: 'milestone_not_reached',
+        milestoneMinutes: validMilestone.minutes,
+        summary,
+      };
+    }
+
+    const stats = await getQuickPointsStatePg(client, input.userId, todayKey, timeZone);
+    const levelInfo = resolveAccountLevelStatus(
+      stats.lifetimeEarnedForLevel,
+      verifiedWatchSec,
+      cfg
+    );
+    const scaledMilestone = levelInfo.dailyMissionMilestones.find(
+      (m) => m.minutes === validMilestone.minutes
+    );
+    const bonusAmount = Math.max(
+      1,
+      scaledMilestone?.bonusPoints ?? Math.round(validMilestone.bonusPoints * levelInfo.multiplier)
+    );
+
+    if (stats.todayEarned + bonusAmount > cfg.maxDailyEarnPoints) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'daily_cap_reached', summary };
+    }
+
+    if (stats.todayWatchPointsEarned + bonusAmount > cfg.maxDailyWatchPoints) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'daily_watch_cap_reached', summary };
+    }
+
+    const ledgerId = crypto.randomUUID();
+    const balanceAfter = stats.balance + bonusAmount;
+    const desc =
+      levelInfo.level > 1
+        ? `Bonus Milestone Nonton ${validMilestone.minutes} Menit · ${levelInfo.tierName} ${levelInfo.multiplier}x`
+        : `Bonus Milestone Nonton ${validMilestone.minutes} Menit`;
+
+    const inserted = await client.query<{
+      id: string;
+      user_id: string;
+      type: string;
+      points: number;
+      description: string;
+      reference_id: string;
+      balance_after: number | null;
+      created_at: Date;
+    }>(
+      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
+       ON CONFLICT (reference_id) DO NOTHING
+       RETURNING id, user_id, type, points, description, reference_id, balance_after, created_at`,
+      [ledgerId, input.userId, bonusAmount, desc.slice(0, 240), referenceId, balanceAfter]
+    );
+
+    if (inserted.rows.length === 0) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'duplicate_claim', summary };
+    }
+
+    const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      milestoneMinutes: validMilestone.minutes,
+      awardedPoints: bonusAmount,
+      entry: mapLedgerRow(inserted.rows[0]),
+      summary,
+    };
+  } catch (err) {
+    try {
+      await client?.query('ROLLBACK');
+    } catch {
+      // Ignore rollback failure
+    }
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] claimWatchMilestoneInDb failed:',
       err instanceof Error ? err.message : String(err)
     );
     throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
@@ -6221,6 +6475,7 @@ interface WatchMissionGrantResult {
   awardedWatchPoints: number;
   todayWatchPointsEarned: number;
   pointsBalance: number | null;
+  levelInfo?: AccountLevelStatus;
 }
 
 async function getQuickPointsStatePg(
@@ -6230,17 +6485,20 @@ async function getQuickPointsStatePg(
   timeZone: string = DEFAULT_FALLBACK_TIMEZONE
 ): Promise<{
   balance: number;
+  lifetimeEarnedForLevel: number;
   todayEarned: number;
   todayWatchPointsEarned: number;
 }> {
   const res = await client.query<{
     total_earned: string;
+    lifetime_earned_for_level: string;
     total_redeemed: string;
     today_earned: string;
     today_watch_points: string;
   }>(
     `SELECT
        COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0)::text AS total_earned,
+       COALESCE(SUM(CASE WHEN type = 'earn' AND reference_id NOT LIKE 'refund:payout:%' THEN points ELSE 0 END), 0)::text AS lifetime_earned_for_level,
        COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0)::text AS total_redeemed,
        COALESCE(SUM(
          CASE
@@ -6266,9 +6524,14 @@ async function getQuickPointsStatePg(
   );
   const row = res.rows[0];
   const totalEarned = Math.max(0, Number(row?.total_earned) || 0);
+  const lifetimeEarnedForLevel = Math.max(
+    0,
+    Number(row?.lifetime_earned_for_level ?? row?.total_earned) || 0
+  );
   const totalRedeemed = Math.max(0, Number(row?.total_redeemed) || 0);
   return {
     balance: Math.max(0, totalEarned - totalRedeemed),
+    lifetimeEarnedForLevel,
     todayEarned: Math.max(0, Number(row?.today_earned) || 0),
     todayWatchPointsEarned: Math.max(0, Number(row?.today_watch_points) || 0),
   };
@@ -6280,6 +6543,7 @@ async function grantWatchMissionPointsPg(
   todayKey: string,
   timeZone: string,
   todayWatchSeconds: number,
+  verifiedWatchSeconds: number,
   cfg: PayoutRuntimeConfig,
   shouldAward: boolean
 ): Promise<WatchMissionGrantResult> {
@@ -6288,11 +6552,17 @@ async function grantWatchMissionPointsPg(
   ]);
 
   const initial = await getQuickPointsStatePg(client, userId, todayKey, timeZone);
+  const initialLevel = resolveAccountLevelStatus(
+    initial.lifetimeEarnedForLevel,
+    verifiedWatchSeconds,
+    cfg
+  );
   if (!shouldAward) {
     return {
       awardedWatchPoints: 0,
       todayWatchPointsEarned: initial.todayWatchPointsEarned,
       pointsBalance: initial.balance,
+      levelInfo: initialLevel,
     };
   }
 
@@ -6304,6 +6574,7 @@ async function grantWatchMissionPointsPg(
       awardedWatchPoints: 0,
       todayWatchPointsEarned: initial.todayWatchPointsEarned,
       pointsBalance: initial.balance,
+      levelInfo: initialLevel,
     };
   }
 
@@ -6311,56 +6582,82 @@ async function grantWatchMissionPointsPg(
     `SELECT reference_id
      FROM points_ledger
      WHERE user_id = $1
-       AND (reference_id LIKE $2 OR reference_id LIKE $3)`,
-    [userId, `watch_min:${userId}:${todayKey}:%`, `mission_%:${userId}:${todayKey}`]
+       AND reference_id LIKE $2`,
+    [userId, `watch_min:${userId}:${todayKey}:%`]
   );
   const existingRefs = new Set(existingRes.rows.map((r) => r.reference_id));
 
   let remainingDaily = Math.max(0, cfg.maxDailyEarnPoints - initial.todayEarned);
+  let remainingDailyWatch = Math.max(
+    0,
+    cfg.maxDailyWatchPoints - initial.todayWatchPointsEarned
+  );
   let awardedWatchPoints = 0;
   let runningBalance = initial.balance;
+  let runningLifetimeEarned = initial.lifetimeEarnedForLevel;
 
-  const candidates: Array<{ refId: string; points: number; desc: string }> = [];
   const maxMinutes = Math.floor(maxMissionSec / 60);
+  const candidateMeta: Array<{
+    refId: string;
+    basePoints: number;
+    desc: string;
+  }> = [];
+
   for (let m = 1; m <= Math.min(completedMinutes, maxMinutes); m += 1) {
-    candidates.push({
+    candidateMeta.push({
       refId: `watch_min:${userId}:${todayKey}:m${m}`,
-      points: cfg.watchMinutePoints,
+      basePoints: cfg.watchMinutePoints,
       desc: `Misi Nonton Aktif (Menit ${m}/${maxMinutes})`,
     });
   }
-  for (const ms of cfg.dailyMissionMilestones) {
-    if (completedMinutes >= ms.minutes) {
-      candidates.push({
-        refId: `mission_${ms.minutes}m:${userId}:${todayKey}`,
-        points: ms.bonusPoints,
-        desc: `Bonus Misi Harian ${ms.minutes} Menit Nonton`,
-      });
-    }
-  }
 
-  for (const cand of candidates) {
+  for (const cand of candidateMeta) {
     if (existingRefs.has(cand.refId)) continue;
-    if (cand.points <= 0 || cand.points > remainingDaily) continue;
-    const nextBalance = runningBalance + cand.points;
+    const currentLevel = resolveAccountLevelStatus(
+      runningLifetimeEarned,
+      verifiedWatchSeconds,
+      cfg
+    );
+    const pointsToAward = Math.max(1, Math.round(cand.basePoints * currentLevel.multiplier));
+    if (
+      pointsToAward <= 0 ||
+      pointsToAward > remainingDaily ||
+      pointsToAward > remainingDailyWatch
+    ) {
+      continue;
+    }
+    const nextBalance = runningBalance + pointsToAward;
+    const descWithLevel =
+      currentLevel.level > 1
+        ? `${cand.desc} · ${currentLevel.tierName} ${currentLevel.multiplier}x`
+        : cand.desc;
     const ins = await client.query(
       `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
        VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
        ON CONFLICT (reference_id) DO NOTHING`,
-      [crypto.randomUUID(), userId, cand.points, cand.desc, cand.refId, nextBalance]
+      [crypto.randomUUID(), userId, pointsToAward, descWithLevel, cand.refId, nextBalance]
     );
     if ((ins.rowCount ?? 0) > 0) {
       existingRefs.add(cand.refId);
-      remainingDaily -= cand.points;
-      awardedWatchPoints += cand.points;
+      remainingDaily -= pointsToAward;
+      remainingDailyWatch -= pointsToAward;
+      awardedWatchPoints += pointsToAward;
       runningBalance = nextBalance;
+      runningLifetimeEarned += pointsToAward;
     }
   }
+
+  const finalLevel = resolveAccountLevelStatus(
+    runningLifetimeEarned,
+    verifiedWatchSeconds,
+    cfg
+  );
 
   return {
     awardedWatchPoints,
     todayWatchPointsEarned: initial.todayWatchPointsEarned + awardedWatchPoints,
     pointsBalance: runningBalance,
+    levelInfo: finalLevel,
   };
 }
 
@@ -6482,6 +6779,7 @@ export async function recordWatchHeartbeatInDb(input: {
   todayWatchPointsEarned: number;
   dailyMissionMaxWatchSeconds: number;
   pointsBalance: number | null;
+  levelInfo?: AccountLevelStatus;
   referralQualified: boolean;
   riskFlag: string;
   reason?:
@@ -7028,6 +7326,7 @@ export async function recordWatchHeartbeatInDb(input: {
       todayKey,
       effectiveTimeZone,
       todayWatchSeconds,
+      verifiedWatchSeconds,
       cfg,
       addedSeconds > 0 && !hasRiskFlag
     );
@@ -7125,6 +7424,7 @@ export async function recordWatchHeartbeatInDb(input: {
       todayWatchPointsEarned: missionGrant.todayWatchPointsEarned,
       dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
       pointsBalance: missionGrant.pointsBalance,
+      levelInfo: missionGrant.levelInfo,
       referralQualified,
       riskFlag,
       reason: 'counted',

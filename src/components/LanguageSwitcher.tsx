@@ -182,7 +182,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
         className={
           isFooter
             ? 'inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#141211] border border-white/15 hover:border-[var(--cd-accent)] text-xs font-medium text-[#FAFAFA] transition-colors'
-            : 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-white/25 text-xs font-medium text-[#FAFAFA] whitespace-nowrap shrink-0 transition-colors'
+            : 'inline-flex items-center gap-1 sm:gap-1.5 px-2 py-1.5 sm:px-2.5 rounded-lg bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-white/25 text-xs font-medium text-[#FAFAFA] whitespace-nowrap shrink-0 transition-colors'
         }
       >
         {loading ? (
@@ -199,12 +199,12 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
             : `${currentMeta.label} (${currentMeta.shortLabel})`}
         </span>
         {!isFooter && (
-          <span className="lg:hidden uppercase">
+          <span className="lg:hidden uppercase text-[11px] sm:text-xs">
             {isAuto ? currentMeta.shortLabel : currentMeta.code}
           </span>
         )}
         <ChevronDown
-          className={`w-3.5 h-3.5 text-[#A1A1AA] transition-transform ${
+          className={`w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#A1A1AA] transition-transform ${
             open ? 'rotate-180' : ''
           }`}
         />
@@ -214,9 +214,11 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
         <div
           role="listbox"
           aria-label={t.languageSwitcher.label}
-          className={`absolute ${
-            isFooter ? 'bottom-full mb-2 left-0' : 'right-0 mt-2'
-          } w-64 max-h-[min(75dvh,420px)] overflow-y-auto overscroll-contain rounded-2xl bg-[#141418]/95 backdrop-blur-xl border border-white/15 shadow-2xl py-1.5 z-50`}
+          className={`${
+            isFooter
+              ? 'absolute bottom-full mb-2 left-0 w-64'
+              : 'fixed inset-x-3 top-[3.75rem] sm:inset-auto sm:absolute sm:right-0 sm:top-full sm:mt-2 sm:w-64'
+          } max-h-[min(75dvh,420px)] overflow-y-auto overscroll-contain rounded-2xl bg-[#141418]/95 backdrop-blur-xl border border-white/15 shadow-2xl py-1.5 z-50`}
         >
           {renderOptions()}
         </div>

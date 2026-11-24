@@ -167,6 +167,24 @@ interface DramaContextValue {
   dailyMissionMaxWatchSeconds: number;
   watchMinutePoints: number;
   dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
+  dailyMissionStatuses: Array<{
+    minutes: number;
+    bonusPoints: number;
+    reached: boolean;
+    claimed: boolean;
+  }>;
+  accountLevelInfo: {
+    level: number;
+    tierId: 'bronze' | 'silver' | 'gold' | 'platinum';
+    tierName: string;
+    multiplier: number;
+    bonusPercent: number;
+    watchMinutePoints: number;
+    dailyCheckinPoints: number;
+    watchEpisodePoints: number;
+    dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
+    progressPercent: number;
+  } | null;
   pointsPerUsd: number;
   refreshPointsBalance: () => Promise<number | null>;
   getAuthHeaders: (extra?: Record<string, string>) => Record<string, string>;
@@ -448,6 +466,10 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     gmailLoginCountRef.current = gmailLoginCount;
   }, [gmailLoginCount]);
   const sessionTokenRef = useRef<string | null>(null);
+  const languageRef = useRef<LanguageCode>(language);
+  useEffect(() => {
+    languageRef.current = language;
+  }, [language]);
   const popupLoginInFlightRef = useRef<boolean>(false);
   const [pointsBalance, setPointsBalance] = useState<number | null>(null);
   const [pointsDbConnected, setPointsDbConnected] = useState<boolean | null>(null);
@@ -455,15 +477,30 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const [todayWatchSeconds, setTodayWatchSeconds] = useState<number>(0);
   const [todayWatchPointsEarned, setTodayWatchPointsEarned] = useState<number>(0);
   const [dailyMissionMaxWatchSeconds, setDailyMissionMaxWatchSeconds] = useState<number>(3600);
-  const [watchMinutePoints, setWatchMinutePoints] = useState<number>(5);
+  const [watchMinutePoints, setWatchMinutePoints] = useState<number>(20);
   const [dailyMissionMilestones, setDailyMissionMilestones] = useState<
     Array<{ minutes: number; bonusPoints: number }>
   >([
-    { minutes: 15, bonusPoints: 25 },
-    { minutes: 30, bonusPoints: 50 },
-    { minutes: 60, bonusPoints: 100 },
+    { minutes: 15, bonusPoints: 100 },
+    { minutes: 30, bonusPoints: 200 },
+    { minutes: 60, bonusPoints: 400 },
   ]);
-  const [pointsPerUsd, setPointsPerUsd] = useState<number>(20000);
+  const [dailyMissionStatuses, setDailyMissionStatuses] = useState<
+    Array<{ minutes: number; bonusPoints: number; reached: boolean; claimed: boolean }>
+  >([]);
+  const [accountLevelInfo, setAccountLevelInfo] = useState<{
+    level: number;
+    tierId: 'bronze' | 'silver' | 'gold' | 'platinum';
+    tierName: string;
+    multiplier: number;
+    bonusPercent: number;
+    watchMinutePoints: number;
+    dailyCheckinPoints: number;
+    watchEpisodePoints: number;
+    dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
+    progressPercent: number;
+  } | null>(null);
+  const [pointsPerUsd, setPointsPerUsd] = useState<number>(100000);
   const claimedWatchRewardRef = useRef<Set<string>>(new Set());
   const lastWatchClaimAttemptRef = useRef<number>(0);
   const watchStreamSessionIdRef = useRef<string>(
@@ -484,8 +521,10 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const getAuthHeaders = useCallback((extra?: Record<string, string>): Record<string, string> => {
     const deviceFp = getClientDeviceFingerprint();
+    const userTimezone = languageRef.current === 'id' ? 'Asia/Jakarta' : 'UTC';
     const headers: Record<string, string> = {
       'X-Requested-With': 'KanoDrama',
+      'X-User-Timezone': userTimezone,
       ...(deviceFp ? { 'X-Device-Fingerprint': deviceFp } : {}),
       ...(extra || {}),
     };
@@ -514,6 +553,24 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           todayWatchPointsEarned?: number;
           dailyMissionMaxWatchSeconds?: number;
           checkinStreak?: number;
+          milestones?: Array<{
+            minutes: number;
+            bonusPoints: number;
+            reached: boolean;
+            claimed: boolean;
+          }>;
+          levelInfo?: {
+            level: number;
+            tierId: 'bronze' | 'silver' | 'gold' | 'platinum';
+            tierName: string;
+            multiplier: number;
+            bonusPercent: number;
+            watchMinutePoints: number;
+            dailyCheckinPoints: number;
+            watchEpisodePoints: number;
+            dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
+            progressPercent: number;
+          };
         } | null;
         config?: {
           watchMinutePoints?: number;
@@ -568,6 +625,22 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           setDailyMissionMaxWatchSeconds(
             Math.floor(data.summary.dailyMissionMaxWatchSeconds)
           );
+        }
+        if (Array.isArray(data.summary.milestones)) {
+          setDailyMissionStatuses(data.summary.milestones);
+        }
+        if (data.summary.levelInfo) {
+          const lv = data.summary.levelInfo;
+          setAccountLevelInfo(lv);
+          if (typeof lv.watchMinutePoints === 'number' && lv.watchMinutePoints > 0) {
+            setWatchMinutePoints(Math.floor(lv.watchMinutePoints));
+          }
+          if (
+            Array.isArray(lv.dailyMissionMilestones) &&
+            lv.dailyMissionMilestones.length > 0
+          ) {
+            setDailyMissionMilestones(lv.dailyMissionMilestones);
+          }
         }
         if (typeof data.summary.checkinStreak === 'number' && data.summary.checkinStreak > 0) {
           setStreak((prev) => ({
@@ -1387,6 +1460,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         } else {
           setUser(null);
           setPointsBalance(null);
+          setDailyMissionStatuses([]);
+          setAccountLevelInfo(null);
           setStreak(EMPTY_STREAK);
           setMovieListItemsRaw([]);
           void hydrateLikesFromPostgres(visitorId);
@@ -1594,6 +1669,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [language, languagePreference]);
 
   const setLanguageState = useCallback((lang: LanguageCode) => {
+    languageRef.current = lang;
     setActiveAppLanguage(lang);
     setLanguageRaw(lang);
     setLanguagePreferenceRaw(lang);
@@ -1613,6 +1689,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     (pref: LanguagePreference): LanguageCode => {
       setLanguagePreferenceRaw(pref);
       if (pref !== 'auto') {
+        languageRef.current = pref;
         setActiveAppLanguage(pref);
         setLanguageRaw(pref);
         writeLanguageCookies(pref, pref);
@@ -1823,6 +1900,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     }
     setUser(null);
     setPointsBalance(null);
+    setDailyMissionStatuses([]);
+    setAccountLevelInfo(null);
     setPointsDbError(null);
     setTodayWatchSeconds(0);
     setTodayWatchPointsEarned(0);
@@ -2614,6 +2693,18 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
               dailyMissionMaxWatchSeconds?: number;
               pointsBalance?: number | null;
               referralQualified?: boolean;
+              levelInfo?: {
+                level: number;
+                tierId: 'bronze' | 'silver' | 'gold' | 'platinum';
+                tierName: string;
+                multiplier: number;
+                bonusPercent: number;
+                watchMinutePoints: number;
+                dailyCheckinPoints: number;
+                watchEpisodePoints: number;
+                dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
+                progressPercent: number;
+              };
             } | null;
 
             if (res.status === 503) {
@@ -2649,6 +2740,21 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
                 setDailyMissionMaxWatchSeconds(
                   Math.floor(hb.dailyMissionMaxWatchSeconds)
                 );
+              }
+              if (hb.levelInfo) {
+                setAccountLevelInfo(hb.levelInfo);
+                if (
+                  typeof hb.levelInfo.watchMinutePoints === 'number' &&
+                  hb.levelInfo.watchMinutePoints > 0
+                ) {
+                  setWatchMinutePoints(Math.floor(hb.levelInfo.watchMinutePoints));
+                }
+                if (
+                  Array.isArray(hb.levelInfo.dailyMissionMilestones) &&
+                  hb.levelInfo.dailyMissionMilestones.length > 0
+                ) {
+                  setDailyMissionMilestones(hb.levelInfo.dailyMissionMilestones);
+                }
               }
               if (typeof hb.pointsBalance === 'number') {
                 setPointsBalance(Math.max(0, Math.floor(hb.pointsBalance)));
@@ -3070,6 +3176,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       dailyMissionMaxWatchSeconds,
       watchMinutePoints,
       dailyMissionMilestones,
+      dailyMissionStatuses,
+      accountLevelInfo,
       pointsPerUsd,
       refreshPointsBalance,
       getAuthHeaders,
@@ -3159,6 +3267,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       dailyMissionMaxWatchSeconds,
       watchMinutePoints,
       dailyMissionMilestones,
+      dailyMissionStatuses,
+      accountLevelInfo,
       pointsPerUsd,
       refreshPointsBalance,
       getAuthHeaders,

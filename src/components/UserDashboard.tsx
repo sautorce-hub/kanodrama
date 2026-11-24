@@ -63,6 +63,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     user,
     streak,
     pointsBalance,
+    accountLevelInfo,
     refreshPointsBalance,
     openAuthModal,
     updateUserProfile,
@@ -237,21 +238,19 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
   if (standaloneRewards) {
     return (
-      <div className="max-w-[1440px] mx-auto px-4 md:px-8 py-6 pb-16 space-y-6">
-        <header className="rounded-2xl bg-[#111015] border border-white/10 p-5 sm:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
-              {language === 'id'
-                ? 'Poin, Misi Harian & Referral KanoDrama'
-                : 'KanoDrama Points, Daily Missions & Referrals'}
+      <div className="max-w-[1200px] mx-auto px-3 sm:px-6 py-4 sm:py-6 pb-20 space-y-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-lg sm:text-xl font-extrabold text-white tracking-tight truncate">
+              {language === 'id' ? 'Pusat Koin & Hadiah' : 'Coins & Rewards'}
             </h1>
-            <p className="text-xs sm:text-sm text-[#A1A1AA] max-w-2xl">
+            <p className="text-[11px] sm:text-xs text-[#A1A1AA] truncate">
               {language === 'id'
-                ? 'Kumpulkan poin nonton drama & film, check-in WIB, dan tukarkan ke DANA, GoPay, OVO, Bank Indonesia, PayPal, Wise, atau USDT.'
-                : 'Earn verified watch & referral points and redeem for e-wallets, Indonesian banks, PayPal, Wise, or USDT.'}
+                ? 'Check-in WIB, bonus nonton harian, referral & penarikan saldo'
+                : 'UTC check-in, daily watching bonus, referrals & withdrawals'}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {user && (
               <button
                 type="button"
@@ -262,7 +261,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     })
                   );
                 }}
-                className="px-4 py-2 min-h-[40px] rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white transition-colors whitespace-nowrap"
+                className="px-3.5 py-2 min-h-[36px] rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white transition-colors whitespace-nowrap"
               >
                 {t.dashboard.title}
               </button>
@@ -270,12 +269,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <button
               type="button"
               onClick={onBackToHome}
-              className="px-4 py-2 min-h-[40px] rounded-xl bg-[#18181D] border border-white/10 hover:border-white/30 text-xs font-semibold text-white transition-colors whitespace-nowrap"
+              className="px-3.5 py-2 min-h-[36px] rounded-full bg-[#18181D] border border-white/10 hover:border-white/30 text-xs font-semibold text-white transition-colors whitespace-nowrap"
             >
               {t.sections.backToHome}
             </button>
           </div>
-        </header>
+        </div>
 
         <RewardsPayoutSection />
       </div>
@@ -396,9 +395,16 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             onClick={() => setSubTab('rewards')}
             className="p-3.5 rounded-2xl bg-gradient-to-br from-[#231B0E] to-[#111015] border border-[#D4AF37]/40 hover:border-[#D4AF37]/75 text-left transition-colors"
           >
-            <div className="flex items-center gap-1.5 text-[11px] text-[#FDE68A]">
-              <Coins className="w-3.5 h-3.5 text-[#D4AF37]" />
-              <span>{language === 'id' ? 'Poin & Referral' : 'Points & Referral'}</span>
+            <div className="flex items-center justify-between gap-1.5 text-[11px] text-[#FDE68A]">
+              <span className="inline-flex items-center gap-1.5">
+                <Coins className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span>{language === 'id' ? 'Poin & Referral' : 'Points & Referral'}</span>
+              </span>
+              {user && accountLevelInfo && (
+                <span className="px-1.5 py-0.5 rounded bg-[#D4AF37]/20 text-[10px] font-bold text-[#FDE68A] border border-[#D4AF37]/30">
+                  {accountLevelInfo.tierName} {accountLevelInfo.multiplier}x
+                </span>
+              )}
             </div>
             <p className="text-2xl font-extrabold text-white mt-1 tabular-nums">
               {user && typeof pointsBalance === 'number'

@@ -756,8 +756,8 @@ export function syncSectionDocumentSeo(
             '@type': 'Answer',
             text:
               lang === 'id'
-                ? 'Masuk ke akun KanoDrama lalu tonton drama pendek atau film secara aktif pada kecepatan normal (1x). Anda mendapatkan +5 poin/menit hingga 60 menit/hari, +15 poin episode baru (minimal 15 detik), check-in harian +10 poin + bonus streak WIB, serta bonus milestone 15, 30, dan 60 menit.'
-                : 'Sign in and actively watch short dramas or movies at normal playback speed. You earn +5 pts/min up to 60 min/day, +15 pts per new episode (min 15s watch), daily check-in +10 pts with WIB streak bonuses, and 15/30/60 minute milestones.',
+                ? 'Masuk ke akun KanoDrama lalu tonton drama pendek atau film secara aktif pada kecepatan normal (1x). Anda mendapatkan +20 poin/menit otomatis hingga 60 menit/hari (dikalikan multiplier level akun hingga 1,6x), +200 poin episode baru (minimal 15 detik), check-in harian +500 poin, serta bonus milestone 15, 30, dan 60 menit yang dapat diklaim setelah target tercapai.'
+                : 'Sign in and actively watch short dramas or movies at normal playback speed. You earn +20 pts/min automatically up to 60 min/day (scaled by account level multiplier up to 1.6x), +200 pts per new episode (min 15s watch), daily check-in +500 pts, and claimable 15/30/60 minute milestone bonuses.',
           },
         },
         {
@@ -770,8 +770,8 @@ export function syncSectionDocumentSeo(
             '@type': 'Answer',
             text:
               lang === 'id'
-                ? 'Nilai tukar resmi adalah 20.000 poin = $1.00 USD = Rp 18.200. Minimal penarikan lokal IDR (DANA, GoPay, OVO, ShopeePay, LinkAja, atau Transfer Bank Indonesia) adalah Rp 50.000, sedangkan metode global (PayPal, Wise, USDT) minimal $5.00 USD.'
-                : '20,000 points equal $1.00 USD or Rp 18,200 IDR. Indonesian local withdrawals (DANA, GoPay, OVO, ShopeePay, LinkAja, Bank Transfer) start at Rp 50,000, and global payouts (PayPal, Wise, USDT) start at $5.00 USD.',
+                ? 'Nilai tukar resmi adalah 100.000 poin = 1 USDT ($1.00 USD) = Rp 18.200. Minimal penarikan lokal IDR (DANA, GoPay, OVO, ShopeePay, LinkAja, atau Transfer Bank Indonesia) adalah Rp 50.000, sedangkan metode global (PayPal, Wise, USDT) minimal $5.00 USD.'
+                : '100,000 points equal 1 USDT ($1.00 USD) or Rp 18,200 IDR. Indonesian local withdrawals (DANA, GoPay, OVO, ShopeePay, LinkAja, Bank Transfer) start at Rp 50,000, and global payouts (PayPal, Wise, USDT) start at $5.00 USD.',
           },
         },
         {
@@ -784,8 +784,8 @@ export function syncSectionDocumentSeo(
             '@type': 'Answer',
             text:
               lang === 'id'
-                ? 'Bagikan tautan undangan resmi kano-drama.xyz Anda. Setelah teman mendaftar dan menyelesaikan total 1 jam (60 menit) durasi menonton terverifikasi, +1.000 poin otomatis masuk ke saldo Anda.'
-                : 'Share your kano-drama.xyz referral link. Once your invited friend registers and completes 1 hour of verified active watch time, +1,000 bonus points are credited automatically.',
+                ? 'Bagikan tautan undangan resmi kano-drama.xyz Anda. Setelah teman mendaftar dan menyelesaikan total 1 jam (60 menit) durasi menonton terverifikasi, +5.000 poin otomatis masuk ke saldo Anda.'
+                : 'Share your kano-drama.xyz referral link. Once your invited friend registers and completes 1 hour of verified active watch time, +5,000 bonus points are credited automatically.',
           },
         },
       ],
