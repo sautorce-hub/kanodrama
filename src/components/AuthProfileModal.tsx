@@ -70,8 +70,6 @@ export const AuthProfileModal: React.FC = () => {
     dramaWatchlistItems,
     movieWatchlistItems,
     pointsBalance,
-    gmailLoginCount,
-    refreshGmailLoginCount,
     setHelpModalOpen,
   } = useDramaContext();
 
@@ -99,13 +97,12 @@ export const AuthProfileModal: React.FC = () => {
       setShowPassword(false);
       return;
     }
-    void refreshGmailLoginCount();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') closeAuthModal();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [authModalOpen, closeAuthModal, refreshGmailLoginCount]);
+  }, [authModalOpen, closeAuthModal]);
 
   useEffect(() => {
     if (user) {
@@ -439,16 +436,6 @@ export const AuthProfileModal: React.FC = () => {
             </form>
 
             <div className="pt-2 border-t border-white/10 space-y-2">
-              <div className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#2A1016] to-[#19161A] border border-[#991B1B]/50 flex items-center justify-between text-xs">
-                <span className="inline-flex items-center gap-2 text-[#FCA5A5] font-semibold">
-                  <Mail className="w-4 h-4 text-[#EF4444]" />
-                  <span>{t.auth.gmailLoginCount}</span>
-                </span>
-                <span className="text-sm font-extrabold text-white tabular-nums">
-                  {gmailLoginCount}
-                </span>
-              </div>
-
               <button
                 type="button"
                 onClick={() => {
@@ -558,7 +545,7 @@ export const AuthProfileModal: React.FC = () => {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-3 gap-2.5">
               <div className="p-3 rounded-2xl bg-[#19161A] border border-white/10">
                 <div className="flex items-center gap-1 text-[10px] text-[#A1A1AA]">
                   <Heart className="w-3 h-3 text-[#EF4444] shrink-0" />
@@ -596,18 +583,6 @@ export const AuthProfileModal: React.FC = () => {
                   {dramaWatchlistItems.length}
                 </p>
               </button>
-
-              <div className="p-3 rounded-2xl bg-gradient-to-br from-[#2A1016] to-[#19161A] border border-[#991B1B]/50">
-                <div className="flex items-center gap-1 text-[10px] text-[#FCA5A5]">
-                  <Mail className="w-3 h-3 text-[#EF4444] shrink-0" />
-                  <span className="truncate">{t.auth.gmailLoginCount}</span>
-                </div>
-                <p className="text-lg font-extrabold text-white mt-1 tabular-nums">
-                  {user.uid.startsWith('google_')
-                    ? Math.max(1, gmailLoginCount)
-                    : gmailLoginCount}
-                </p>
-              </div>
             </div>
 
             <div className="space-y-2 pt-1">

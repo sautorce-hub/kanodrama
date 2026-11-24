@@ -4,9 +4,13 @@ import { useDramaContext } from '../context/DramaContext';
 
 interface VideoPointsCounterProps {
   isPlaying: boolean;
+  isBuffering?: boolean;
   playbackRate: number;
   isMiniPlayer?: boolean;
   onNavigateRewards?: () => void;
+  placement?: 'inline-left' | 'top-left' | 'top-right';
+  belowTopHud?: boolean;
+  className?: string;
 }
 
 function formatClockMmSs(totalSeconds: number): string {
@@ -18,9 +22,13 @@ function formatClockMmSs(totalSeconds: number): string {
 
 export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
   isPlaying,
+  isBuffering = false,
   playbackRate,
   isMiniPlayer = false,
   onNavigateRewards,
+  placement = 'top-left',
+  belowTopHud = false,
+  className = '',
 }) => {
   const {
     user,
@@ -46,7 +54,9 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
   const isId = language === 'id';
   const safeRate = Number(playbackRate) || 1;
   const speedValid = safeRate >= 0.75 && safeRate <= 1.15;
-  const isActivelyCounting = Boolean(user && isPlaying && speedValid && !tabHidden);
+  const isActivelyCounting = Boolean(
+    user && isPlaying && !isBuffering && speedValid && !tabHidden
+  );
   const maxMissionSeconds = Math.max(60, dailyMissionMaxWatchSeconds || 3600);
   const maxMissionMinutes = Math.floor(maxMissionSeconds / 60);
 
@@ -118,6 +128,20 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
   const fiveUsdPoints = Math.max(1000, (pointsPerUsd || 20000) * 5);
   const balanceDisplay = Math.max(0, pointsBalance ?? 0);
 
+  const statusText = isActivelyCounting
+    ? isId
+      ? 'AKTIF'
+      : 'LIVE'
+    : isBuffering
+    ? 'BUFFER'
+    : !speedValid
+    ? '1x ONLY'
+    : tabHidden
+    ? 'TAB'
+    : isId
+    ? 'JEDA'
+    : 'PAUSED';
+
   const handleOpenRewardsPage = (e: React.MouseEvent) => {
     e.stopPropagation();
     setExpanded(false);
@@ -131,12 +155,28 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
     }
   };
 
+  const isLeftAligned = placement === 'inline-left' || placement === 'top-left';
+  const positionClass =
+    placement === 'inline-left'
+      ? 'relative z-30 inline-flex flex-col items-start pointer-events-auto'
+      : placement === 'top-right'
+      ? `absolute ${
+          belowTopHud
+            ? 'top-[calc(max(10px,env(safe-area-inset-top))+62px)] sm:top-[72px]'
+            : 'top-3 sm:top-4'
+        } right-3 sm:right-4 z-30 flex flex-col items-end pointer-events-auto transition-[top] duration-200`
+      : `absolute ${
+          belowTopHud
+            ? 'top-[calc(max(10px,env(safe-area-inset-top))+62px)] sm:top-[72px]'
+            : 'top-3 sm:top-4'
+        } left-3 sm:left-4 z-30 flex flex-col items-start pointer-events-auto transition-[top] duration-200`;
+
   if (!user) {
     return (
       <div
         ref={containerRef}
         data-hud-control="true"
-        className="absolute top-3 right-3 sm:top-4 sm:right-4 z-30"
+        className={`${positionClass} ${className}`.trim()}
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -149,13 +189,9 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
                 : `Sign in to earn watch points (+${watchMinutePoints} pts/min) & withdraw to PayPal/DANA`
             );
           }}
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#09090B]/85 backdrop-blur-md border border-[#D4AF37]/45 text-xs font-bold text-white shadow-lg hover:border-[#D4AF37] hover:bg-[#141418]/95 transition-all"
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#09090B]/90 backdrop-blur-md border border-[#D4AF37]/45 text-xs font-bold text-white shadow-lg hover:border-[#D4AF37] hover:bg-[#141418]/95 transition-all whitespace-nowrap"
         >
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#D4AF37] opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#D4AF37]" />
-          </span>
-          <Coins className="w-3.5 h-3.5 text-[#D4AF37]" />
+          <Coins className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
           <span className="tabular-nums">
             {isId ? 'Dapat Poin Nonton' : 'Earn Watch Pts'}
           </span>
@@ -168,7 +204,7 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
     <div
       ref={containerRef}
       data-hud-control="true"
-      className="absolute top-3 right-3 sm:top-4 sm:right-4 z-30 flex flex-col items-end"
+      className={`${positionClass} ${isLeftAligned ? 'items-start' : 'items-end'} ${className}`.trim()}
       onClick={(e) => e.stopPropagation()}
     >
       <button
@@ -179,17 +215,14 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
         }}
         aria-expanded={expanded}
         aria-label={isId ? 'Counter Poin Nonton & Misi Harian' : 'Live Watch Points Counter'}
-        className={`group flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur-md border text-xs font-bold shadow-[0_8px_24px_rgba(0,0,0,0.65)] transition-all ${
+        className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg backdrop-blur-md border text-xs font-bold shadow-[0_8px_24px_rgba(0,0,0,0.65)] transition-all whitespace-nowrap ${
           isActivelyCounting
-            ? 'bg-[#09090B]/88 border-[#D4AF37]/55 text-white hover:border-[#D4AF37]'
-            : 'bg-[#09090B]/85 border-white/20 text-[#D4D4D8] hover:border-white/40'
+            ? 'bg-[#09090B]/90 border-emerald-400/50 text-white hover:border-[#D4AF37]'
+            : 'bg-[#09090B]/90 border-amber-400/40 text-[#D4D4D8] hover:border-white/40'
         }`}
       >
         {isActivelyCounting ? (
-          <span className="relative flex h-2 w-2 shrink-0">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
-          </span>
+          <Sparkles className="w-3 h-3 text-emerald-400 shrink-0" />
         ) : (
           <Pause className="w-3 h-3 text-amber-400 shrink-0" />
         )}
@@ -223,7 +256,7 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
       {expanded && (
         <div
           onClick={(e) => e.stopPropagation()}
-          className="mt-2 w-[275px] sm:w-[305px] rounded-2xl bg-[#111015]/95 backdrop-blur-xl border border-[#D4AF37]/35 p-3.5 shadow-[0_18px_45px_rgba(0,0,0,0.85)] text-left space-y-3"
+          className="mt-2 w-[275px] sm:w-[305px] max-w-[calc(100vw-1.5rem)] rounded-2xl bg-[#111015]/95 backdrop-blur-xl border border-[#D4AF37]/35 p-3.5 shadow-[0_18px_45px_rgba(0,0,0,0.85)] text-left space-y-3"
         >
           <div className="flex items-start justify-between gap-2">
             <div>
@@ -247,15 +280,7 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
                   : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
               }`}
             >
-              {isActivelyCounting
-                ? isId
-                  ? 'AKTIF'
-                  : 'LIVE'
-                : !speedValid
-                ? '1x ONLY'
-                : isId
-                ? 'JEDA'
-                : 'PAUSED'}
+              {statusText}
             </span>
           </div>
 

@@ -12,7 +12,6 @@ import {
   Heart,
   History,
   Lock,
-  Mail,
   MessageSquare,
   Play,
   Settings,
@@ -38,6 +37,7 @@ interface UserDashboardProps {
   onBackToHome: () => void;
   initialSubTab?: DashboardSubTab;
   initialWatchlistCategory?: 'movie' | 'drama';
+  standaloneRewards?: boolean;
 }
 
 type DashboardSubTab = 'profile' | 'rewards' | 'watchlist' | 'history' | 'comments';
@@ -55,14 +55,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   onBackToHome,
   initialSubTab = 'profile',
   initialWatchlistCategory = 'movie',
+  standaloneRewards = false,
 }) => {
   const {
     t,
     language,
     user,
     streak,
-    gmailLoginCount,
-    refreshGmailLoginCount,
     pointsBalance,
     refreshPointsBalance,
     openAuthModal,
@@ -97,11 +96,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   }, [initialWatchlistCategory]);
 
   useEffect(() => {
-    void refreshGmailLoginCount();
     if (user) {
       void refreshPointsBalance();
     }
-  }, [refreshGmailLoginCount, refreshPointsBalance, user]);
+  }, [refreshPointsBalance, user]);
 
   useEffect(() => {
     const onNav = (evt: Event) => {
@@ -237,6 +235,53 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     },
   ];
 
+  if (standaloneRewards) {
+    return (
+      <div className="max-w-[1440px] mx-auto px-4 md:px-8 py-6 pb-16 space-y-6">
+        <header className="rounded-2xl bg-[#111015] border border-white/10 p-5 sm:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+              {language === 'id'
+                ? 'Poin, Misi Harian & Referral KanoDrama'
+                : 'KanoDrama Points, Daily Missions & Referrals'}
+            </h1>
+            <p className="text-xs sm:text-sm text-[#A1A1AA] max-w-2xl">
+              {language === 'id'
+                ? 'Kumpulkan poin nonton drama & film, check-in WIB, dan tukarkan ke DANA, GoPay, OVO, Bank Indonesia, PayPal, Wise, atau USDT.'
+                : 'Earn verified watch & referral points and redeem for e-wallets, Indonesian banks, PayPal, Wise, or USDT.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            {user && (
+              <button
+                type="button"
+                onClick={() => {
+                  window.dispatchEvent(
+                    new CustomEvent('hd:navigate', {
+                      detail: { tab: 'dashboard', subTab: 'profile' },
+                    })
+                  );
+                }}
+                className="px-4 py-2 min-h-[40px] rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white transition-colors whitespace-nowrap"
+              >
+                {t.dashboard.title}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onBackToHome}
+              className="px-4 py-2 min-h-[40px] rounded-xl bg-[#18181D] border border-white/10 hover:border-white/30 text-xs font-semibold text-white transition-colors whitespace-nowrap"
+            >
+              {t.sections.backToHome}
+            </button>
+          </div>
+        </header>
+
+        <RewardsPayoutSection />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-[1440px] mx-auto px-4 md:px-8 py-6 pb-16 space-y-6">
       {/* Top Account Banner & Stats */}
@@ -305,7 +350,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         </div>
 
         {/* KPI Metric Summary Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2 border-t border-white/10">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-2 border-t border-white/10">
           <div className="p-3.5 rounded-2xl bg-[#111015] border border-white/5">
             <div className="flex items-center gap-1.5 text-[11px] text-[#A1A1AA]">
               <Bookmark className="w-3.5 h-3.5 text-[#D4AF37]" />
@@ -361,18 +406,6 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 : 0}
             </p>
           </button>
-
-          <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#2A1016] to-[#111015] border border-[#991B1B]/45">
-            <div className="flex items-center gap-1.5 text-[11px] text-[#FCA5A5]">
-              <Mail className="w-3.5 h-3.5 text-[#EF4444]" />
-              <span>{t.auth.gmailLoginCount}</span>
-            </div>
-            <p className="text-2xl font-extrabold text-white mt-1 tabular-nums">
-              {user?.uid?.startsWith('google_')
-                ? Math.max(1, gmailLoginCount)
-                : gmailLoginCount}
-            </p>
-          </div>
         </div>
       </section>
 

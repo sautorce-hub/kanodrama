@@ -10,10 +10,14 @@ import { createServer as createViteServer, type ViteDevServer } from 'vite';
 import {
   ALLOWED_PAYOUT_METHODS,
   ACTIVE_VISITOR_TTL_SECONDS,
+  DatabaseUnavailableError,
+  INDONESIAN_BANK_OPTIONS,
+  USDT_NETWORK_OPTIONS,
   authenticateEmailAccountInDb,
   bindReferralForUserInDb,
   buildGmailAccountKey,
-  claimPointsInDb,
+  claimDailyCheckinInDb,
+  claimWatchEpisodeInDb,
   createCommentInDb,
   createPayoutRequestInDb,
   deleteWatchHistoryInDb,
@@ -38,6 +42,8 @@ import {
   listLivePayoutFeedFromDb,
   listMoviesForSitemapFromDb,
   listUserCommentsFromDb,
+  listUserLedgerFromDb,
+  listUserPayoutsFromDb,
   listWatchHistoryFromDb,
   pingDb,
   recordGmailLoginInDb,
@@ -48,6 +54,7 @@ import {
   registerEmailAccountInDb,
   removeActiveVisitorSessionInDb,
   resolveDramaBySlugFromDb,
+  startWatchSessionInDb,
   syncUserInDb,
   toggleFavoriteInDb,
   toggleLikeInDb,
@@ -656,7 +663,7 @@ interface SessionTokenPayload {
   exp: number;
 }
 
-function signAuthSessionToken(claims: {
+export function signAuthSessionToken(claims: {
   uid: string;
   email: string;
   displayName: string;
@@ -926,6 +933,19 @@ function extractClientSecurityHashes(
     uaHash: sha256SecurityDigest(ua),
     deviceHash: sha256SecurityDigest(rawDevice),
   };
+}
+
+function extractUserTimeZone(req: Request): string | undefined {
+  const fromHeader = req.get('x-user-timezone');
+  const fromBody =
+    typeof req.body?.timeZone === 'string'
+      ? req.body.timeZone
+      : typeof req.body?.timezone === 'string'
+      ? req.body.timezone
+      : undefined;
+  const fromQuery = typeof req.query.tz === 'string' ? req.query.tz : undefined;
+  const raw = (fromHeader || fromBody || fromQuery || '').trim().slice(0, 64);
+  return raw || undefined;
 }
 
 const endpointRateWindows = new Map<string, number[]>();
@@ -2638,7 +2658,8 @@ function injectPageMetadataIntoHtml(
     | 'latest'
     | 'vip'
     | 'watchlist'
-    | 'dashboard',
+    | 'dashboard'
+    | 'rewards',
   pathname: string,
   ssrLang: LanguageCode,
   homeFeatured?: HomeSsrFeaturedData
@@ -2660,6 +2681,7 @@ function injectPageMetadataIntoHtml(
     trending: 'Trending',
     latest: 'Latest Releases',
     vip: 'VIP Originals',
+    rewards: ssrLang === 'id' ? 'Poin & Referral' : 'Rewards & Referral',
     watchlist: 'My Account',
     dashboard: 'My Account',
   };
@@ -2670,6 +2692,41 @@ function injectPageMetadataIntoHtml(
     page === 'trending' ||
     page === 'latest' ||
     page === 'vip';
+
+  const rewardsFaqGraph =
+    page === 'rewards'
+      ? [
+          {
+            '@type': 'FAQPage',
+            mainEntity: [
+              {
+                '@type': 'Question',
+                name: 'Bagaimana cara nonton drama dapat poin di KanoDrama?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Daftar atau masuk dengan akun Anda, lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +5 poin per menit hingga 60 menit per hari, +15 poin episode baru (minimal 15 detik), check-in harian + bonus streak harian, dan bonus milestone 15, 30, dan 60 menit (reset pukul 00.00 waktu lokal Anda).',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'Berapa nilai tukar poin dan minimal penarikan saldo DANA, Bank, PayPal, atau USDT?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Nilai tukar resmi adalah 20.000 poin = $1.00 USD = Rp 18.200. Penarikan lokal IDR (DANA, GoPay, OVO, ShopeePay, LinkAja, Bank Transfer BCA/BRI/BNI/Mandiri/Jago/SeaBank) minimal Rp 50.000, dan penarikan global (PayPal, Wise, USDT Polygon/TRC20/BEP20/ERC20) minimal $5.00 USD.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'Bagaimana cara mendapatkan bonus referral +1.000 poin?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Bagikan link referral resmi kano-drama.xyz Anda. Setelah teman mendaftar dan menyelesaikan total 1 jam (60 menit) waktu tonton aktif terverifikasi, +1.000 poin otomatis masuk ke saldo Anda.',
+                },
+              },
+            ],
+          },
+        ]
+      : [];
 
   const jsonLd =
     page === 'home'
@@ -2734,6 +2791,7 @@ function injectPageMetadataIntoHtml(
                 },
               ],
             },
+            ...rewardsFaqGraph,
           ],
         };
 
@@ -2783,12 +2841,35 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
       buildSsrHomeRootHtml(ssrLang, meta.description, homeFeatured)
     );
   }
+  if (page === 'rewards') {
+    const ssrRewardsHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
+      <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <span>${escapeHtmlAttr(sectionLabelMap.rewards)}</span></nav>
+      <h1>Nonton Drama China &amp; Short Drama Dapat Poin &amp; Saldo — Reward KanoDrama</h1>
+      <p>${escapeHtmlAttr(meta.description)}</p>
+      <section>
+        <h2>Cara Mengumpulkan Poin KanoDrama</h2>
+        <ul>
+          <li>Tonton drama pendek &amp; film aktif (kecepatan normal): +5 poin per menit (maksimal 60 menit/hari).</li>
+          <li>Bonus episode baru: +15 poin per episode setelah minimal 15 detik menonton terverifikasi.</li>
+          <li>Check-in harian &amp; streak beruntun (reset pukul 00:00 waktu lokal Anda).</li>
+          <li>Bonus milestone harian: +25 poin (15 menit), +50 poin (30 menit), dan +100 poin (60 menit).</li>
+          <li>Program Referral KanoDrama: +1.000 poin setelah teman menyelesaikan 1 jam waktu tonton terverifikasi.</li>
+        </ul>
+      </section>
+      <section>
+        <h2>Konversi Poin &amp; Metode Penarikan Resmi</h2>
+        <p>20.000 poin = $1.00 USD = Rp 18.200 IDR. Minimal penarikan lokal Rp 50.000 ke DANA, GoPay, OVO, ShopeePay, LinkAja, serta transfer bank BCA, BRI, BNI, Mandiri, BSI, CIMB Niaga, Bank Jago, SeaBank, Permata, dan BTN. Minimal penarikan global $5.00 USD ke PayPal, Wise, dan USDT (Polygon, TRC20, BEP20, ERC20).</p>
+      </section>
+      <nav aria-label="Navigation"><a href="${brandOrigin}/">Home</a> · <a href="${brandOrigin}/explore">Explore Drama</a> · <a href="${brandOrigin}/movies">Movies</a> · <a href="${brandOrigin}/providers">Providers</a> · <a href="${brandOrigin}/trending">Trending</a></nav>
+    </main>`;
+    return injectRootSsrMarkup(withHead, ssrRewardsHtml);
+  }
   if (!isPrivatePage) {
     const ssrSectionRootHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
       <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <span>${escapeHtmlAttr(sectionLabelMap[page] || 'Browse')}</span></nav>
       <h1>${escapeHtmlAttr(meta.title)}</h1>
       <p>${escapeHtmlAttr(meta.description)}</p>
-      <nav aria-label="Navigation"><a href="${brandOrigin}/">Home</a> · <a href="${brandOrigin}/explore">Explore</a> · <a href="${brandOrigin}/movies">Movies</a> · <a href="${brandOrigin}/providers">Providers</a> · <a href="${brandOrigin}/trending">Trending</a></nav>
+      <nav aria-label="Navigation"><a href="${brandOrigin}/">Home</a> · <a href="${brandOrigin}/explore">Explore</a> · <a href="${brandOrigin}/movies">Movies</a> · <a href="${brandOrigin}/providers">Providers</a> · <a href="${brandOrigin}/trending">Trending</a> · <a href="${brandOrigin}/rewards">Rewards</a></nav>
     </main>`;
     return injectRootSsrMarkup(withHead, ssrSectionRootHtml);
   }
@@ -2928,7 +3009,8 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
   return injectRootSsrMarkup(withHead, ssrProviderBodyHtml);
 }
 
-async function startServer() {
+export async function createServerApp(options?: { enableVite?: boolean }) {
+  const enableVite = options?.enableVite ?? !IS_PROD;
   const app = express();
   app.set('trust proxy', 1);
   app.use(
@@ -2960,7 +3042,7 @@ async function startServer() {
   });
 
   let vite: ViteDevServer | null = null;
-  if (!IS_PROD) {
+  if (!IS_PROD && enableVite) {
     vite = await createViteServer({
       server: {
         middlewareMode: true,
@@ -4759,10 +4841,28 @@ async function startServer() {
 
   // --- Points, Rewards & Payout Requests (USD & IDR) ---
 
+  function handlePointsDbError(res: Response, err: unknown, fallbackMessage: string) {
+    if (err instanceof DatabaseUnavailableError) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(503).json({
+        ok: false,
+        code: err.code,
+        error: err.message,
+        requiredConfig: err.requiredConfig,
+      });
+      return;
+    }
+    res.status(500).json({
+      ok: false,
+      error: err instanceof Error ? err.message : fallbackMessage,
+    });
+  }
+
   function validatePayoutDestinationAccount(
     method: PayoutMethod,
-    rawDestination: string
-  ): { valid: boolean; normalized: string; error?: string } {
+    rawDestination: string,
+    rawBankCode?: string
+  ): { valid: boolean; normalized: string; bankCode?: string; error?: string } {
     const trimmed = rawDestination.trim();
     if (!trimmed) {
       return { valid: false, normalized: '', error: 'Destination account is required' };
@@ -4774,7 +4874,9 @@ async function startServer() {
     switch (method) {
       case 'dana':
       case 'ovo':
-      case 'gopay': {
+      case 'gopay':
+      case 'shopeepay':
+      case 'linkaja': {
         const digitsOnly = trimmed.replace(/[\s\-().]/g, '');
         if (!/^(\+?62|0)8[0-9]{7,13}$/.test(digitsOnly)) {
           return {
@@ -4786,15 +4888,29 @@ async function startServer() {
         return { valid: true, normalized: digitsOnly };
       }
       case 'bank_transfer': {
-        const digits = trimmed.replace(/[^0-9]/g, '');
-        if (trimmed.length < 6 || digits.length < 6) {
+        const bankCode = cleanText(rawBankCode).toUpperCase();
+        const bankOpt = INDONESIAN_BANK_OPTIONS.find((b) => b.code === bankCode);
+        if (!bankOpt) {
           return {
             valid: false,
             normalized: trimmed,
-            error: 'Masukkan nama bank & nomor rekening valid (contoh: BCA - 1234567890).',
+            error: 'Pilih bank Indonesia tujuan (BCA, BRI, BNI, Mandiri, BSI, CIMB, Jago, SeaBank, Permata, BTN).',
           };
         }
-        return { valid: true, normalized: trimmed };
+        const digits = trimmed.replace(/[^0-9]/g, '');
+        if (digits.length < bankOpt.minDigits || digits.length > bankOpt.maxDigits) {
+          return {
+            valid: false,
+            normalized: trimmed,
+            bankCode: bankOpt.code,
+            error: `Nomor rekening ${bankOpt.shortName} harus ${bankOpt.minDigits}–${bankOpt.maxDigits} digit angka.`,
+          };
+        }
+        return {
+          valid: true,
+          normalized: `${bankOpt.shortName} - ${digits}`,
+          bankCode: bankOpt.code,
+        };
       }
       case 'paypal': {
         if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
@@ -4818,12 +4934,20 @@ async function startServer() {
         }
         return { valid: true, normalized: isEmail ? trimmed.toLowerCase() : trimmed };
       }
-      case 'usdt_polygon': {
+      case 'usdt_polygon':
+      case 'usdt_bep20':
+      case 'usdt_erc20': {
         if (!/^0x[a-fA-F0-9]{40}$/.test(trimmed)) {
+          const netLabel =
+            method === 'usdt_polygon'
+              ? 'Polygon'
+              : method === 'usdt_bep20'
+              ? 'BEP20 (BNB Smart Chain)'
+              : 'ERC20 (Ethereum)';
           return {
             valid: false,
             normalized: trimmed,
-            error: 'Please enter a valid Polygon (0x...) wallet address.',
+            error: `Please enter a valid ${netLabel} (0x...) wallet address.`,
           };
         }
         return { valid: true, normalized: trimmed };
@@ -4882,7 +5006,13 @@ async function startServer() {
   app.get('/api/points/config', (_req: Request, res: Response) => {
     const config = getPayoutRuntimeConfig();
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ ok: true, config });
+    res.json({
+      ok: true,
+      dbConnected: isDatabaseEnabled(),
+      config,
+      banks: INDONESIAN_BANK_OPTIONS,
+      usdtNetworks: USDT_NETWORK_OPTIONS,
+    });
   });
 
   app.get('/api/payouts/live', async (req: Request, res: Response) => {
@@ -4892,10 +5022,7 @@ async function startServer() {
       res.setHeader('Cache-Control', 'no-store');
       res.json({ ok: true, items });
     } catch (err) {
-      res.status(500).json({
-        ok: false,
-        error: err instanceof Error ? err.message : 'Failed to load live payouts',
-      });
+      handlePointsDbError(res, err, 'Failed to load live payouts');
     }
   });
 
@@ -4907,14 +5034,58 @@ async function startServer() {
         return;
       }
       const config = getPayoutRuntimeConfig();
-      const summary = await getUserPointsSummaryFromDb(session.uid);
+      const summary = await getUserPointsSummaryFromDb(
+        session.uid,
+        extractUserTimeZone(req)
+      );
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ ok: true, summary, config });
+      res.json({ ok: true, dbConnected: true, summary, config });
     } catch (err) {
-      res.status(500).json({
-        ok: false,
-        error: err instanceof Error ? err.message : 'Failed to load points summary',
-      });
+      handlePointsDbError(res, err, 'Failed to load points summary');
+    }
+  });
+
+  app.get('/api/points/ledger', async (req: Request, res: Response) => {
+    try {
+      const { session } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
+        return;
+      }
+      const requestedUid = cleanText(req.query.userId);
+      if (requestedUid && requestedUid !== session.uid) {
+        res.status(403).json({ ok: false, error: 'Forbidden' });
+        return;
+      }
+      const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
+      const data = await listUserLedgerFromDb(session.uid, limit, offset);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ ok: true, ...data });
+    } catch (err) {
+      handlePointsDbError(res, err, 'Failed to load points ledger');
+    }
+  });
+
+  app.get('/api/points/payouts', async (req: Request, res: Response) => {
+    try {
+      const { session } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
+        return;
+      }
+      const requestedUid = cleanText(req.query.userId);
+      if (requestedUid && requestedUid !== session.uid) {
+        res.status(403).json({ ok: false, error: 'Forbidden' });
+        return;
+      }
+      const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 15));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
+      const data = await listUserPayoutsFromDb(session.uid, limit, offset);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ ok: true, ...data });
+    } catch (err) {
+      handlePointsDbError(res, err, 'Failed to load payout history');
     }
   });
 
@@ -4929,23 +5100,73 @@ async function startServer() {
         res.status(403).json({ ok: false, error: 'Untrusted origin' });
         return;
       }
+      if (isEndpointRateLimited(`claim:${session.uid}`, 20, 60_000)) {
+        res.status(429).json({
+          ok: false,
+          reason: 'cooldown_active',
+          error: 'Too many claim requests. Please slow down.',
+        });
+        return;
+      }
 
       const cfg = getPayoutRuntimeConfig();
-      const action = cleanText(req.body?.action, 'daily_checkin');
-      const dayKey = getJakartaDateKey();
+      const action = cleanText(
+        req.body?.action ?? req.body?.type,
+        'daily_checkin'
+      ).toLowerCase();
 
-      let amount = 0;
-      let description = '';
-      let referenceId = '';
+      res.setHeader('Cache-Control', 'no-store');
 
-      if (action === 'daily_checkin') {
-        amount = cfg.dailyCheckinPoints;
-        description = `Daily Check-In Reward (${dayKey})`;
-        referenceId = `checkin:${session.uid}:${dayKey}`;
-      } else if (action === 'watch_episode') {
+      if (action === 'daily_checkin' || action === 'checkin') {
+        const result = await claimDailyCheckinInDb({
+          userId: session.uid,
+          displayName: session.displayName,
+          timeZone: extractUserTimeZone(req),
+        });
+        if (!result.ok) {
+          const statusCode =
+            result.reason === 'daily_cap_reached'
+              ? 429
+              : result.reason === 'duplicate_claim'
+              ? 409
+              : 400;
+          const message =
+            result.reason === 'duplicate_claim'
+              ? 'Check-in harian hari ini sudah diklaim (reset pukul 00:00 waktu lokal).'
+              : result.reason === 'daily_cap_reached'
+              ? `Batas poin harian (${cfg.maxDailyEarnPoints} pts) hari ini sudah tercapai.`
+              : 'Unable to complete daily check-in';
+          res.status(statusCode).json({
+            ok: false,
+            reason: result.reason,
+            error: message,
+            summary: result.summary,
+            config: cfg,
+          });
+          return;
+        }
+
+        res.json({
+          ok: true,
+          awardedPoints: result.entry?.points ?? cfg.dailyCheckinPoints,
+          streakDay: result.streakDay,
+          streak: result.streakDay,
+          entry: result.entry,
+          summary: result.summary,
+          config: cfg,
+        });
+        return;
+      }
+
+      if (action === 'watch_episode') {
         const dramaId = cleanText(req.body?.dramaId).slice(0, 80);
         const provider = cleanText(req.body?.provider, 'DramaBox').slice(0, 40);
         const episodeNumber = Math.floor(Number(req.body?.episodeNumber) || 0);
+        const sessionToken = cleanText(
+          req.body?.sessionToken ?? req.body?.watchSessionToken
+        ).slice(0, 128);
+        const title = cleanText(req.body?.title).slice(0, 140);
+
         if (!dramaId || episodeNumber < 1 || episodeNumber > 5000) {
           res.status(400).json({
             ok: false,
@@ -4953,61 +5174,67 @@ async function startServer() {
           });
           return;
         }
-        amount = cfg.watchEpisodePoints;
-        description = `Watch Reward: ${provider} #${dramaId} EP ${episodeNumber}`;
-        referenceId = `watch:${session.uid}:${provider}:${dramaId}:ep${episodeNumber}:${dayKey}`;
-      } else {
-        res.status(400).json({ ok: false, error: 'Unsupported claim action' });
-        return;
-      }
+        if (!sessionToken) {
+          res.status(400).json({
+            ok: false,
+            reason: 'invalid_session',
+            error: 'Active watch session token is required to claim episode points',
+          });
+          return;
+        }
 
-      const result = await claimPointsInDb({
-        userId: session.uid,
-        amount,
-        description,
-        referenceId,
-        displayName: session.displayName,
-      });
+        const result = await claimWatchEpisodeInDb({
+          userId: session.uid,
+          provider,
+          dramaId,
+          episodeNumber,
+          sessionToken,
+          title,
+          displayName: session.displayName,
+          timeZone: extractUserTimeZone(req),
+        });
 
-      res.setHeader('Cache-Control', 'no-store');
-      if (!result.ok) {
-        const statusCode =
-          result.reason === 'cooldown_active' || result.reason === 'daily_cap_reached'
-            ? 429
-            : result.reason === 'duplicate_claim'
-            ? 409
-            : 400;
-        const message =
-          result.reason === 'duplicate_claim'
-            ? 'Reward already claimed for this item today'
-            : result.reason === 'cooldown_active'
-            ? `Please wait ${result.cooldownSecondsRemaining || cfg.claimCooldownSeconds}s before the next claim`
-            : result.reason === 'daily_cap_reached'
-            ? `Daily earn limit (${cfg.maxDailyEarnPoints} pts) reached for today`
-            : 'Unable to claim points';
-        res.status(statusCode).json({
-          ok: false,
-          reason: result.reason,
-          cooldownSecondsRemaining: result.cooldownSecondsRemaining,
-          error: message,
+        if (!result.ok) {
+          const statusCode =
+            result.reason === 'daily_cap_reached' || result.reason === 'cooldown_active'
+              ? 429
+              : result.reason === 'duplicate_claim'
+              ? 409
+              : 400;
+          const message =
+            result.reason === 'duplicate_claim'
+              ? 'Bonus episode ini sudah pernah diklaim untuk akun Anda.'
+              : result.reason === 'watch_duration_insufficient'
+              ? 'Tonton episode minimal 15 detik secara aktif untuk membuka bonus poin.'
+              : result.reason === 'daily_cap_reached'
+              ? `Daily earn limit (${cfg.maxDailyEarnPoints} pts) reached for today`
+              : result.reason === 'cooldown_active'
+              ? `Please wait ${result.cooldownSecondsRemaining || cfg.claimCooldownSeconds}s before the next claim`
+              : 'Unable to claim episode watch reward';
+          res.status(statusCode).json({
+            ok: false,
+            reason: result.reason,
+            cooldownSecondsRemaining: result.cooldownSecondsRemaining,
+            error: message,
+            summary: result.summary,
+            config: cfg,
+          });
+          return;
+        }
+
+        res.json({
+          ok: true,
+          awardedPoints: result.entry?.points ?? cfg.watchEpisodePoints,
+          entry: result.entry,
           summary: result.summary,
           config: cfg,
         });
         return;
       }
 
-      res.json({
-        ok: true,
-        awardedPoints: amount,
-        entry: result.entry,
-        summary: result.summary,
-        config: cfg,
-      });
+      res.status(400).json({ ok: false, error: 'Unsupported claim action' });
     } catch (err) {
-      res.status(500).json({
-        ok: false,
-        error: err instanceof Error ? err.message : 'Failed to claim points',
-      });
+      handlePointsDbError(res, err, 'Failed to claim points');
     }
   });
 
@@ -5022,12 +5249,24 @@ async function startServer() {
         res.status(403).json({ ok: false, error: 'Untrusted origin' });
         return;
       }
+      if (isEndpointRateLimited(`redeem:${session.uid}`, 8, 60_000)) {
+        res.status(429).json({
+          ok: false,
+          error: 'Terlalu banyak permintaan penarikan. Silakan tunggu sebentar.',
+        });
+        return;
+      }
 
-      const methodRaw = cleanText(req.body?.method).toLowerCase() as PayoutMethod;
-      if (!ALLOWED_PAYOUT_METHODS.has(methodRaw)) {
+      let methodRaw = cleanText(req.body?.method).toLowerCase();
+      if (methodRaw === 'usdt') {
+        const net = cleanText(req.body?.network, 'polygon').toLowerCase();
+        methodRaw = net.startsWith('usdt_') ? net : `usdt_${net}`;
+      }
+      if (!ALLOWED_PAYOUT_METHODS.has(methodRaw as PayoutMethod)) {
         res.status(400).json({ ok: false, error: 'Unsupported payout method' });
         return;
       }
+      const method = methodRaw as PayoutMethod;
 
       const pointsSpent = Math.floor(Number(req.body?.pointsSpent) || 0);
       if (!Number.isFinite(pointsSpent) || pointsSpent <= 0 || pointsSpent > 10_000_000) {
@@ -5045,8 +5284,9 @@ async function startServer() {
       }
 
       const destCheck = validatePayoutDestinationAccount(
-        methodRaw,
-        String(req.body?.destinationAccount || '')
+        method,
+        String(req.body?.destinationAccount || ''),
+        cleanText(req.body?.bankCode)
       );
       if (!destCheck.valid) {
         res.status(400).json({
@@ -5056,28 +5296,42 @@ async function startServer() {
         return;
       }
 
+      const idempotencyKey = cleanText(
+        req.body?.idempotencyKey ?? req.headers['idempotency-key']
+      ).slice(0, 80);
+
       const cfg = getPayoutRuntimeConfig();
       const result = await createPayoutRequestInDb({
         userId: session.uid,
         pointsSpent,
-        method: methodRaw,
+        method,
         destinationAccount: destCheck.normalized,
         accountHolderName,
         displayName: session.displayName,
+        bankCode: destCheck.bankCode,
+        network: cleanText(req.body?.network).slice(0, 24) || undefined,
+        idempotencyKey: idempotencyKey || undefined,
       });
 
       res.setHeader('Cache-Control', 'no-store');
       if (!result.ok) {
-        const isIdrMethod = ['dana', 'ovo', 'gopay', 'bank_transfer'].includes(
-          methodRaw
-        );
+        const isIdrMethod = [
+          'dana',
+          'ovo',
+          'gopay',
+          'shopeepay',
+          'linkaja',
+          'bank_transfer',
+        ].includes(method);
         const message =
           result.reason === 'below_minimum'
             ? isIdrMethod
               ? `Minimum penarikan Rupiah adalah Rp ${cfg.minPayoutIdr.toLocaleString('id-ID')} (${result.minRequiredPoints} poin)`
               : `Minimum Global withdrawal is $${cfg.minPayoutUsd.toFixed(2)} USD (${result.minRequiredPoints} points)`
             : result.reason === 'insufficient_balance'
-            ? 'Insufficient points balance'
+            ? 'Saldo poin aktif tidak mencukupi untuk penarikan ini.'
+            : result.reason === 'invalid_method_details'
+            ? 'Detail metode atau kode bank tujuan tidak valid.'
             : 'Unable to submit payout request';
         res.status(400).json({
           ok: false,
@@ -5092,17 +5346,16 @@ async function startServer() {
         return;
       }
 
-      res.status(201).json({
+      res.status(result.deduplicated ? 200 : 201).json({
         ok: true,
+        deduplicated: Boolean(result.deduplicated),
+        idempotentReplay: Boolean(result.deduplicated),
         payout: result.payout,
         summary: result.summary,
         config: cfg,
       });
     } catch (err) {
-      res.status(500).json({
-        ok: false,
-        error: err instanceof Error ? err.message : 'Failed to create payout request',
-      });
+      handlePointsDbError(res, err, 'Failed to create payout request');
     }
   });
 
@@ -5116,15 +5369,14 @@ async function startServer() {
         return;
       }
       const config = getPayoutRuntimeConfig();
-      const referralSummary = await getUserReferralSummaryFromDb(session.uid);
+      const referralSummary = await getUserReferralSummaryFromDb(
+        session.uid,
+        extractUserTimeZone(req)
+      );
       res.setHeader('Cache-Control', 'no-store');
       res.json({ ok: true, referralSummary, config });
     } catch (err) {
-      res.status(500).json({
-        ok: false,
-        error:
-          err instanceof Error ? err.message : 'Failed to load referral summary',
-      });
+      handlePointsDbError(res, err, 'Failed to load referral summary');
     }
   });
 
@@ -5176,10 +5428,60 @@ async function startServer() {
         reason: result.reason,
       });
     } catch (err) {
-      res.status(500).json({
-        ok: false,
-        error: err instanceof Error ? err.message : 'Failed to bind referral',
+      handlePointsDbError(res, err, 'Failed to bind referral');
+    }
+  });
+
+  app.post('/api/watch/session', async (req: Request, res: Response) => {
+    try {
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
+        return;
+      }
+      if (viaCookie && !isTrustedSameOriginMutation(req)) {
+        res.status(403).json({ ok: false, error: 'Untrusted origin' });
+        return;
+      }
+      if (isEndpointRateLimited(`wsess:${session.uid}`, 30, 60_000)) {
+        res.status(429).json({
+          ok: false,
+          error: 'Too many watch session starts. Please wait a moment.',
+        });
+        return;
+      }
+
+      const dramaId = cleanText(req.body?.dramaId).slice(0, 80);
+      const provider = cleanText(req.body?.provider, 'DramaBox').slice(0, 40);
+      const episodeNumber = Math.max(
+        1,
+        Math.min(5000, Math.floor(Number(req.body?.episodeNumber) || 1))
+      );
+      if (!dramaId) {
+        res.status(400).json({
+          ok: false,
+          error: 'dramaId is required',
+        });
+        return;
+      }
+
+      const previousSessionToken = cleanText(req.body?.previousSessionToken).slice(0, 128);
+      const mediaKey = `${provider}:${dramaId}:ep${episodeNumber}`;
+      const secHashes = extractClientSecurityHashes(req);
+      const started = await startWatchSessionInDb({
+        userId: session.uid,
+        mediaKey,
+        provider,
+        dramaId,
+        episodeNumber,
+        deviceHash: secHashes.deviceHash,
+        previousSessionToken: previousSessionToken || undefined,
       });
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(201).json(started);
+    } catch (err) {
+      handlePointsDbError(res, err, 'Failed to initialize watch session');
     }
   });
 
@@ -5195,7 +5497,7 @@ async function startServer() {
         return;
       }
 
-      if (isEndpointRateLimited(`hb:${session.uid}`, 12, 60_000)) {
+      if (isEndpointRateLimited(`hb:${session.uid}`, 18, 60_000)) {
         res.status(429).json({
           ok: false,
           reason: 'heartbeat_too_fast',
@@ -5204,17 +5506,30 @@ async function startServer() {
         return;
       }
 
-      const streamSessionId = cleanText(req.body?.streamSessionId).slice(0, 80);
+      const sessionToken = cleanText(
+        req.body?.sessionToken ?? req.body?.streamSessionId
+      ).slice(0, 128);
       const dramaId = cleanText(req.body?.dramaId).slice(0, 80);
       const provider = cleanText(req.body?.provider, 'DramaBox').slice(0, 40);
       const episodeNumber = Math.max(
         1,
         Math.min(5000, Math.floor(Number(req.body?.episodeNumber) || 1))
       );
-      if (!streamSessionId || !dramaId) {
+      if (!sessionToken || !dramaId) {
         res.status(400).json({
           ok: false,
-          error: 'streamSessionId and dramaId are required',
+          reason: 'invalid_session',
+          error: 'sessionToken and dramaId are required',
+        });
+        return;
+      }
+
+      const seq = Math.floor(Number(req.body?.seq) || 0);
+      if (seq < 1) {
+        res.status(400).json({
+          ok: false,
+          reason: 'replay_blocked',
+          error: 'Valid monotonic heartbeat seq is required',
         });
         return;
       }
@@ -5222,20 +5537,24 @@ async function startServer() {
       const mediaKey = `${provider}:${dramaId}:ep${episodeNumber}`;
       const currentTimeSec = Math.max(0, Number(req.body?.currentTimeSec) || 0);
       const isPlaying = Boolean(req.body?.isPlaying);
+      const isBuffering = Boolean(req.body?.isBuffering);
       const tabVisible = Boolean(req.body?.tabVisible);
       const playbackRate = Number(req.body?.playbackRate) || 1;
       const secHashes = extractClientSecurityHashes(req);
 
       const hbRes = await recordWatchHeartbeatInDb({
         userId: session.uid,
-        streamSessionId,
+        streamSessionId: sessionToken,
+        seq,
         mediaKey,
         currentTimeSec,
         isPlaying,
+        isBuffering,
         tabVisible,
         playbackRate,
         ...secHashes,
         displayName: session.displayName,
+        timeZone: extractUserTimeZone(req),
       });
 
       res.setHeader('Cache-Control', 'no-store');
@@ -5253,14 +5572,23 @@ async function startServer() {
         });
         return;
       }
+      if (
+        !hbRes.ok &&
+        (hbRes.reason === 'replay_blocked' || hbRes.reason === 'invalid_session')
+      ) {
+        res.status(hbRes.reason === 'replay_blocked' ? 409 : 401).json({
+          ...hbRes,
+          error:
+            hbRes.reason === 'replay_blocked'
+              ? 'Duplicate or out-of-order watch heartbeat detected'
+              : 'Invalid or expired watch session',
+        });
+        return;
+      }
 
       res.json(hbRes);
     } catch (err) {
-      res.status(500).json({
-        ok: false,
-        error:
-          err instanceof Error ? err.message : 'Failed to record watch heartbeat',
-      });
+      handlePointsDbError(res, err, 'Failed to record watch heartbeat');
     }
   });
 
@@ -5274,10 +5602,7 @@ async function startServer() {
       res.setHeader('Cache-Control', 'no-store');
       res.json({ ok: true, items: data.items, total: data.total });
     } catch (err) {
-      res.status(500).json({
-        ok: false,
-        error: err instanceof Error ? err.message : 'Failed to list payout requests',
-      });
+      handlePointsDbError(res, err, 'Failed to list payout requests');
     }
   });
 
@@ -5291,10 +5616,14 @@ async function startServer() {
       }
 
       const nextStatus = cleanText(req.body?.status).toLowerCase();
-      if (!['approved', 'paid', 'rejected'].includes(nextStatus)) {
+      if (
+        !['processing', 'approved', 'paid', 'completed', 'rejected', 'failed'].includes(
+          nextStatus
+        )
+      ) {
         res.status(400).json({
           ok: false,
-          error: 'status must be approved, paid, or rejected',
+          error: 'status must be processing, approved, paid, completed, rejected, or failed',
         });
         return;
       }
@@ -5308,7 +5637,13 @@ async function startServer() {
 
       const result = await updateAdminPayoutStatusInDb({
         payoutId,
-        status: nextStatus as 'approved' | 'paid' | 'rejected',
+        status: nextStatus as
+          | 'processing'
+          | 'approved'
+          | 'paid'
+          | 'completed'
+          | 'rejected'
+          | 'failed',
         adminNote,
       });
 
@@ -5328,7 +5663,7 @@ async function startServer() {
             result.reason === 'not_found'
               ? 'Payout request not found'
               : result.reason === 'already_finalized'
-              ? 'Payout request is already finalized (paid or rejected)'
+              ? 'Payout request is already finalized (completed, paid, rejected, or failed)'
               : 'Unable to update payout request',
         });
         return;
@@ -5340,10 +5675,7 @@ async function startServer() {
         refunded: Boolean(result.refunded),
       });
     } catch (err) {
-      res.status(500).json({
-        ok: false,
-        error: err instanceof Error ? err.message : 'Failed to update payout status',
-      });
+      handlePointsDbError(res, err, 'Failed to update payout status');
     }
   });
 
@@ -6391,6 +6723,7 @@ async function startServer() {
           'Allow: /trending',
           'Allow: /latest',
           'Allow: /vip',
+          'Allow: /rewards',
           'Allow: /api/og',
           'Allow: /api/og?*',
           'Allow: /api/home',
@@ -6473,6 +6806,7 @@ async function startServer() {
       pushEntry(`${siteOrigin}/trending`, 'hourly', '0.9', todayIso);
       pushEntry(`${siteOrigin}/latest`, 'hourly', '0.9', todayIso);
       pushEntry(`${siteOrigin}/vip`, 'daily', '0.85', todayIso);
+      pushEntry(`${siteOrigin}/rewards`, 'daily', '0.9', todayIso);
 
       for (const provName of Object.keys(PROVIDER_SLUG_MAP)) {
         if (provName === 'LK21' || provName === 'LookSeries') continue;
@@ -6938,6 +7272,15 @@ async function startServer() {
         return;
       }
 
+      if (
+        lowerCleanPath === '/referral' ||
+        lowerCleanPath.startsWith('/referral/')
+      ) {
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.redirect(301, '/rewards');
+        return;
+      }
+
       if (lowerCleanPath === '/provider') {
         res.setHeader('Cache-Control', 'public, max-age=3600');
         res.redirect(301, '/providers');
@@ -7000,7 +7343,7 @@ async function startServer() {
 
       const sectionPageMap: Record<
         string,
-        'movies' | 'explore' | 'providers' | 'trending' | 'latest' | 'vip' | 'dashboard'
+        'movies' | 'explore' | 'providers' | 'trending' | 'latest' | 'vip' | 'dashboard' | 'rewards'
       > = {
         '/movies': 'movies',
         '/explore': 'explore',
@@ -7009,8 +7352,7 @@ async function startServer() {
         '/latest': 'latest',
         '/vip': 'vip',
         '/account': 'dashboard',
-        '/rewards': 'dashboard',
-        '/referral': 'dashboard',
+        '/rewards': 'rewards',
       };
 
       const sectionPage = sectionPageMap[lowerCleanPath];
@@ -7738,6 +8080,11 @@ async function startServer() {
     }
   });
 
+  return { app, vite };
+}
+
+async function startServer() {
+  const { app } = await createServerApp({ enableVite: !IS_PROD });
   await ensureDatabaseReady();
 
   app.listen(PORT, '0.0.0.0', () => {
@@ -7750,4 +8097,10 @@ async function startServer() {
   });
 }
 
-startServer();
+const isNodeTestRunner =
+  Boolean(process.env.NODE_TEST_CONTEXT) ||
+  process.argv.some((arg) => arg.includes('.test.'));
+
+if (process.env.KD_DISABLE_AUTO_LISTEN !== '1' && !isNodeTestRunner) {
+  void startServer();
+}

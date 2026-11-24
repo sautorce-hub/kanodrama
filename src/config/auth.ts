@@ -82,6 +82,13 @@ declare global {
 const GSI_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
 const PENDING_REF_STORAGE_KEY = 'kanodrama_pending_ref';
 const DEVICE_FP_STORAGE_KEY = 'kanodrama_device_fp';
+export const PRODUCTION_SITE_ORIGIN = 'https://kano-drama.xyz';
+
+export function getProductionReferralUrl(referralCode: string): string {
+  const cleanCode = (referralCode || '').trim().toUpperCase();
+  if (!cleanCode) return PRODUCTION_SITE_ORIGIN;
+  return `${PRODUCTION_SITE_ORIGIN}/?ref=${encodeURIComponent(cleanCode)}`;
+}
 
 export function getClientDeviceFingerprint(): string {
   if (typeof window === 'undefined') return '';

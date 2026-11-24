@@ -76,7 +76,12 @@ export interface MovieVideoPlayerProps {
     episodeNumber: number,
     currentTime: number,
     duration: number,
-    immediate?: boolean
+    immediate?: boolean,
+    playbackState?: {
+      isPlaying?: boolean;
+      isBuffering?: boolean;
+      playbackRate?: number;
+    }
   ) => void;
 }
 
@@ -105,7 +110,7 @@ const REACTION_BUTTONS: { key: ReactionKey; emoji: string; label: string }[] = [
 ];
 
 const WM_CORNER_CLASSES = [
-  'top-16 sm:top-5 left-3 sm:left-5',
+  'top-28 sm:top-28 left-3 sm:left-5',
   'top-16 sm:top-5 right-3 sm:right-5',
   'bottom-24 sm:bottom-16 right-3 sm:right-5',
   'bottom-24 sm:bottom-16 left-3 sm:left-5',
@@ -286,6 +291,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
   const userToggledSubtitleRef = useRef<boolean>(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [bufferedPct, setBufferedPct] = useState(0);
@@ -1462,7 +1468,11 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
     const tNow = timeOverride ?? v?.currentTime ?? currentTime;
     const dNow =
       v?.duration && Number.isFinite(v.duration) ? v.duration : duration;
-    onProgressUpdate(episodeNumber, tNow, dNow, immediate);
+    onProgressUpdate(episodeNumber, tNow, dNow, immediate, {
+      isPlaying: Boolean(v && !v.paused && !v.ended),
+      isBuffering,
+      playbackRate: v ? Number(v.playbackRate) || playbackSpeed : playbackSpeed,
+    });
   };
 
   const showPinchToast = (message: string) => {
@@ -2540,8 +2550,16 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
               onContextMenu={(e) => e.preventDefault()}
               poster={posterUrl || undefined}
               onLoadedData={() => setVideoReady(true)}
-              onCanPlay={() => setVideoReady(true)}
+              onWaiting={() => setIsBuffering(true)}
+              onStalled={() => setIsBuffering(true)}
+              onSeeking={() => setIsBuffering(true)}
+              onSeeked={() => setIsBuffering(false)}
+              onCanPlay={() => {
+                setIsBuffering(false);
+                setVideoReady(true);
+              }}
               onPlaying={() => {
+                setIsBuffering(false);
                 setVideoReady(true);
                 setIsPlaying(true);
               }}
@@ -2558,6 +2576,9 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
               onTimeUpdate={() => {
                 const v = videoRef.current;
                 if (!v) return;
+                if (isBuffering && v.readyState >= 3 && !v.paused) {
+                  setIsBuffering(false);
+                }
                 if (v.currentTime > 0 && !videoReady) {
                   setVideoReady(true);
                 }
@@ -2569,7 +2590,12 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
                     episodeNumber,
                     v.currentTime,
                     Number.isFinite(v.duration) ? v.duration : 0,
-                    false
+                    false,
+                    {
+                      isPlaying: !v.paused && !v.ended,
+                      isBuffering,
+                      playbackRate: Number(v.playbackRate) || playbackSpeed,
+                    }
                   );
                 }
               }}
@@ -2598,13 +2624,16 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
               }}
               onPlay={() => {
                 setIsPlaying(true);
+                setIsBuffering(false);
               }}
               onPause={() => {
                 setIsPlaying(false);
+                setIsBuffering(false);
                 flushProgress(undefined, true);
               }}
               onEnded={() => {
                 setIsPlaying(false);
+                setIsBuffering(false);
                 flushProgress(duration, true);
                 if (autoPlayNext && hasNext) {
                   setNextEpCountdown(3);
@@ -2632,9 +2661,12 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
 
             <VideoPointsCounter
               isPlaying={isPlaying}
+              isBuffering={isBuffering}
               playbackRate={playbackSpeed}
               isMiniPlayer={isFloatingMiniActive}
               onNavigateRewards={onClose}
+              placement="top-left"
+              belowTopHud={isFullscreen && hudVisible}
             />
 
             {/* Dynamic Moving Translucent Watermark */}

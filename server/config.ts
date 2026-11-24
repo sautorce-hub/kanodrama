@@ -59,6 +59,9 @@ export const ANTI_CHEAT_DEFAULTS = {
   maxPlaybackRate: 1.15,
   minVideoAdvanceSec: 0.5,
   maxHeartbeatStepSec: 65,
+  maxSeekRatio: 1.45,
+  watchSessionTtlSec: 4 * 3600,
+  minEpisodeWatchSecForBonus: 15,
   newAccountMaxLedgerEntries: 2,
   newAccountMaxWatchSeconds: 600,
 } as const;

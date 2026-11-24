@@ -85,7 +85,12 @@ interface CinemaVideoPlayerProps {
     episodeNumber: number,
     currentTime: number,
     duration: number,
-    immediate?: boolean
+    immediate?: boolean,
+    playbackState?: {
+      isPlaying?: boolean;
+      isBuffering?: boolean;
+      playbackRate?: number;
+    }
   ) => void;
 }
 
@@ -114,10 +119,10 @@ const REACTION_BUTTONS: { key: ReactionKey; emoji: string; label: string }[] = [
 ];
 
 const WM_CORNER_CLASSES = [
-  'top-16 sm:top-5 left-3 sm:left-5',
-  'top-16 sm:top-5 right-3 sm:right-5',
-  'bottom-24 sm:bottom-16 right-3 sm:right-5',
-  'bottom-24 sm:bottom-16 left-3 sm:left-5',
+  'top-28 sm:top-28 left-3 sm:left-6',
+  'top-28 sm:top-24 right-14 sm:right-6',
+  'bottom-24 sm:bottom-16 right-14 sm:right-6',
+  'bottom-24 sm:bottom-16 left-3 sm:left-6',
 ] as const;
 
 function formatTime(seconds: number): string {
@@ -288,6 +293,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
   const userToggledSubtitleRef = useRef<boolean>(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [bufferedPct, setBufferedPct] = useState(0);
@@ -1296,7 +1302,11 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     const tNow = timeOverride ?? v?.currentTime ?? currentTime;
     const dNow =
       v?.duration && Number.isFinite(v.duration) ? v.duration : duration;
-    onProgressUpdate(episodeNumber, tNow, dNow, immediate);
+    onProgressUpdate(episodeNumber, tNow, dNow, immediate, {
+      isPlaying: Boolean(v && !v.paused && !v.ended),
+      isBuffering,
+      playbackRate: v ? Number(v.playbackRate) || playbackSpeed : playbackSpeed,
+    });
   };
 
   const commitEpisodeChange = (targetEp: number) => {
@@ -1925,17 +1935,18 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
           isFullscreen ? 'flex-1' : ''
         }`}
       >
-      {/* Top Theater HUD (Overlay so video always spans full viewport height) */}
-      <div
-        onClick={(e) => {
-          e.stopPropagation();
-          bumpHudActivity();
-        }}
-        {...hudTouchProps}
-        className={`absolute top-0 inset-x-0 z-30 flex items-center justify-between gap-2 px-3 sm:px-6 lg:px-8 pt-[max(10px,env(safe-area-inset-top))] pb-4 sm:py-3 [@media(orientation:landscape)_and_(max-height:520px)]:py-1.5 bg-gradient-to-b from-black/85 via-black/45 to-transparent transition-opacity duration-300 ${
-          hudVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
-      >
+      {/* Top Theater HUD Stack (Overlay so video always spans full viewport height without overlap) */}
+      <div className="absolute top-0 inset-x-0 z-30 flex flex-col pointer-events-none">
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            bumpHudActivity();
+          }}
+          {...hudTouchProps}
+          className={`flex items-center justify-between gap-2 px-3 sm:px-6 lg:px-8 pt-[max(10px,env(safe-area-inset-top))] pb-3 sm:py-3 [@media(orientation:landscape)_and_(max-height:520px)]:py-1.5 bg-gradient-to-b from-black/85 via-black/45 to-transparent transition-opacity duration-300 ${
+            hudVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          }`}
+        >
         <div className="min-w-0 flex items-center gap-2 sm:gap-3">
           <button
             type="button"
@@ -2213,6 +2224,21 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
             <span>{t.player.episodes}</span>
           </button>
         </div>
+        </div>
+
+        {/* Watch Points Counter positioned cleanly below Top HUD row on the left */}
+        {!isFloatingMiniActive && (
+          <div className="px-3 sm:px-6 lg:px-8 pt-0.5 flex items-start justify-start pointer-events-none">
+            <VideoPointsCounter
+              isPlaying={isPlaying}
+              isBuffering={isBuffering}
+              playbackRate={playbackSpeed}
+              isMiniPlayer={isFloatingMiniActive}
+              onNavigateRewards={onClose}
+              placement="inline-left"
+            />
+          </div>
+        )}
       </div>
 
       {/* Main Theater Viewport (Full width & full viewport height without horizontal padding) */}
@@ -2341,6 +2367,9 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
             onTimeUpdate={() => {
               const v = videoRef.current;
               if (!v) return;
+              if (isBuffering && v.readyState >= 3 && !v.paused) {
+                setIsBuffering(false);
+              }
               setCurrentTime(v.currentTime);
               const now = Date.now();
               if (now - lastSavedTickRef.current >= 4500) {
@@ -2349,7 +2378,12 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
                   episodeNumber,
                   v.currentTime,
                   Number.isFinite(v.duration) ? v.duration : 0,
-                  false
+                  false,
+                  {
+                    isPlaying: !v.paused && !v.ended,
+                    isBuffering,
+                    playbackRate: Number(v.playbackRate) || playbackSpeed,
+                  }
                 );
               }
             }}
@@ -2373,15 +2407,27 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
                 }
               }
             }}
+            onWaiting={() => setIsBuffering(true)}
+            onStalled={() => setIsBuffering(true)}
+            onSeeking={() => setIsBuffering(true)}
+            onSeeked={() => setIsBuffering(false)}
+            onCanPlay={() => setIsBuffering(false)}
+            onPlaying={() => {
+              setIsBuffering(false);
+              setIsPlaying(true);
+            }}
             onPlay={() => {
               setIsPlaying(true);
+              setIsBuffering(false);
             }}
             onPause={() => {
               setIsPlaying(false);
+              setIsBuffering(false);
               flushProgress(undefined, true);
             }}
             onEnded={() => {
               setIsPlaying(false);
+              setIsBuffering(false);
               flushProgress(duration, true);
               if (autoPlayNext && hasNext) {
                 setNextEpCountdown(3);
@@ -2399,13 +2445,6 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
             className={`w-full h-full max-w-full max-h-full bg-black transition-all duration-300 ${
               videoFitMode === 'fill' ? 'object-cover' : 'object-contain'
             }`}
-          />
-
-          <VideoPointsCounter
-            isPlaying={isPlaying}
-            playbackRate={playbackSpeed}
-            isMiniPlayer={isFloatingMiniActive}
-            onNavigateRewards={onClose}
           />
 
           {/* Dynamic Moving Translucent Watermark Overlay (Stream Security — hidden in compact corner mini-player) */}

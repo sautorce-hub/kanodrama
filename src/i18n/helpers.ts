@@ -421,6 +421,7 @@ export interface LocalizedMetadataInput {
     | 'watchlist'
     | 'dashboard'
     | 'account'
+    | 'rewards'
     | 'anime'
     | 'dubbing'
     | 'drama'
@@ -577,7 +578,7 @@ export interface GeneratedSeoMetadata {
 const SECTION_SEO_COPY: Record<
   LanguageCode,
   Record<
-    'home' | 'movies' | 'explore' | 'providers' | 'trending' | 'latest' | 'vip' | 'watchlist' | 'dashboard' | 'anime' | 'dubbing',
+    'home' | 'movies' | 'explore' | 'providers' | 'trending' | 'latest' | 'vip' | 'watchlist' | 'dashboard' | 'rewards' | 'anime' | 'dubbing',
     { path: string; title: string; description: string }
   >
 > = {
@@ -648,6 +649,12 @@ const SECTION_SEO_COPY: Record<
       description:
         'Manage your profile, cloud-synced watch history, personal watchlist, and comments on KanoDrama.',
     },
+    rewards: {
+      path: '/rewards',
+      title: 'Watch Short Dramas & Earn Points — KanoDrama Rewards & Referral',
+      description:
+        'Earn points watching Chinese & Asian short dramas, daily check-in streaks, 15/30/60m milestones, and +1,000 pts per referral. Redeem for IDR (DANA, GoPay, Bank) or USD (PayPal, Wise, USDT).',
+    },
   },
   id: {
     home: {
@@ -716,6 +723,12 @@ const SECTION_SEO_COPY: Record<
       description:
         'Kelola profil, riwayat tontonan lintas perangkat, daftar favorit, dan komentar Anda di KanoDrama.',
     },
+    rewards: {
+      path: '/rewards',
+      title: 'Nonton Drama Dapat Poin & Saldo DANA — Reward KanoDrama',
+      description:
+        'Nonton drama China & short drama dapat hadiah di KanoDrama! Kumpulkan poin harian (+5 poin/menit), check-in streak WIB, undang teman (+1.000 poin), dan tarik ke DANA, GoPay, Bank, PayPal, atau USDT.',
+    },
   },
   cn: {
     home: {
@@ -779,6 +792,11 @@ const SECTION_SEO_COPY: Record<
       path: '/account',
       title: '个人中心、观看记录与片单 | KanoDrama',
       description: '管理个人资料、云端观看历史、追剧清单与剧集评论。',
+    },
+    rewards: {
+      path: '/rewards',
+      title: '看短剧赚积分与现金奖励 — KanoDrama 积分与邀请计划',
+      description: '在 KanoDrama 观看中国短剧与亚洲剧集即可赚取积分、每日签到连胜、达成 15/30/60 分钟里程碑，并邀请好友赢取 1,000 积分奖励，支持提现至 PayPal、Wise、USDT 及印尼本地电子钱包。',
     },
   },
   vi: {
@@ -844,6 +862,11 @@ const SECTION_SEO_COPY: Record<
       title: 'Tài Khoản, Lịch Sử Xem & Danh Sách | KanoDrama',
       description: 'Quản lý hồ sơ, lịch sử xem đồng bộ và bình luận trên KanoDrama.',
     },
+    rewards: {
+      path: '/rewards',
+      title: 'Xem Phim Ngắn Nhận Điểm Thưởng & Đổi Quà — KanoDrama Rewards',
+      description: 'Xem phim ngắn Trung Quốc và châu Á nhận điểm thưởng mỗi phút, điểm danh hằng ngày, thưởng cột mốc và giới thiệu bạn bè trên KanoDrama.',
+    },
   },
   es: {
     home: {
@@ -905,6 +928,11 @@ const SECTION_SEO_COPY: Record<
       title: 'Mi Cuenta, Historial y Lista Personal | KanoDrama',
       description: 'Administra tu perfil, historial sincronizado y comentarios en KanoDrama.',
     },
+    rewards: {
+      path: '/rewards',
+      title: 'Gana Puntos Viendo Dramas Cortos — KanoDrama Puntos y Referidos',
+      description: 'Acumula puntos viendo dramas chinos y series cortas en KanoDrama, racha diaria, bonos por hitos y programa de referidos con retiro en PayPal, Wise o USDT.',
+    },
   },
   ko: {
     home: {
@@ -961,6 +989,11 @@ const SECTION_SEO_COPY: Record<
       path: '/account',
       title: '내 계정, 시청 기록 & 찜 목록 | KanoDrama',
       description: '프로필, 클라우드 시청 기록, 찜 목록 및 댓글을 한눈에 관리하세요.',
+    },
+    rewards: {
+      path: '/rewards',
+      title: '숏드라마 시청 리워드 & 친구 초대 포인트 — KanoDrama',
+      description: 'KanoDrama에서 중국 및 아시아 숏드라마를 시청하고 매일 출석 체크, 15/30/60분 미션, 친구 초대로 포인트를 적립하세요.',
     },
   },
   ja: {
@@ -1019,6 +1052,11 @@ const SECTION_SEO_COPY: Record<
       title: 'マイアカウント・視聴履歴・マイリスト | KanoDrama',
       description: 'プロフィールやクラウド視聴履歴、コメントを管理できます。',
     },
+    rewards: {
+      path: '/rewards',
+      title: 'ショートドラマ視聴でポイント獲得 — KanoDrama リワード＆紹介制度',
+      description: 'KanoDramaで中国・アジアショートドラマを視聴して毎日ポイント、連続ログイン特典、友達紹介ボーナスを獲得しましょう。',
+    },
   },
   th: {
     home: {
@@ -1075,6 +1113,11 @@ const SECTION_SEO_COPY: Record<
       path: '/account',
       title: 'บัญชีของฉัน ประวัติการรับชม และรายการโปรด | KanoDrama',
       description: 'จัดการโปรไฟล์ ประวัติการดูที่ซิงค์ข้ามอุปกรณ์ และความคิดเห็นของคุณ',
+    },
+    rewards: {
+      path: '/rewards',
+      title: 'ดูมินิซีรีส์สะสมแต้มและโบนัสแนะนำเพื่อน — KanoDrama Rewards',
+      description: 'สะสมคะแนนจากการดูซีรีส์จีนและมินิซีรีส์ เช็คอินรายวัน ภารกิจ 15/30/60 นาที และเชิญเพื่อนบน KanoDrama',
     },
   },
   ms: {
@@ -1133,6 +1176,11 @@ const SECTION_SEO_COPY: Record<
       title: 'Akaun Saya, Sejarah & Senarai Tontonan | KanoDrama',
       description: 'Urus profil, sejarah tontonan merentas peranti, senarai kegemaran dan komen anda.',
     },
+    rewards: {
+      path: '/rewards',
+      title: 'Tonton Drama Pendek & Kumpul Mata Ganjaran — KanoDrama Rewards',
+      description: 'Kumpul mata ganjaran dengan menonton drama pendek Cina & Asia, daftar masuk harian, misi tontonan dan rujukan rakan di KanoDrama.',
+    },
   },
   tl: {
     home: {
@@ -1190,6 +1238,11 @@ const SECTION_SEO_COPY: Record<
       title: 'Aking Account, History at Watchlist | KanoDrama',
       description: 'Pamahalaan ang iyong profile, synced watch history, watchlist at mga komento.',
     },
+    rewards: {
+      path: '/rewards',
+      title: 'Kumita ng Points sa Panonood ng Short Drama — KanoDrama Rewards',
+      description: 'Mag-ipon ng points sa panonood ng Chinese at Asian short dramas, daily check-in, milestones at referral program sa KanoDrama.',
+    },
   },
 };
 
@@ -1215,8 +1268,9 @@ export function mapNavTabToMetadataPage(
       return 'dubbing';
     case 'mylist':
       return 'watchlist';
-    case 'dashboard':
     case 'rewards':
+      return 'rewards';
+    case 'dashboard':
       return 'dashboard';
     default:
       return 'home';
@@ -1596,7 +1650,10 @@ export function generateMetadata(
   }
 
   const trimmedDesc = truncateMetaDescription(description, 158);
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const pathWithoutQuery = (path || '/').split('?')[0].split('#')[0] || '/';
+  const normalizedPath = pathWithoutQuery.startsWith('/')
+    ? pathWithoutQuery
+    : `/${pathWithoutQuery}`;
   const canonicalUrl = `${origin}${normalizedPath}`;
 
   const alternates: Record<string, string> = {
@@ -1616,6 +1673,18 @@ export function generateMetadata(
   const keywords = (
     input.keywords && input.keywords.length > 0
       ? input.keywords
+      : input.page === 'rewards'
+      ? [
+          'Nonton drama dapat poin',
+          'Nonton drama China dapat reward',
+          'Aplikasi nonton drama penghasil saldo',
+          'Nonton drama dapat saldo DANA',
+          'Nonton short drama dapat hadiah',
+          'Reward KanoDrama',
+          'KanoDrama Poin dan Referral',
+          'KanoDrama',
+          'kano-drama.xyz',
+        ]
       : [
           'KanoDrama',
           'kano-drama.xyz',

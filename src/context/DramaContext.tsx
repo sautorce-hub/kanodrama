@@ -103,12 +103,6 @@ function getLocalDateKey(date = new Date()): string {
   return `${y}-${m}-${d}`;
 }
 
-function getYesterdayDateKey(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return getLocalDateKey(d);
-}
-
 function mapServerUser(srvUser: ServerAuthenticatedUser): GoogleUser {
   const email = (srvUser.email || '').trim();
   const displayName =
@@ -133,25 +127,6 @@ function mapServerUser(srvUser: ServerAuthenticatedUser): GoogleUser {
     signedInAt: Date.now(),
     bio: srvUser.bio,
     preferredLanguage: srvUser.preferredLanguage,
-  };
-}
-
-function computeNextStreak(prev: DailyStreakState): DailyStreakState {
-  const today = getLocalDateKey();
-  const yesterday = getYesterdayDateKey();
-  if (prev.lastVisitDate === today && prev.count >= 1) {
-    return {
-      count: prev.count,
-      lastVisitDate: today,
-      isVipCoffeeLover: prev.count >= 3,
-    };
-  }
-  const nextCount =
-    prev.lastVisitDate === yesterday ? Math.max(2, prev.count + 1) : 1;
-  return {
-    count: nextCount,
-    lastVisitDate: today,
-    isVipCoffeeLover: nextCount >= 3,
   };
 }
 
@@ -185,6 +160,8 @@ interface DramaContextValue {
   gmailLoginCount: number;
   refreshGmailLoginCount: () => Promise<number>;
   pointsBalance: number | null;
+  pointsDbConnected: boolean | null;
+  pointsDbError: string | null;
   todayWatchSeconds: number;
   todayWatchPointsEarned: number;
   dailyMissionMaxWatchSeconds: number;
@@ -252,7 +229,12 @@ interface DramaContextValue {
     episode: number,
     currentTime?: number,
     duration?: number,
-    immediate?: boolean
+    immediate?: boolean,
+    playbackState?: {
+      isPlaying?: boolean;
+      isBuffering?: boolean;
+      playbackRate?: number;
+    }
   ) => void;
   removeHistoryItem: (bookId: string, provider?: MediaProviderName) => void;
   getResumePoint: (
@@ -355,14 +337,6 @@ function readJsonStorage<T>(
     // Ignore storage read errors
   }
   return fallback;
-}
-
-function streakStorageKey(uid: string): string {
-  return `kano_drama_streak_v1_${uid}`;
-}
-
-function legacyStreakStorageKey(uid: string): string {
-  return `coffee_drama_streak_v1_${uid}`;
 }
 
 function movieWatchlistStorageKey(uid: string): string {
@@ -476,6 +450,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const sessionTokenRef = useRef<string | null>(null);
   const popupLoginInFlightRef = useRef<boolean>(false);
   const [pointsBalance, setPointsBalance] = useState<number | null>(null);
+  const [pointsDbConnected, setPointsDbConnected] = useState<boolean | null>(null);
+  const [pointsDbError, setPointsDbError] = useState<string | null>(null);
   const [todayWatchSeconds, setTodayWatchSeconds] = useState<number>(0);
   const [todayWatchPointsEarned, setTodayWatchPointsEarned] = useState<number>(0);
   const [dailyMissionMaxWatchSeconds, setDailyMissionMaxWatchSeconds] = useState<number>(3600);
@@ -493,6 +469,15 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const watchStreamSessionIdRef = useRef<string>(
     `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   );
+  const watchSessionTokenRef = useRef<{
+    mediaKey: string;
+    token: string;
+    seq: number;
+  } | null>(null);
+  const watchSessionPromiseRef = useRef<{
+    mediaKey: string;
+    promise: Promise<string | null>;
+  } | null>(null);
   const lastWatchHeartbeatSentAtRef = useRef<number>(0);
   const lastWatchHeartbeatMediaRef = useRef<string>('');
   const [helpModalOpen, setHelpModalOpen] = useState(false);
@@ -518,14 +503,17 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         headers: getAuthHeaders(),
         cache: 'no-store',
       });
-      if (!res.ok) return null;
-      const data = (await res.json()) as {
+      const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
+        code?: string;
+        error?: string;
+        dbConnected?: boolean;
         summary?: {
           balance?: number;
           todayWatchSeconds?: number;
           todayWatchPointsEarned?: number;
           dailyMissionMaxWatchSeconds?: number;
+          checkinStreak?: number;
         } | null;
         config?: {
           watchMinutePoints?: number;
@@ -534,6 +522,16 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           pointsPerUsd?: number;
         } | null;
       };
+      if (res.status === 503) {
+        setPointsDbConnected(false);
+        setPointsDbError(
+          data.error || 'Database PostgreSQL belum terhubung (periksa DATABASE_URL).'
+        );
+        return null;
+      }
+      if (!res.ok) return null;
+      setPointsDbConnected(true);
+      setPointsDbError(null);
       if (data.config) {
         if (typeof data.config.watchMinutePoints === 'number' && data.config.watchMinutePoints > 0) {
           setWatchMinutePoints(Math.floor(data.config.watchMinutePoints));
@@ -571,6 +569,13 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
             Math.floor(data.summary.dailyMissionMaxWatchSeconds)
           );
         }
+        if (typeof data.summary.checkinStreak === 'number' && data.summary.checkinStreak > 0) {
+          setStreak((prev) => ({
+            ...prev,
+            count: Math.max(prev.count, Math.floor(data.summary!.checkinStreak!)),
+            isVipCoffeeLover: prev.isVipCoffeeLover || data.summary!.checkinStreak! >= 3,
+          }));
+        }
         if (typeof data.summary.balance === 'number') {
           const nextBal = Math.max(0, Math.floor(data.summary.balance));
           setPointsBalance(nextBal);
@@ -582,6 +587,73 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     }
     return null;
   }, [getAuthHeaders]);
+
+  const ensureWatchSessionToken = useCallback(
+    async (
+      dramaId: string,
+      provider: MediaProviderName,
+      episodeNumber: number
+    ): Promise<string | null> => {
+      const mediaKey = `${provider}:${dramaId}:ep${episodeNumber}`;
+      const cached = watchSessionTokenRef.current;
+      if (cached && cached.mediaKey === mediaKey && cached.token) {
+        return cached.token;
+      }
+      const inFlight = watchSessionPromiseRef.current;
+      if (inFlight && inFlight.mediaKey === mediaKey) {
+        return inFlight.promise;
+      }
+
+      const previousSessionToken = cached?.token;
+      const promise = (async (): Promise<string | null> => {
+        try {
+          const res = await fetch('/api/watch/session', {
+            method: 'POST',
+            credentials: 'include',
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({
+              streamSessionId: watchStreamSessionIdRef.current,
+              dramaId,
+              provider,
+              episodeNumber,
+              ...(previousSessionToken ? { previousSessionToken } : {}),
+            }),
+          });
+          const data = (await res.json().catch(() => ({}))) as {
+            ok?: boolean;
+            sessionToken?: string;
+            error?: string;
+          };
+          if (res.status === 503) {
+            setPointsDbConnected(false);
+            setPointsDbError(
+              data.error || 'Database PostgreSQL belum terhubung (periksa DATABASE_URL).'
+            );
+            return null;
+          }
+          if (res.ok && data.ok && data.sessionToken) {
+            watchSessionTokenRef.current = {
+              mediaKey,
+              token: data.sessionToken,
+              seq: 0,
+            };
+            return data.sessionToken;
+          }
+        } catch {
+          // Ignore transient failure
+        }
+        return null;
+      })().finally(() => {
+        if (watchSessionPromiseRef.current?.mediaKey === mediaKey) {
+          watchSessionPromiseRef.current = null;
+        }
+      });
+
+      watchSessionPromiseRef.current = { mediaKey, promise };
+      return promise;
+    },
+    [getAuthHeaders]
+  );
 
   const [accentTheme, setAccentThemeState] = useState<AccentThemeId>(() => {
     const saved = readJsonStorage<{ accent?: AccentThemeId; contrast?: boolean }>(
@@ -863,20 +935,13 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     return gmailLoginCountRef.current;
   }, []);
 
-  // Sync user's daily streak & profile to PostgreSQL (/api/users/sync) with localStorage fallback
+  // Sync user's daily streak & profile with PostgreSQL (/api/users/sync)
   const syncUserStreak = useCallback(
     async (
       mappedUser: GoogleUser,
       options?: { isLoginEvent?: boolean }
     ) => {
-      const localKey = streakStorageKey(mappedUser.uid);
-      const baseStreak = readJsonStorage<DailyStreakState>(
-        localKey,
-        EMPTY_STREAK,
-        legacyStreakStorageKey(mappedUser.uid)
-      );
-
-      let resolvedStreak = computeNextStreak(baseStreak);
+      let resolvedStreak: DailyStreakState = EMPTY_STREAK;
       const isLoginEvent = Boolean(options?.isLoginEvent);
 
       try {
@@ -982,16 +1047,11 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           '[AuthSync] /api/users/sync failed:',
           err instanceof Error ? err.message : String(err)
         );
-        // Resilient fallback to computed local streak
       }
 
-      setStreak(resolvedStreak);
-      try {
-        localStorage.setItem(localKey, JSON.stringify(resolvedStreak));
-      } catch {
-        // Ignore
+      if (resolvedStreak.count > 0) {
+        setStreak(resolvedStreak);
       }
-
       return resolvedStreak;
     },
     [refreshGmailLoginCount]
@@ -1273,13 +1333,12 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [getAuthHeaders]);
 
-  // Capture ?ref= query parameter + hydrate guest watch history, global likes & Gmail login count once on mount
+  // Capture ?ref= query parameter + hydrate guest watch history & global likes once on mount
   useEffect(() => {
     captureReferralCodeFromUrl();
     void hydrateWatchHistoryFromPostgres(visitorId);
     void hydrateLikesFromPostgres(visitorId);
-    void refreshGmailLoginCount();
-  }, [visitorId, hydrateWatchHistoryFromPostgres, hydrateLikesFromPostgres, refreshGmailLoginCount]);
+  }, [visitorId, hydrateWatchHistoryFromPostgres, hydrateLikesFromPostgres]);
 
   // Preload Google Identity Services config & hydrate Express session from backend
   useEffect(() => {
@@ -1664,12 +1723,6 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       }
 
-      const localKey = streakStorageKey(mapped.uid);
-      const baseStreak = readJsonStorage<DailyStreakState>(
-        localKey,
-        EMPTY_STREAK,
-        legacyStreakStorageKey(mapped.uid)
-      );
       const resolvedStreak: DailyStreakState =
         typeof result.user.streakCount === 'number'
           ? {
@@ -1678,13 +1731,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
               isVipCoffeeLover:
                 Boolean(result.user.isVip) || result.user.streakCount >= 3,
             }
-          : computeNextStreak(baseStreak);
+          : EMPTY_STREAK;
       setStreak(resolvedStreak);
-      try {
-        localStorage.setItem(localKey, JSON.stringify(resolvedStreak));
-      } catch {
-        // Ignore storage errors
-      }
 
       void bindPendingReferralIfAny();
       void hydrateUserLibraryFromPostgres(mapped.uid);
@@ -1775,8 +1823,10 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     }
     setUser(null);
     setPointsBalance(null);
+    setPointsDbError(null);
     setTodayWatchSeconds(0);
     setTodayWatchPointsEarned(0);
+    watchSessionTokenRef.current = null;
     claimedWatchRewardRef.current.clear();
     setMovieListItemsRaw([]);
     setStreak(EMPTY_STREAK);
@@ -2337,7 +2387,12 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       episode: number,
       currentTime = 0,
       duration = 0,
-      immediate = false
+      immediate = false,
+      playbackState?: {
+        isPlaying?: boolean;
+        isBuffering?: boolean;
+        playbackRate?: number;
+      }
     ) => {
       const pct =
         duration > 0
@@ -2485,145 +2540,193 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         }).catch(() => {});
       }
 
-      // Verified active watch heartbeat (~20s interval, foreground visible tab, 1x speed, playing)
+      // Server-issued Watch Session + Heartbeat (~20s interval, active visible tab, not buffering, 1x speed)
       if (user && !immediate && typeof document !== 'undefined') {
         const tabVisible = !document.hidden;
         const videos = Array.from(document.querySelectorAll('video'));
         const activeVideo =
           videos.find((v) => !v.paused && !v.ended) || videos[0] || null;
-        const isPlaying = activeVideo
-          ? !activeVideo.paused && !activeVideo.ended
-          : true;
-        const playbackRate = activeVideo ? Number(activeVideo.playbackRate) || 1 : 1;
+        const isPlaying =
+          typeof playbackState?.isPlaying === 'boolean'
+            ? playbackState.isPlaying
+            : activeVideo
+            ? !activeVideo.paused && !activeVideo.ended
+            : false;
+        const isBuffering = Boolean(playbackState?.isBuffering);
+        const playbackRate =
+          typeof playbackState?.playbackRate === 'number'
+            ? playbackState.playbackRate
+            : activeVideo
+            ? Number(activeVideo.playbackRate) || 1
+            : 1;
         const isNewMedia = lastWatchHeartbeatMediaRef.current !== epSessionKey;
         const elapsedSinceHb = nowMs - lastWatchHeartbeatSentAtRef.current;
 
         if (
           tabVisible &&
           isPlaying &&
+          !isBuffering &&
           playbackRate >= 0.75 &&
           playbackRate <= 1.15 &&
           (isNewMedia || elapsedSinceHb >= 20_000)
         ) {
           lastWatchHeartbeatMediaRef.current = epSessionKey;
           lastWatchHeartbeatSentAtRef.current = nowMs;
-          void fetch('/api/watch/heartbeat', {
-            method: 'POST',
-            credentials: 'include',
-            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-            body: JSON.stringify({
-              streamSessionId: watchStreamSessionIdRef.current,
-              dramaId: drama.bookId,
-              provider: drama.provider,
-              episodeNumber: episode,
-              currentTimeSec: resolvedTime,
-              isPlaying,
-              tabVisible,
-              playbackRate,
-              deviceFingerprint: getClientDeviceFingerprint(),
-            }),
-          })
-            .then(async (res) => {
-              const hb = (await res.json().catch(() => null)) as {
-                ok?: boolean;
-                verifiedWatchSeconds?: number;
-                todayWatchSeconds?: number;
-                awardedWatchPoints?: number;
-                todayWatchPointsEarned?: number;
-                dailyMissionMaxWatchSeconds?: number;
-                pointsBalance?: number | null;
-                referralQualified?: boolean;
-              } | null;
-              if (hb) {
-                if (typeof hb.todayWatchSeconds === 'number') {
-                  setTodayWatchSeconds(Math.max(0, Math.floor(hb.todayWatchSeconds)));
-                }
-                if (typeof hb.todayWatchPointsEarned === 'number') {
-                  setTodayWatchPointsEarned(
-                    Math.max(0, Math.floor(hb.todayWatchPointsEarned))
-                  );
-                }
-                if (
-                  typeof hb.dailyMissionMaxWatchSeconds === 'number' &&
-                  hb.dailyMissionMaxWatchSeconds > 0
-                ) {
-                  setDailyMissionMaxWatchSeconds(
-                    Math.floor(hb.dailyMissionMaxWatchSeconds)
-                  );
-                }
-                if (typeof hb.pointsBalance === 'number') {
-                  setPointsBalance(Math.max(0, Math.floor(hb.pointsBalance)));
-                }
-                if (typeof hb.awardedWatchPoints === 'number' && hb.awardedWatchPoints > 0) {
-                  pushToast(
-                    `+${hb.awardedWatchPoints.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit}!`,
-                    'gold'
-                  );
-                }
-                if (hb.referralQualified) {
-                  void refreshPointsBalance();
-                }
-                if (
-                  typeof window !== 'undefined' &&
-                  typeof hb.verifiedWatchSeconds === 'number'
-                ) {
-                  window.dispatchEvent(
-                    new CustomEvent('kd:points-updated', {
-                      detail: {
-                        verifiedWatchSeconds: hb.verifiedWatchSeconds,
-                        todayWatchSeconds: hb.todayWatchSeconds,
-                        awardedWatchPoints: hb.awardedWatchPoints,
-                        todayWatchPointsEarned: hb.todayWatchPointsEarned,
-                        pointsBalance: hb.pointsBalance,
-                        referralQualified: Boolean(hb.referralQualified),
-                      },
-                    })
-                  );
-                }
-              }
-            })
-            .catch(() => {});
-        }
-      }
 
-      if (
-        user &&
-        (currentTime >= 15 || immediate) &&
-        !claimedWatchRewardRef.current.has(epSessionKey) &&
-        Date.now() - lastWatchClaimAttemptRef.current >= 46_000
-      ) {
-        lastWatchClaimAttemptRef.current = Date.now();
-        void fetch('/api/points/claim', {
-          method: 'POST',
-          credentials: 'include',
-          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({
-            action: 'watch_episode',
-            dramaId: drama.bookId,
-            provider: drama.provider,
-            episodeNumber: episode,
-          }),
-        })
-          .then(async (res) => {
-            if (res.status === 200 || res.status === 409) {
-              claimedWatchRewardRef.current.add(epSessionKey);
-            }
-            const data = (await res.json().catch(() => null)) as {
+          void (async () => {
+            const sessionToken = await ensureWatchSessionToken(
+              drama.bookId,
+              drama.provider,
+              episode
+            );
+            if (!sessionToken || !watchSessionTokenRef.current) return;
+            watchSessionTokenRef.current.seq += 1;
+            const seq = watchSessionTokenRef.current.seq;
+
+            const res = await fetch('/api/watch/heartbeat', {
+              method: 'POST',
+              credentials: 'include',
+              headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+              body: JSON.stringify({
+                sessionToken,
+                streamSessionId: watchStreamSessionIdRef.current,
+                seq,
+                dramaId: drama.bookId,
+                provider: drama.provider,
+                episodeNumber: episode,
+                currentTimeSec: resolvedTime,
+                isPlaying,
+                isBuffering,
+                tabVisible,
+                playbackRate,
+                deviceFingerprint: getClientDeviceFingerprint(),
+              }),
+            });
+
+            const hb = (await res.json().catch(() => null)) as {
               ok?: boolean;
-              summary?: { balance?: number } | null;
+              reason?: string;
+              error?: string;
+              verifiedWatchSeconds?: number;
+              todayWatchSeconds?: number;
+              awardedWatchPoints?: number;
+              todayWatchPointsEarned?: number;
+              dailyMissionMaxWatchSeconds?: number;
+              pointsBalance?: number | null;
+              referralQualified?: boolean;
             } | null;
-            if (typeof data?.summary?.balance === 'number') {
-              setPointsBalance(Math.max(0, Math.floor(data.summary.balance)));
-              if (typeof window !== 'undefined') {
+
+            if (res.status === 503) {
+              setPointsDbConnected(false);
+              setPointsDbError(
+                hb?.error || 'Database PostgreSQL belum terhubung (periksa DATABASE_URL).'
+              );
+              return;
+            }
+            if (
+              res.status === 401 ||
+              hb?.reason === 'invalid_session' ||
+              hb?.reason === 'session_expired'
+            ) {
+              watchSessionTokenRef.current = null;
+              return;
+            }
+            if (hb) {
+              setPointsDbConnected(true);
+              setPointsDbError(null);
+              if (typeof hb.todayWatchSeconds === 'number') {
+                setTodayWatchSeconds(Math.max(0, Math.floor(hb.todayWatchSeconds)));
+              }
+              if (typeof hb.todayWatchPointsEarned === 'number') {
+                setTodayWatchPointsEarned(
+                  Math.max(0, Math.floor(hb.todayWatchPointsEarned))
+                );
+              }
+              if (
+                typeof hb.dailyMissionMaxWatchSeconds === 'number' &&
+                hb.dailyMissionMaxWatchSeconds > 0
+              ) {
+                setDailyMissionMaxWatchSeconds(
+                  Math.floor(hb.dailyMissionMaxWatchSeconds)
+                );
+              }
+              if (typeof hb.pointsBalance === 'number') {
+                setPointsBalance(Math.max(0, Math.floor(hb.pointsBalance)));
+              }
+              if (typeof hb.awardedWatchPoints === 'number' && hb.awardedWatchPoints > 0) {
+                pushToast(
+                  `+${hb.awardedWatchPoints.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit}!`,
+                  'gold'
+                );
+              }
+              if (hb.referralQualified) {
+                void refreshPointsBalance();
+              }
+              if (
+                typeof window !== 'undefined' &&
+                typeof hb.verifiedWatchSeconds === 'number'
+              ) {
                 window.dispatchEvent(
                   new CustomEvent('kd:points-updated', {
-                    detail: { summary: data.summary },
+                    detail: {
+                      verifiedWatchSeconds: hb.verifiedWatchSeconds,
+                      todayWatchSeconds: hb.todayWatchSeconds,
+                      awardedWatchPoints: hb.awardedWatchPoints,
+                      todayWatchPointsEarned: hb.todayWatchPointsEarned,
+                      pointsBalance: hb.pointsBalance,
+                      referralQualified: Boolean(hb.referralQualified),
+                    },
                   })
                 );
               }
             }
-          })
-          .catch(() => {});
+
+            // Attempt Episode Bonus Claim only once >=15s verified under valid session token
+            if (
+              !claimedWatchRewardRef.current.has(epSessionKey) &&
+              Date.now() - lastWatchClaimAttemptRef.current >= 22_000
+            ) {
+              lastWatchClaimAttemptRef.current = Date.now();
+              const claimRes = await fetch('/api/points/claim', {
+                method: 'POST',
+                credentials: 'include',
+                headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({
+                  action: 'watch_episode',
+                  dramaId: drama.bookId,
+                  provider: drama.provider,
+                  episodeNumber: episode,
+                  title: drama.title,
+                  sessionToken,
+                }),
+              });
+              if (claimRes.status === 200 || claimRes.status === 409) {
+                claimedWatchRewardRef.current.add(epSessionKey);
+              }
+              const claimData = (await claimRes.json().catch(() => null)) as {
+                ok?: boolean;
+                awardedPoints?: number;
+                summary?: { balance?: number } | null;
+              } | null;
+              if (claimRes.ok && claimData?.awardedPoints) {
+                pushToast(
+                  `+${claimData.awardedPoints.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit} (${drama.title} EP ${episode})`,
+                  'gold'
+                );
+              }
+              if (typeof claimData?.summary?.balance === 'number') {
+                setPointsBalance(Math.max(0, Math.floor(claimData.summary.balance)));
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(
+                    new CustomEvent('kd:points-updated', {
+                      detail: { summary: claimData.summary },
+                    })
+                  );
+                }
+              }
+            }
+          })().catch(() => {});
+        }
       }
     },
     [
@@ -2632,6 +2735,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       streak.lastVisitDate,
       syncUserStreak,
       refreshLiveBadges,
+      ensureWatchSessionToken,
       getAuthHeaders,
       refreshPointsBalance,
       pushToast,
@@ -2827,15 +2931,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       const commitComment = async (activeUser: GoogleUser) => {
         const epKey = makeEpisodeKey(bookId, provider, episode);
         const commentId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const localStreak = readJsonStorage<DailyStreakState>(
-          streakStorageKey(activeUser.uid),
-          streak,
-          legacyStreakStorageKey(activeUser.uid)
-        );
-        const badge =
-          streak.isVipCoffeeLover || localStreak.isVipCoffeeLover
-            ? 'VIP Kano Lover'
-            : undefined;
+        const badge = streak.isVipCoffeeLover ? 'VIP Kano Lover' : undefined;
 
         const comment: EpisodeComment = {
           id: commentId,
@@ -2967,6 +3063,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       gmailLoginCount,
       refreshGmailLoginCount,
       pointsBalance,
+      pointsDbConnected,
+      pointsDbError,
       todayWatchSeconds,
       todayWatchPointsEarned,
       dailyMissionMaxWatchSeconds,
@@ -3054,6 +3152,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       gmailLoginCount,
       refreshGmailLoginCount,
       pointsBalance,
+      pointsDbConnected,
+      pointsDbError,
       todayWatchSeconds,
       todayWatchPointsEarned,
       dailyMissionMaxWatchSeconds,

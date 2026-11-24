@@ -3436,6 +3436,7 @@ export default function App() {
                 onBackToHome={() => handleNavigateTab('home')}
                 initialSubTab={activeTab === 'rewards' ? 'rewards' : dashboardSubTab}
                 initialWatchlistCategory={dashboardWatchlistCategory}
+                standaloneRewards={activeTab === 'rewards'}
               />
             </Suspense>
           ) : activeTab === 'movies' ? (
@@ -4627,14 +4628,15 @@ export default function App() {
                     : prev
                 );
               }}
-              onProgressUpdate={(ep, currentTime, duration, immediate) => {
+              onProgressUpdate={(ep, currentTime, duration, immediate, playbackState) => {
                 if (playerState?.drama) {
                   recordWatchProgress(
                     playerState.drama,
                     ep,
                     currentTime,
                     duration,
-                    immediate
+                    immediate,
+                    playbackState
                   );
                 }
               }}
@@ -4723,14 +4725,15 @@ export default function App() {
                     : prev
                 );
               }}
-              onProgressUpdate={(ep, currentTime, duration, immediate) => {
+              onProgressUpdate={(ep, currentTime, duration, immediate, playbackState) => {
                 if (playerState?.drama) {
                   recordWatchProgress(
                     playerState.drama,
                     ep,
                     currentTime,
                     duration,
-                    immediate
+                    immediate,
+                    playbackState
                   );
                 }
               }}

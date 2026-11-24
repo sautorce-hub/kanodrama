@@ -14,26 +14,65 @@ let pool: Pool | null = null;
 let schemaReadyPromise: Promise<boolean> | null = null;
 let dbAvailable = false;
 
-const jakartaDateFormatter = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Jakarta',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
+const DEFAULT_FALLBACK_TIMEZONE = 'Asia/Jakarta';
+const dateFormatterCache = new Map<string, Intl.DateTimeFormat>();
 
-/**
- * Returns the current YYYY-MM-DD date key in Asia/Jakarta (WIB / UTC+7)
- * so daily metrics reset precisely at 24:00 / 00:00 WIB.
- */
-export function getJakartaDateKey(date: Date = new Date()): string {
-  const parts = jakartaDateFormatter.formatToParts(date);
+export function normalizeIanaTimeZone(rawTz?: string | null): string | null {
+  if (typeof rawTz !== 'string') return null;
+  const trimmed = rawTz.trim();
+  if (trimmed.length < 2 || trimmed.length > 64) return null;
+  if (!/^[A-Za-z0-9_+/.-]+$/.test(trimmed)) return null;
+  try {
+    let fmt = dateFormatterCache.get(trimmed);
+    if (!fmt) {
+      fmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: trimmed,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      if (dateFormatterCache.size >= 120) {
+        const firstKey = dateFormatterCache.keys().next().value;
+        if (firstKey) dateFormatterCache.delete(firstKey);
+      }
+      dateFormatterCache.set(trimmed, fmt);
+    }
+    return fmt.resolvedOptions().timeZone || trimmed;
+  } catch {
+    return null;
+  }
+}
+
+export function getDateKeyInTimeZone(
+  date: Date = new Date(),
+  rawTimeZone?: string | null
+): string {
+  const tz = normalizeIanaTimeZone(rawTimeZone) || DEFAULT_FALLBACK_TIMEZONE;
+  let fmt = dateFormatterCache.get(tz);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    dateFormatterCache.set(tz, fmt);
+  }
+  const parts = fmt.formatToParts(date);
   const year = parts.find((p) => p.type === 'year')?.value;
   const month = parts.find((p) => p.type === 'month')?.value;
   const day = parts.find((p) => p.type === 'day')?.value;
   if (year && month && day) {
     return `${year}-${month}-${day}`;
   }
-  return jakartaDateFormatter.format(date);
+  return fmt.format(date);
+}
+
+/**
+ * Backward-compatible alias returning YYYY-MM-DD in Asia/Jakarta or provided timezone.
+ */
+export function getJakartaDateKey(date: Date = new Date()): string {
+  return getDateKeyInTimeZone(date, DEFAULT_FALLBACK_TIMEZONE);
 }
 
 function buildPoolConfig(connectionString: string): PoolConfig {
@@ -75,7 +114,41 @@ function isTransientPoolError(err: unknown): boolean {
   );
 }
 
+let testPoolOverride: Pool | null = null;
+
+export class DatabaseUnavailableError extends Error {
+  public readonly code: 'DATABASE_NOT_CONFIGURED' | 'DATABASE_UNAVAILABLE';
+  public readonly statusCode = 503;
+  public readonly requiredConfig = ['DATABASE_URL'];
+
+  constructor(
+    code: 'DATABASE_NOT_CONFIGURED' | 'DATABASE_UNAVAILABLE' = 'DATABASE_NOT_CONFIGURED',
+    message?: string
+  ) {
+    super(
+      message ||
+        (code === 'DATABASE_NOT_CONFIGURED'
+          ? 'Database PostgreSQL (DATABASE_URL) belum dikonfigurasi. Data poin, referral, dan penarikan membutuhkan database permanen.'
+          : 'Koneksi database PostgreSQL sedang tidak tersedia. Silakan coba lagi atau periksa konfigurasi DATABASE_URL.')
+    );
+    this.name = 'DatabaseUnavailableError';
+    this.code = code;
+  }
+}
+
+export function _setDbPoolForTest(customPool: Pool | null): void {
+  testPoolOverride = customPool;
+  if (customPool) {
+    dbAvailable = true;
+    schemaReadyPromise = null;
+  } else {
+    dbAvailable = false;
+    schemaReadyPromise = null;
+  }
+}
+
 export function getPool(): Pool | null {
+  if (testPoolOverride) return testPoolOverride;
   if (pool) return pool;
   const conn = getDatabaseUrl();
   if (!conn) return null;
@@ -91,7 +164,7 @@ export function getPool(): Pool | null {
     return pool;
   } catch (err) {
     console.warn(
-      '[PostgreSQL] Pool creation failed, using in-memory fallback:',
+      '[PostgreSQL] Pool creation failed:',
       err instanceof Error ? err.message : String(err)
     );
     pool = null;
@@ -100,7 +173,22 @@ export function getPool(): Pool | null {
 }
 
 export function isDatabaseEnabled(): boolean {
-  return Boolean(getDatabaseUrl()) && dbAvailable;
+  return Boolean(testPoolOverride || getDatabaseUrl()) && dbAvailable;
+}
+
+async function requirePointsDbPool(): Promise<Pool> {
+  if (testPoolOverride) {
+    return testPoolOverride;
+  }
+  const conn = getDatabaseUrl();
+  if (!conn) {
+    throw new DatabaseUnavailableError('DATABASE_NOT_CONFIGURED');
+  }
+  const activePool = getPool();
+  if (!activePool || !(await ensureDatabaseReady()) || !dbAvailable) {
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  }
+  return activePool;
 }
 
 export async function dbQuery<T extends QueryResultRow = QueryResultRow>(
@@ -441,8 +529,10 @@ const SCHEMA_STATEMENTS: string[] = [
     points INTEGER NOT NULL CHECK (points > 0),
     description TEXT NOT NULL DEFAULT '',
     reference_id TEXT UNIQUE NOT NULL,
+    balance_after INTEGER,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  `ALTER TABLE points_ledger ADD COLUMN IF NOT EXISTS balance_after INTEGER`,
   `CREATE INDEX IF NOT EXISTS idx_points_ledger_user_created ON points_ledger (user_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_points_ledger_user_type_created ON points_ledger (user_id, type, created_at DESC)`,
 
@@ -454,22 +544,47 @@ const SCHEMA_STATEMENTS: string[] = [
     idr_amount BIGINT NOT NULL CHECK (idr_amount > 0),
     fx_rate_used NUMERIC(12, 2) NOT NULL CHECK (fx_rate_used > 0),
     currency TEXT NOT NULL CHECK (currency IN ('USD', 'IDR')),
-    method TEXT NOT NULL CHECK (method IN ('paypal', 'usdt_polygon', 'usdt_trc20', 'wise', 'dana', 'ovo', 'gopay', 'bank_transfer')),
+    method TEXT NOT NULL,
+    bank_code TEXT NOT NULL DEFAULT '',
+    network TEXT NOT NULL DEFAULT '',
     destination_account TEXT NOT NULL,
     account_holder_name TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'paid', 'rejected')),
+    status TEXT NOT NULL DEFAULT 'pending',
     admin_note TEXT NOT NULL DEFAULT '',
+    idempotency_key TEXT,
+    risk_flag TEXT NOT NULL DEFAULT '',
+    suspicious_reason TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS risk_flag TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS suspicious_reason TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS bank_code TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS network TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE payout_requests ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+  `ALTER TABLE payout_requests DROP CONSTRAINT IF EXISTS payout_requests_method_check`,
+  `ALTER TABLE payout_requests DROP CONSTRAINT IF EXISTS payout_requests_status_check`,
+  `DO $$
+   BEGIN
+     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payout_requests_method_check') THEN
+       ALTER TABLE payout_requests ADD CONSTRAINT payout_requests_method_check
+         CHECK (method IN ('paypal', 'usdt_polygon', 'usdt_trc20', 'usdt_bep20', 'usdt_erc20', 'wise', 'dana', 'ovo', 'gopay', 'shopeepay', 'linkaja', 'bank_transfer'));
+     END IF;
+     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payout_requests_status_check') THEN
+       ALTER TABLE payout_requests ADD CONSTRAINT payout_requests_status_check
+         CHECK (status IN ('pending', 'processing', 'approved', 'paid', 'completed', 'rejected', 'failed'));
+     END IF;
+   END $$`,
   `CREATE INDEX IF NOT EXISTS idx_payout_requests_user_created ON payout_requests (user_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_payout_requests_status_created ON payout_requests (status, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_payout_requests_dest_lower ON payout_requests (LOWER(destination_account))`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_payout_requests_idempotency ON payout_requests (user_id, idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''`,
 
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone_updated_at TIMESTAMPTZ`,
   `CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users (referral_code)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code_unique ON users (UPPER(referral_code)) WHERE referral_code <> ''`,
 
   `CREATE TABLE IF NOT EXISTS referrals (
     id TEXT PRIMARY KEY,
@@ -477,7 +592,7 @@ const SCHEMA_STATEMENTS: string[] = [
     referee_uid TEXT UNIQUE NOT NULL,
     referral_code TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending_watch' CHECK (status IN ('pending_watch', 'qualified', 'rejected_fraud')),
-    bonus_points INTEGER NOT NULL DEFAULT 500,
+    bonus_points INTEGER NOT NULL DEFAULT 1000,
     referee_ip_hash TEXT NOT NULL DEFAULT '',
     referee_subnet_hash TEXT NOT NULL DEFAULT '',
     referee_ua_hash TEXT NOT NULL DEFAULT '',
@@ -488,6 +603,7 @@ const SCHEMA_STATEMENTS: string[] = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  `ALTER TABLE referrals ALTER COLUMN bonus_points SET DEFAULT 1000`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_referrer_created ON referrals (referrer_uid, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_referrer_status ON referrals (referrer_uid, status, qualified_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_code ON referrals (referral_code)`,
@@ -507,6 +623,50 @@ const SCHEMA_STATEMENTS: string[] = [
     suspicious_reason TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+
+  `CREATE TABLE IF NOT EXISTS daily_checkins (
+    user_id TEXT NOT NULL,
+    checkin_date DATE NOT NULL,
+    streak_day INTEGER NOT NULL DEFAULT 1,
+    points_awarded INTEGER NOT NULL DEFAULT 100,
+    ledger_id TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, checkin_date)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_daily_checkins_user_date ON daily_checkins (user_id, checkin_date DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS rewarded_episodes (
+    user_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    drama_id TEXT NOT NULL,
+    episode_number INTEGER NOT NULL,
+    points_awarded INTEGER NOT NULL DEFAULT 50,
+    session_token TEXT NOT NULL DEFAULT '',
+    ledger_id TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, provider, drama_id, episode_number)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_rewarded_episodes_user_created ON rewarded_episodes (user_id, created_at DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS watch_sessions (
+    session_token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    media_key TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'DramaBox',
+    drama_id TEXT NOT NULL DEFAULT '',
+    episode_number INTEGER NOT NULL DEFAULT 1,
+    device_hash TEXT NOT NULL DEFAULT '',
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_heartbeat_at TIMESTAMPTZ,
+    last_video_time_sec NUMERIC(10, 2) NOT NULL DEFAULT -1,
+    accumulated_sec INTEGER NOT NULL DEFAULT 0,
+    last_seq INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_watch_sessions_user_active ON watch_sessions (user_id, is_active, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_watch_sessions_user_media ON watch_sessions (user_id, media_key, updated_at DESC)`,
 
   `CREATE TABLE IF NOT EXISTS user_security_signals (
     user_id TEXT PRIMARY KEY,
@@ -534,6 +694,10 @@ const SCHEMA_STATEMENTS: string[] = [
 ];
 
 export async function ensureDatabaseReady(): Promise<boolean> {
+  if (testPoolOverride) {
+    dbAvailable = true;
+    return true;
+  }
   const activePool = getPool();
   if (!activePool) {
     dbAvailable = false;
@@ -556,7 +720,7 @@ export async function ensureDatabaseReady(): Promise<boolean> {
     } catch (err) {
       dbAvailable = false;
       console.warn(
-        '[PostgreSQL] Initialization failed, falling back to in-memory store:',
+        '[PostgreSQL] Initialization failed:',
         err instanceof Error ? err.message : String(err)
       );
       return false;
@@ -573,22 +737,26 @@ export async function ensureDatabaseReady(): Promise<boolean> {
   return schemaReadyPromise;
 }
 
-export async function pingDb(): Promise<{ ok: boolean; latencyMs: number; engine: 'postgresql' | 'memory' }> {
+export async function pingDb(): Promise<{
+  ok: boolean;
+  latencyMs: number;
+  engine: 'postgresql' | 'disconnected';
+}> {
   const start = Date.now();
   const activePool = getPool();
   if (!activePool) {
-    return { ok: true, latencyMs: 0, engine: 'memory' };
+    return { ok: false, latencyMs: 0, engine: 'disconnected' };
   }
   try {
     await ensureDatabaseReady();
     if (!dbAvailable) {
-      return { ok: false, latencyMs: Date.now() - start, engine: 'memory' };
+      return { ok: false, latencyMs: Date.now() - start, engine: 'disconnected' };
     }
     await activePool.query('SELECT 1');
     return { ok: true, latencyMs: Date.now() - start, engine: 'postgresql' };
   } catch {
     dbAvailable = false;
-    return { ok: false, latencyMs: Date.now() - start, engine: 'memory' };
+    return { ok: false, latencyMs: Date.now() - start, engine: 'disconnected' };
   }
 }
 
@@ -794,15 +962,6 @@ function syncUserFallback(input: {
   store.users[input.uid] = record;
   persistAuthFallbackStore(store);
 
-  // Also ensure referral code mapping exists in points fallback store
-  const ptsStore = loadPointsFallbackStore();
-  const refCode = buildReferralCodeForUser(input.uid);
-  if (!ptsStore.referralCodeToUid[refCode]) {
-    ptsStore.referralCodeToUid[refCode] = input.uid;
-    ptsStore.userNames[input.uid] = record.displayName;
-    persistPointsFallbackStore(ptsStore);
-  }
-
   return record;
 }
 
@@ -820,8 +979,8 @@ export async function syncUserInDb(input: {
     return withAuthFallbackLock(() => syncUserFallback(input));
   }
 
-  const today = (input.visitDate || getDateKeyUtc()).slice(0, 10);
-  const yesterday = getDateKeyUtc(-1);
+  const today = getJakartaDateKey();
+  const yesterday = getJakartaDateKey(new Date(Date.now() - 86_400_000));
 
   try {
     const existingRes = await dbQuery<{
@@ -3601,21 +3760,67 @@ export async function getMovieSourcesFromDb(
   }));
 }
 
-// --- Points Ledger & Payout Requests (USD & IDR) with Anti-Fraud & Fallback ---
+// --- Points Ledger, Check-In Streaks, Watch Missions, Referrals & Payout Requests (PostgreSQL Single Source of Truth) ---
 
 export type PayoutMethod =
+  | 'dana'
+  | 'gopay'
+  | 'ovo'
+  | 'shopeepay'
+  | 'linkaja'
+  | 'bank_transfer'
   | 'paypal'
+  | 'wise'
   | 'usdt_polygon'
   | 'usdt_trc20'
-  | 'wise'
-  | 'dana'
-  | 'ovo'
-  | 'gopay'
-  | 'bank_transfer';
+  | 'usdt_bep20'
+  | 'usdt_erc20';
 
 export type PayoutCurrency = 'USD' | 'IDR';
-export type PayoutStatus = 'pending' | 'approved' | 'paid' | 'rejected';
+export type PayoutStatus =
+  | 'pending'
+  | 'processing'
+  | 'approved'
+  | 'paid'
+  | 'completed'
+  | 'rejected'
+  | 'failed';
 export type PointsLedgerType = 'earn' | 'redeem';
+
+export interface IndonesianBankOption {
+  code: string;
+  label: string;
+  shortName: string;
+  minDigits: number;
+  maxDigits: number;
+}
+
+export const INDONESIAN_BANK_OPTIONS: IndonesianBankOption[] = [
+  { code: 'BCA', label: 'Bank Central Asia (BCA)', shortName: 'BCA', minDigits: 10, maxDigits: 10 },
+  { code: 'BRI', label: 'Bank Rakyat Indonesia (BRI)', shortName: 'BRI', minDigits: 15, maxDigits: 15 },
+  { code: 'BNI', label: 'Bank Negara Indonesia (BNI)', shortName: 'BNI', minDigits: 10, maxDigits: 10 },
+  { code: 'MANDIRI', label: 'Bank Mandiri', shortName: 'Mandiri', minDigits: 13, maxDigits: 13 },
+  { code: 'BSI', label: 'Bank Syariah Indonesia (BSI)', shortName: 'BSI', minDigits: 10, maxDigits: 10 },
+  { code: 'CIMB', label: 'CIMB Niaga', shortName: 'CIMB Niaga', minDigits: 12, maxDigits: 13 },
+  { code: 'JAGO', label: 'Bank Jago', shortName: 'Bank Jago', minDigits: 10, maxDigits: 12 },
+  { code: 'SEABANK', label: 'SeaBank Indonesia', shortName: 'SeaBank', minDigits: 12, maxDigits: 12 },
+  { code: 'PERMATA', label: 'PermataBank', shortName: 'Permata', minDigits: 10, maxDigits: 10 },
+  { code: 'BTN', label: 'Bank Tabungan Negara (BTN)', shortName: 'BTN', minDigits: 16, maxDigits: 16 },
+];
+
+export interface UsdtNetworkOption {
+  network: 'Polygon' | 'TRC20' | 'BEP20' | 'ERC20';
+  method: PayoutMethod;
+  label: string;
+  addressHint: string;
+}
+
+export const USDT_NETWORK_OPTIONS: UsdtNetworkOption[] = [
+  { network: 'Polygon', method: 'usdt_polygon', label: 'USDT (Polygon)', addressHint: '0x...' },
+  { network: 'TRC20', method: 'usdt_trc20', label: 'USDT (TRC20)', addressHint: 'T...' },
+  { network: 'BEP20', method: 'usdt_bep20', label: 'USDT (BEP20)', addressHint: '0x...' },
+  { network: 'ERC20', method: 'usdt_erc20', label: 'USDT (ERC20)', addressHint: '0x...' },
+];
 
 export interface PayoutMethodDescriptor {
   id: PayoutMethod;
@@ -3646,6 +3851,8 @@ export interface PayoutRuntimeConfig {
   maxWeeklyReferrals: number;
   maxDailyVerifiedWatchSeconds: number;
   methods: PayoutMethodDescriptor[];
+  banks: IndonesianBankOption[];
+  usdtNetworks: UsdtNetworkOption[];
 }
 
 export interface PointsLedgerRecord {
@@ -3655,6 +3862,7 @@ export interface PointsLedgerRecord {
   points: number;
   description: string;
   referenceId: string;
+  balanceAfter?: number | null;
   createdAt: string;
 }
 
@@ -3667,20 +3875,35 @@ export interface PayoutRequestRecord {
   fxRateUsed: number;
   currency: PayoutCurrency;
   method: PayoutMethod;
+  bankCode?: string;
+  network?: string;
   destinationAccount: string;
+  destinationMasked?: string;
   accountHolderName: string;
   status: PayoutStatus;
   adminNote: string;
+  idempotencyKey?: string;
   riskFlag?: string;
   suspiciousReason?: string;
   createdAt: string;
   updatedAt: string;
 }
 
+export interface DailyMissionMilestoneStatus {
+  minutes: number;
+  bonusPoints: number;
+  reached: boolean;
+  claimed: boolean;
+  claimedAt: string | null;
+}
+
 export interface UserPointsSummary {
+  timeZone?: string;
   balance: number;
   totalEarned: number;
   totalRedeemed: number;
+  totalHeld: number;
+  totalWithdrawn: number;
   todayEarned: number;
   maxDailyEarnPoints: number;
   todayWatchSeconds: number;
@@ -3691,6 +3914,11 @@ export interface UserPointsSummary {
   lastClaimAt: string | null;
   cooldownSecondsRemaining: number;
   dailyCheckinClaimedToday: boolean;
+  checkinStreak: number;
+  recentCheckins: string[];
+  milestones: DailyMissionMilestoneStatus[];
+  ledgerTotal: number;
+  payoutsTotal: number;
   ledger: PointsLedgerRecord[];
   payouts: PayoutRequestRecord[];
 }
@@ -3704,27 +3932,33 @@ export interface LivePayoutFeedItem {
   currency: PayoutCurrency;
   usdAmount: number;
   idrAmount: number;
-  status: 'approved' | 'paid';
+  status: 'approved' | 'paid' | 'completed';
   createdAt: string;
   isReal: boolean;
 }
 
 export const ALLOWED_PAYOUT_METHODS: ReadonlySet<PayoutMethod> = new Set([
+  'dana',
+  'gopay',
+  'ovo',
+  'shopeepay',
+  'linkaja',
+  'bank_transfer',
   'paypal',
+  'wise',
   'usdt_polygon',
   'usdt_trc20',
-  'wise',
-  'dana',
-  'ovo',
-  'gopay',
-  'bank_transfer',
+  'usdt_bep20',
+  'usdt_erc20',
 ]);
 
 const USD_PAYOUT_METHODS: ReadonlySet<PayoutMethod> = new Set([
   'paypal',
+  'wise',
   'usdt_polygon',
   'usdt_trc20',
-  'wise',
+  'usdt_bep20',
+  'usdt_erc20',
 ]);
 
 export function getPayoutRuntimeConfig(): PayoutRuntimeConfig {
@@ -3757,6 +3991,22 @@ export function getPayoutRuntimeConfig(): PayoutRuntimeConfig {
       category: 'ewallet_idr',
     },
     {
+      id: 'shopeepay',
+      label: 'ShopeePay',
+      currency: 'IDR',
+      countryCode: 'ID',
+      minPoints: minPayoutPointsIdr,
+      category: 'ewallet_idr',
+    },
+    {
+      id: 'linkaja',
+      label: 'LinkAja',
+      currency: 'IDR',
+      countryCode: 'ID',
+      minPoints: minPayoutPointsIdr,
+      category: 'ewallet_idr',
+    },
+    {
       id: 'bank_transfer',
       label: 'Transfer Bank (IDR)',
       currency: 'IDR',
@@ -3773,6 +4023,14 @@ export function getPayoutRuntimeConfig(): PayoutRuntimeConfig {
       category: 'global_usd',
     },
     {
+      id: 'wise',
+      label: 'Wise',
+      currency: 'USD',
+      countryCode: 'GB',
+      minPoints: minPayoutPointsUsd,
+      category: 'global_usd',
+    },
+    {
       id: 'usdt_polygon',
       label: 'USDT (Polygon)',
       currency: 'USD',
@@ -3784,23 +4042,33 @@ export function getPayoutRuntimeConfig(): PayoutRuntimeConfig {
       id: 'usdt_trc20',
       label: 'USDT (TRC20)',
       currency: 'USD',
-      countryCode: 'PH',
+      countryCode: 'SG',
       minPoints: minPayoutPointsUsd,
       category: 'crypto_usd',
     },
     {
-      id: 'wise',
-      label: 'Wise',
+      id: 'usdt_bep20',
+      label: 'USDT (BEP20)',
       currency: 'USD',
-      countryCode: 'MY',
+      countryCode: 'SG',
       minPoints: minPayoutPointsUsd,
-      category: 'global_usd',
+      category: 'crypto_usd',
+    },
+    {
+      id: 'usdt_erc20',
+      label: 'USDT (ERC20)',
+      currency: 'USD',
+      countryCode: 'SG',
+      minPoints: minPayoutPointsUsd,
+      category: 'crypto_usd',
     },
   ];
 
   return {
     ...runtime,
     methods,
+    banks: INDONESIAN_BANK_OPTIONS,
+    usdtNetworks: USDT_NETWORK_OPTIONS,
   };
 }
 
@@ -3808,7 +4076,10 @@ export function getCurrencyForMethod(method: PayoutMethod): PayoutCurrency {
   return USD_PAYOUT_METHODS.has(method) ? 'USD' : 'IDR';
 }
 
-export function getMethodMetadata(method: PayoutMethod): {
+export function getMethodMetadata(
+  method: PayoutMethod,
+  bankCode?: string
+): {
   label: string;
   countryCode: string;
   currency: PayoutCurrency;
@@ -3820,16 +4091,32 @@ export function getMethodMetadata(method: PayoutMethod): {
       return { label: 'OVO', countryCode: 'ID', currency: 'IDR' };
     case 'gopay':
       return { label: 'GoPay', countryCode: 'ID', currency: 'IDR' };
-    case 'bank_transfer':
-      return { label: 'Transfer Bank', countryCode: 'ID', currency: 'IDR' };
+    case 'shopeepay':
+      return { label: 'ShopeePay', countryCode: 'ID', currency: 'IDR' };
+    case 'linkaja':
+      return { label: 'LinkAja', countryCode: 'ID', currency: 'IDR' };
+    case 'bank_transfer': {
+      const bank = INDONESIAN_BANK_OPTIONS.find(
+        (b) => b.code === String(bankCode || '').toUpperCase()
+      );
+      return {
+        label: bank ? `Bank ${bank.shortName}` : 'Transfer Bank',
+        countryCode: 'ID',
+        currency: 'IDR',
+      };
+    }
     case 'paypal':
       return { label: 'PayPal', countryCode: 'US', currency: 'USD' };
+    case 'wise':
+      return { label: 'Wise', countryCode: 'GB', currency: 'USD' };
     case 'usdt_polygon':
       return { label: 'USDT Polygon', countryCode: 'SG', currency: 'USD' };
     case 'usdt_trc20':
-      return { label: 'USDT TRC20', countryCode: 'PH', currency: 'USD' };
-    case 'wise':
-      return { label: 'Wise', countryCode: 'MY', currency: 'USD' };
+      return { label: 'USDT TRC20', countryCode: 'SG', currency: 'USD' };
+    case 'usdt_bep20':
+      return { label: 'USDT BEP20', countryCode: 'SG', currency: 'USD' };
+    case 'usdt_erc20':
+      return { label: 'USDT ERC20', countryCode: 'SG', currency: 'USD' };
   }
 }
 
@@ -3858,6 +4145,24 @@ export function maskDisplayNameForFeed(rawName?: string | null): string {
   if (chars.length <= 1) return `${chars[0].toUpperCase()}***r`;
   if (chars.length === 2) return `${chars[0].toUpperCase()}***${chars[1].toLowerCase()}`;
   return `${chars[0].toUpperCase()}***${chars[chars.length - 1].toLowerCase()}`;
+}
+
+export function maskDestinationAccount(rawAccount: string, method?: PayoutMethod): string {
+  const clean = String(rawAccount || '').trim();
+  if (!clean) return '****';
+  if (clean.includes('@')) {
+    const [localPart, domain] = clean.split('@');
+    const visibleLocal =
+      localPart.length <= 2 ? `${localPart[0] || '*'}*` : `${localPart.slice(0, 2)}***`;
+    return `${visibleLocal}@${domain || '***'}`;
+  }
+  if (clean.length <= 6) {
+    return `${clean.slice(0, 2)}***${clean.slice(-1)}`;
+  }
+  if (method?.startsWith('usdt_') || clean.startsWith('0x') || clean.startsWith('T')) {
+    return `${clean.slice(0, 6)}****${clean.slice(-4)}`;
+  }
+  return `${clean.slice(0, 4)}****${clean.slice(-3)}`;
 }
 
 export type ReferralStatus = 'pending_watch' | 'qualified' | 'rejected_fraud';
@@ -3946,186 +4251,6 @@ export function buildReferralCodeForUser(userId: string): string {
   return `KD${digest.slice(0, 8)}`;
 }
 
-interface PointsFallbackStore {
-  ledger: PointsLedgerRecord[];
-  payouts: PayoutRequestRecord[];
-  userNames: Record<string, string>;
-  referralCodeToUid: Record<string, string>;
-  referrals: ReferralRecord[];
-  watchTelemetry: Record<string, WatchTelemetryRecord>;
-  securitySignals: Record<string, UserSecuritySignalRecord>;
-}
-
-const POINTS_FALLBACK_CACHE_PATH = path.resolve(
-  process.cwd(),
-  '.cache',
-  'points-payouts.json'
-);
-let pointsFallbackStore: PointsFallbackStore | null = null;
-let pointsFallbackQueue: Promise<unknown> = Promise.resolve();
-
-function withPointsFallbackLock<T>(fn: () => Promise<T> | T): Promise<T> {
-  const next = pointsFallbackQueue.then(fn, fn);
-  pointsFallbackQueue = next.catch(() => {});
-  return next;
-}
-
-function loadPointsFallbackStore(): PointsFallbackStore {
-  if (pointsFallbackStore) return pointsFallbackStore;
-  try {
-    if (fs.existsSync(POINTS_FALLBACK_CACHE_PATH)) {
-      const parsed = JSON.parse(
-        fs.readFileSync(POINTS_FALLBACK_CACHE_PATH, 'utf-8')
-      ) as Partial<PointsFallbackStore>;
-      pointsFallbackStore = {
-        ledger: Array.isArray(parsed.ledger) ? parsed.ledger : [],
-        payouts: Array.isArray(parsed.payouts) ? parsed.payouts : [],
-        userNames:
-          parsed.userNames && typeof parsed.userNames === 'object'
-            ? parsed.userNames
-            : {},
-        referralCodeToUid:
-          parsed.referralCodeToUid && typeof parsed.referralCodeToUid === 'object'
-            ? parsed.referralCodeToUid
-            : {},
-        referrals: Array.isArray(parsed.referrals) ? parsed.referrals : [],
-        watchTelemetry:
-          parsed.watchTelemetry && typeof parsed.watchTelemetry === 'object'
-            ? parsed.watchTelemetry
-            : {},
-        securitySignals:
-          parsed.securitySignals && typeof parsed.securitySignals === 'object'
-            ? parsed.securitySignals
-            : {},
-      };
-      return pointsFallbackStore;
-    }
-  } catch {
-    // Ignore corrupt snapshot and initialize clean store
-  }
-  pointsFallbackStore = {
-    ledger: [],
-    payouts: [],
-    userNames: {},
-    referralCodeToUid: {},
-    referrals: [],
-    watchTelemetry: {},
-    securitySignals: {},
-  };
-  return pointsFallbackStore;
-}
-
-function persistPointsFallbackStore(store: PointsFallbackStore): void {
-  try {
-    const dir = path.dirname(POINTS_FALLBACK_CACHE_PATH);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    const tmp = `${POINTS_FALLBACK_CACHE_PATH}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(store, null, 2), 'utf-8');
-    fs.renameSync(tmp, POINTS_FALLBACK_CACHE_PATH);
-  } catch (err) {
-    console.warn(
-      '[PointsFallback] Disk snapshot write failed:',
-      err instanceof Error ? err.message : String(err)
-    );
-  }
-}
-
-function summarizeUserFallback(
-  store: PointsFallbackStore,
-  userId: string,
-  cfg: PayoutRuntimeConfig
-): UserPointsSummary {
-  const todayKey = getJakartaDateKey();
-  const userLedger = store.ledger
-    .filter((entry) => entry.userId === userId)
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-
-  let totalEarned = 0;
-  let totalRedeemed = 0;
-  let todayEarned = 0;
-  let todayWatchPointsEarned = 0;
-  let lastManualClaimTimeMs = 0;
-  let dailyCheckinClaimedToday = false;
-  const checkinRef = `checkin:${userId}:${todayKey}`;
-
-  for (const row of userLedger) {
-    if (row.type === 'earn') {
-      totalEarned += row.points;
-      if (row.referenceId === checkinRef) {
-        dailyCheckinClaimedToday = true;
-      }
-      if (!row.referenceId.startsWith('refund:payout:')) {
-        const createdDateKey = getJakartaDateKey(new Date(row.createdAt));
-        if (createdDateKey === todayKey) {
-          todayEarned += row.points;
-          if (
-            row.referenceId.startsWith('watch_min:') ||
-            row.referenceId.startsWith('mission_')
-          ) {
-            todayWatchPointsEarned += row.points;
-          }
-        }
-        const isManualClaim =
-          row.referenceId.startsWith('checkin:') ||
-          row.referenceId.startsWith('watch:');
-        if (isManualClaim) {
-          const ts = Date.parse(row.createdAt);
-          if (Number.isFinite(ts) && ts > lastManualClaimTimeMs) {
-            lastManualClaimTimeMs = ts;
-          }
-        }
-      }
-    } else if (row.type === 'redeem') {
-      totalRedeemed += row.points;
-    }
-  }
-
-  const tel = store.watchTelemetry[userId];
-  const todayWatchSeconds =
-    tel && tel.todayDateKey === todayKey
-      ? Math.max(0, Number(tel.todayWatchSeconds) || 0)
-      : 0;
-
-  const balance = Math.max(0, totalEarned - totalRedeemed);
-  const { usdAmount, idrAmount } = computePointsConversion(balance, cfg);
-  const elapsedSec =
-    lastManualClaimTimeMs > 0
-      ? Math.floor((Date.now() - lastManualClaimTimeMs) / 1000)
-      : 999999;
-  const cooldownSecondsRemaining =
-    lastManualClaimTimeMs > 0 && elapsedSec < cfg.claimCooldownSeconds
-      ? Math.max(1, cfg.claimCooldownSeconds - elapsedSec)
-      : 0;
-
-  const userPayouts = store.payouts
-    .filter((p) => p.userId === userId)
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-    .slice(0, 30);
-
-  return {
-    balance,
-    totalEarned,
-    totalRedeemed,
-    todayEarned,
-    maxDailyEarnPoints: cfg.maxDailyEarnPoints,
-    todayWatchSeconds,
-    todayWatchPointsEarned,
-    dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
-    estimatedUsd: usdAmount,
-    estimatedIdr: idrAmount,
-    lastClaimAt:
-      lastManualClaimTimeMs > 0
-        ? new Date(lastManualClaimTimeMs).toISOString()
-        : null,
-    cooldownSecondsRemaining,
-    dailyCheckinClaimedToday,
-    ledger: userLedger.slice(0, 40),
-    payouts: userPayouts,
-  };
-}
-
 function mapLedgerRow(r: {
   id: string;
   user_id: string;
@@ -4133,6 +4258,7 @@ function mapLedgerRow(r: {
   points: number | string;
   description: string;
   reference_id: string;
+  balance_after?: number | string | null;
   created_at: Date | string;
 }): PointsLedgerRecord {
   return {
@@ -4142,6 +4268,10 @@ function mapLedgerRow(r: {
     points: Math.max(0, Number(r.points) || 0),
     description: r.description || '',
     referenceId: r.reference_id,
+    balanceAfter:
+      r.balance_after === null || r.balance_after === undefined
+        ? null
+        : Math.max(0, Number(r.balance_after) || 0),
     createdAt:
       r.created_at instanceof Date
         ? r.created_at.toISOString()
@@ -4149,39 +4279,61 @@ function mapLedgerRow(r: {
   };
 }
 
-function mapPayoutRow(r: {
-  id: string;
-  user_id: string;
-  points_spent: number | string;
-  usd_amount: number | string;
-  idr_amount: number | string;
-  fx_rate_used: number | string;
-  currency: string;
-  method: string;
-  destination_account: string;
-  account_holder_name: string;
-  status: string;
-  admin_note: string;
-  risk_flag?: string;
-  suspicious_reason?: string;
-  created_at: Date | string;
-  updated_at: Date | string;
-}): PayoutRequestRecord {
+const VALID_PAYOUT_STATUSES: ReadonlySet<string> = new Set([
+  'pending',
+  'processing',
+  'approved',
+  'paid',
+  'completed',
+  'rejected',
+  'failed',
+]);
+
+function mapPayoutRow(
+  r: {
+    id: string;
+    user_id: string;
+    points_spent: number | string;
+    usd_amount: number | string;
+    idr_amount: number | string;
+    fx_rate_used: number | string;
+    currency: string;
+    method: string;
+    bank_code?: string | null;
+    network?: string | null;
+    destination_account: string;
+    account_holder_name: string;
+    status: string;
+    admin_note: string;
+    idempotency_key?: string | null;
+    risk_flag?: string;
+    suspicious_reason?: string;
+    created_at: Date | string;
+    updated_at: Date | string;
+  },
+  maskSensitive = true
+): PayoutRequestRecord {
+  const method = (ALLOWED_PAYOUT_METHODS.has(r.method as PayoutMethod)
+    ? r.method
+    : 'dana') as PayoutMethod;
+  const masked = maskDestinationAccount(r.destination_account, method);
   return {
     id: r.id,
     userId: r.user_id,
     pointsSpent: Math.max(0, Number(r.points_spent) || 0),
     usdAmount: Number(Number(r.usd_amount || 0).toFixed(2)),
     idrAmount: Math.max(0, Math.round(Number(r.idr_amount) || 0)),
-    fxRateUsed: Number(Number(r.fx_rate_used || 16000).toFixed(2)),
+    fxRateUsed: Number(Number(r.fx_rate_used || 18200).toFixed(2)),
     currency: r.currency === 'USD' ? 'USD' : 'IDR',
-    method: r.method as PayoutMethod,
-    destinationAccount: r.destination_account,
+    method,
+    bankCode: r.bank_code || '',
+    network: r.network || '',
+    destinationAccount: maskSensitive ? masked : r.destination_account,
+    destinationMasked: masked,
     accountHolderName: r.account_holder_name,
-    status: (['pending', 'approved', 'paid', 'rejected'].includes(r.status)
-      ? r.status
-      : 'pending') as PayoutStatus,
+    status: (VALID_PAYOUT_STATUSES.has(r.status) ? r.status : 'pending') as PayoutStatus,
     adminNote: r.admin_note || '',
+    idempotencyKey: r.idempotency_key || '',
     riskFlag: r.risk_flag || '',
     suspiciousReason: r.suspicious_reason || '',
     createdAt:
@@ -4195,12 +4347,91 @@ function mapPayoutRow(r: {
   };
 }
 
+function normalizeDateKeyString(
+  val: Date | string | null | undefined,
+  timeZone: string = DEFAULT_FALLBACK_TIMEZONE
+): string {
+  if (!val) return '';
+  if (val instanceof Date) {
+    return getDateKeyInTimeZone(val, timeZone);
+  }
+  const s = String(val).trim();
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(s);
+  return match ? match[1] : s;
+}
+
+const TIMEZONE_SWITCH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const CHECKIN_MIN_GAP_MS = 20 * 60 * 60 * 1000;
+
+async function resolveUserTimeZonePg(
+  client: PoolClient,
+  userId: string,
+  requestedTz?: string | null,
+  allowWrite = true
+): Promise<{ timeZone: string; todayKey: string; yesterdayKey: string }> {
+  const validRequested = normalizeIanaTimeZone(requestedTz);
+  let effectiveTz = validRequested || DEFAULT_FALLBACK_TIMEZONE;
+
+  try {
+    const res = await client.query<{
+      timezone: string | null;
+      timezone_updated_at: Date | null;
+    }>(`SELECT timezone, timezone_updated_at FROM users WHERE uid = $1 LIMIT 1`, [
+      userId,
+    ]);
+    const row = res.rows[0];
+    if (row) {
+      const storedTz = normalizeIanaTimeZone(row.timezone);
+      const updatedMs =
+        row.timezone_updated_at instanceof Date ? row.timezone_updated_at.getTime() : 0;
+      const canSwitch = !updatedMs || Date.now() - updatedMs >= TIMEZONE_SWITCH_COOLDOWN_MS;
+
+      if (!storedTz && validRequested) {
+        effectiveTz = validRequested;
+        if (allowWrite) {
+          await client.query(
+            `UPDATE users SET timezone = $2, timezone_updated_at = NOW() WHERE uid = $1`,
+            [userId, validRequested]
+          );
+        }
+      } else if (storedTz && validRequested && validRequested !== storedTz) {
+        if (canSwitch && allowWrite) {
+          effectiveTz = validRequested;
+          await client.query(
+            `UPDATE users SET timezone = $2, timezone_updated_at = NOW() WHERE uid = $1`,
+            [userId, validRequested]
+          );
+        } else {
+          effectiveTz = storedTz;
+        }
+      } else if (storedTz) {
+        effectiveTz = storedTz;
+      }
+    }
+  } catch {
+    // Fallback cleanly if user row or column lookup encounters unexpected edge case
+  }
+
+  const now = new Date();
+  return {
+    timeZone: effectiveTz,
+    todayKey: getDateKeyInTimeZone(now, effectiveTz),
+    yesterdayKey: getDateKeyInTimeZone(new Date(now.getTime() - 86_400_000), effectiveTz),
+  };
+}
+
 async function queryUserPointsSummaryOnClient(
   client: PoolClient,
   userId: string,
-  cfg: PayoutRuntimeConfig
+  cfg: PayoutRuntimeConfig,
+  requestedTz?: string | null
 ): Promise<UserPointsSummary> {
-  const todayKey = getJakartaDateKey();
+  const { timeZone, todayKey, yesterdayKey } = await resolveUserTimeZonePg(
+    client,
+    userId,
+    requestedTz,
+    true
+  );
   const checkinRef = `checkin:${userId}:${todayKey}`;
 
   const aggRes = await client.query<{
@@ -4210,6 +4441,7 @@ async function queryUserPointsSummaryOnClient(
     today_watch_points: string;
     last_claim_at: Date | null;
     checkin_today: boolean;
+    ledger_total: string;
   }>(
     `SELECT
        COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0)::text AS total_earned,
@@ -4218,7 +4450,7 @@ async function queryUserPointsSummaryOnClient(
          CASE
            WHEN type = 'earn'
             AND reference_id NOT LIKE 'refund:payout:%'
-            AND (created_at AT TIME ZONE 'Asia/Jakarta')::date = $2::date
+            AND (created_at AT TIME ZONE $4)::date = $2::date
            THEN points
            ELSE 0
          END
@@ -4227,7 +4459,7 @@ async function queryUserPointsSummaryOnClient(
          CASE
            WHEN type = 'earn'
             AND (reference_id LIKE 'watch_min:%' OR reference_id LIKE 'mission_%')
-            AND (created_at AT TIME ZONE 'Asia/Jakarta')::date = $2::date
+            AND (created_at AT TIME ZONE $4)::date = $2::date
            THEN points
            ELSE 0
          END
@@ -4240,10 +4472,25 @@ async function queryUserPointsSummaryOnClient(
            ELSE NULL
          END
        ) AS last_claim_at,
-       BOOL_OR(reference_id = $3) AS checkin_today
+       COALESCE(BOOL_OR(reference_id = $3), FALSE) AS checkin_today,
+       COUNT(*)::text AS ledger_total
      FROM points_ledger
      WHERE user_id = $1`,
-    [userId, todayKey, checkinRef]
+    [userId, todayKey, checkinRef, timeZone]
+  );
+
+  const payoutAggRes = await client.query<{
+    total_held: string;
+    total_withdrawn: string;
+    payouts_total: string;
+  }>(
+    `SELECT
+       COALESCE(SUM(CASE WHEN status IN ('pending', 'processing', 'approved') THEN points_spent ELSE 0 END), 0)::text AS total_held,
+       COALESCE(SUM(CASE WHEN status IN ('paid', 'completed') THEN points_spent ELSE 0 END), 0)::text AS total_withdrawn,
+       COUNT(*)::text AS payouts_total
+     FROM payout_requests
+     WHERE user_id = $1`,
+    [userId]
   );
 
   const telRes = await client.query<{
@@ -4257,9 +4504,45 @@ async function queryUserPointsSummaryOnClient(
     [userId]
   );
 
+  const checkinsRes = await client.query<{
+    checkin_date: Date | string;
+    streak_day: number;
+  }>(
+    `SELECT checkin_date, streak_day
+     FROM daily_checkins
+     WHERE user_id = $1
+     ORDER BY checkin_date DESC
+     LIMIT 14`,
+    [userId]
+  );
+
+  const milestoneRefIds = cfg.dailyMissionMilestones.map(
+    (m) => `mission_${m.minutes}m:${userId}:${todayKey}`
+  );
+  const milestoneLedgerRes =
+    milestoneRefIds.length > 0
+      ? await client.query<{ reference_id: string; created_at: Date }>(
+          `SELECT reference_id, created_at
+           FROM points_ledger
+           WHERE user_id = $1 AND reference_id = ANY($2::text[])`,
+          [userId, milestoneRefIds]
+        )
+      : { rows: [] };
+
+  const milestoneMap = new Map<string, string>();
+  for (const row of milestoneLedgerRes.rows) {
+    milestoneMap.set(
+      row.reference_id,
+      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
+    );
+  }
+
   const agg = aggRes.rows[0];
+  const payoutAgg = payoutAggRes.rows[0];
   const totalEarned = Math.max(0, Number(agg?.total_earned) || 0);
   const totalRedeemed = Math.max(0, Number(agg?.total_redeemed) || 0);
+  const totalHeld = Math.max(0, Number(payoutAgg?.total_held) || 0);
+  const totalWithdrawn = Math.max(0, Number(payoutAgg?.total_withdrawn) || 0);
   const todayEarned = Math.max(0, Number(agg?.today_earned) || 0);
   const todayWatchPointsEarned = Math.max(0, Number(agg?.today_watch_points) || 0);
   const telRow = telRes.rows[0];
@@ -4267,6 +4550,7 @@ async function queryUserPointsSummaryOnClient(
     telRow && telRow.today_date_key === todayKey
       ? Math.max(0, Number(telRow.today_watch_seconds) || 0)
       : 0;
+
   const balance = Math.max(0, totalEarned - totalRedeemed);
   const lastClaimDate = agg?.last_claim_at instanceof Date ? agg.last_claim_at : null;
   const elapsedSec = lastClaimDate
@@ -4277,6 +4561,32 @@ async function queryUserPointsSummaryOnClient(
       ? Math.max(1, cfg.claimCooldownSeconds - elapsedSec)
       : 0;
 
+  const checkinRows = checkinsRes.rows.map((r) => ({
+    dateKey: normalizeDateKeyString(r.checkin_date, timeZone),
+    streakDay: Math.max(1, Number(r.streak_day) || 1),
+  }));
+  const recentCheckins = checkinRows.map((r) => r.dateKey).filter(Boolean).slice(0, 7);
+  const todayCheckinRow = checkinRows.find((r) => r.dateKey === todayKey);
+  const yesterdayCheckinRow = checkinRows.find((r) => r.dateKey === yesterdayKey);
+  const dailyCheckinClaimedToday = Boolean(agg?.checkin_today) || Boolean(todayCheckinRow);
+  const checkinStreak = todayCheckinRow
+    ? todayCheckinRow.streakDay
+    : yesterdayCheckinRow
+    ? yesterdayCheckinRow.streakDay
+    : 0;
+
+  const milestones: DailyMissionMilestoneStatus[] = cfg.dailyMissionMilestones.map((ms) => {
+    const refId = `mission_${ms.minutes}m:${userId}:${todayKey}`;
+    const claimedAt = milestoneMap.get(refId) || null;
+    return {
+      minutes: ms.minutes,
+      bonusPoints: ms.bonusPoints,
+      reached: todayWatchSeconds >= ms.minutes * 60,
+      claimed: Boolean(claimedAt),
+      claimedAt,
+    };
+  });
+
   const ledgerRes = await client.query<{
     id: string;
     user_id: string;
@@ -4284,13 +4594,14 @@ async function queryUserPointsSummaryOnClient(
     points: number;
     description: string;
     reference_id: string;
+    balance_after: number | null;
     created_at: Date;
   }>(
-    `SELECT id, user_id, type, points, description, reference_id, created_at
+    `SELECT id, user_id, type, points, description, reference_id, balance_after, created_at
      FROM points_ledger
      WHERE user_id = $1
      ORDER BY created_at DESC
-     LIMIT 40`,
+     LIMIT 20`,
     [userId]
   );
 
@@ -4303,28 +4614,36 @@ async function queryUserPointsSummaryOnClient(
     fx_rate_used: string;
     currency: string;
     method: string;
+    bank_code: string;
+    network: string;
     destination_account: string;
     account_holder_name: string;
     status: string;
     admin_note: string;
+    idempotency_key: string | null;
+    risk_flag: string;
+    suspicious_reason: string;
     created_at: Date;
     updated_at: Date;
   }>(
     `SELECT id, user_id, points_spent, usd_amount, idr_amount, fx_rate_used,
-            currency, method, destination_account, account_holder_name,
-            status, admin_note, created_at, updated_at
+            currency, method, bank_code, network, destination_account, account_holder_name,
+            status, admin_note, idempotency_key, risk_flag, suspicious_reason, created_at, updated_at
      FROM payout_requests
      WHERE user_id = $1
      ORDER BY created_at DESC
-     LIMIT 30`,
+     LIMIT 15`,
     [userId]
   );
 
   const { usdAmount, idrAmount } = computePointsConversion(balance, cfg);
   return {
+    timeZone,
     balance,
     totalEarned,
     totalRedeemed,
+    totalHeld,
+    totalWithdrawn,
     todayEarned,
     maxDailyEarnPoints: cfg.maxDailyEarnPoints,
     todayWatchSeconds,
@@ -4334,36 +4653,556 @@ async function queryUserPointsSummaryOnClient(
     estimatedIdr: idrAmount,
     lastClaimAt: lastClaimDate ? lastClaimDate.toISOString() : null,
     cooldownSecondsRemaining,
-    dailyCheckinClaimedToday: Boolean(agg?.checkin_today),
+    dailyCheckinClaimedToday,
+    checkinStreak,
+    recentCheckins,
+    milestones,
+    ledgerTotal: Math.max(0, Number(agg?.ledger_total) || ledgerRes.rows.length),
+    payoutsTotal: Math.max(0, Number(payoutAgg?.payouts_total) || payoutRes.rows.length),
     ledger: ledgerRes.rows.map(mapLedgerRow),
-    payouts: payoutRes.rows.map(mapPayoutRow),
+    payouts: payoutRes.rows.map((row) => mapPayoutRow(row, true)),
   };
 }
 
 export async function getUserPointsSummaryFromDb(
-  userId: string
+  userId: string,
+  timeZone?: string | null
 ): Promise<UserPointsSummary> {
   const cfg = getPayoutRuntimeConfig();
-  const activePool = getPool();
-  if (activePool && (await ensureDatabaseReady()) && dbAvailable) {
-    let client: PoolClient | null = null;
-    try {
-      client = await activePool.connect();
-      return await queryUserPointsSummaryOnClient(client, userId, cfg);
-    } catch (err) {
-      console.warn(
-        '[PostgreSQL] getUserPointsSummaryFromDb failed, using fallback:',
-        err instanceof Error ? err.message : String(err)
-      );
-    } finally {
-      client?.release();
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    return await queryUserPointsSummaryOnClient(client, userId, cfg, timeZone);
+  } catch (err) {
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] getUserPointsSummaryFromDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
+}
+
+export async function listUserLedgerFromDb(
+  userId: string,
+  limit = 20,
+  offset = 0
+): Promise<{ items: PointsLedgerRecord[]; total: number; limit: number; offset: number }> {
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    const countRes = await client.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM points_ledger WHERE user_id = $1`,
+      [userId]
+    );
+    const listRes = await client.query<{
+      id: string;
+      user_id: string;
+      type: string;
+      points: number;
+      description: string;
+      reference_id: string;
+      balance_after: number | null;
+      created_at: Date;
+    }>(
+      `SELECT id, user_id, type, points, description, reference_id, balance_after, created_at
+       FROM points_ledger
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [userId, safeLimit, safeOffset]
+    );
+    return {
+      items: listRes.rows.map(mapLedgerRow),
+      total: Math.max(0, Number(countRes.rows[0]?.cnt) || listRes.rows.length),
+      limit: safeLimit,
+      offset: safeOffset,
+    };
+  } catch (err) {
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] listUserLedgerFromDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
+}
+
+export async function listUserPayoutsFromDb(
+  userId: string,
+  limit = 15,
+  offset = 0
+): Promise<{ items: PayoutRequestRecord[]; total: number; limit: number; offset: number }> {
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 15));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    const countRes = await client.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt FROM payout_requests WHERE user_id = $1`,
+      [userId]
+    );
+    const listRes = await client.query<{
+      id: string;
+      user_id: string;
+      points_spent: number;
+      usd_amount: string;
+      idr_amount: string;
+      fx_rate_used: string;
+      currency: string;
+      method: string;
+      bank_code: string;
+      network: string;
+      destination_account: string;
+      account_holder_name: string;
+      status: string;
+      admin_note: string;
+      idempotency_key: string | null;
+      risk_flag: string;
+      suspicious_reason: string;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, user_id, points_spent, usd_amount, idr_amount, fx_rate_used,
+              currency, method, bank_code, network, destination_account, account_holder_name,
+              status, admin_note, idempotency_key, risk_flag, suspicious_reason, created_at, updated_at
+       FROM payout_requests
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [userId, safeLimit, safeOffset]
+    );
+    return {
+      items: listRes.rows.map((r) => mapPayoutRow(r, true)),
+      total: Math.max(0, Number(countRes.rows[0]?.cnt) || listRes.rows.length),
+      limit: safeLimit,
+      offset: safeOffset,
+    };
+  } catch (err) {
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] listUserPayoutsFromDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
+}
+
+export async function claimDailyCheckinInDb(input: {
+  userId: string;
+  displayName?: string;
+  timeZone?: string | null;
+}): Promise<{
+  ok: boolean;
+  reason?: 'duplicate_claim' | 'cooldown_active' | 'daily_cap_reached';
+  cooldownSecondsRemaining?: number;
+  streakDay?: number;
+  entry?: PointsLedgerRecord;
+  summary: UserPointsSummary;
+}> {
+  const cfg = getPayoutRuntimeConfig();
+  const amount = cfg.dailyCheckinPoints;
+
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    await client.query('BEGIN');
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `points:${input.userId}`,
+    ]);
+
+    const { timeZone, todayKey, yesterdayKey } = await resolveUserTimeZonePg(
+      client,
+      input.userId,
+      input.timeZone,
+      true
+    );
+    const referenceId = `checkin:${input.userId}:${todayKey}`;
+
+    const dupCheckin = await client.query<{ user_id: string }>(
+      `SELECT user_id FROM daily_checkins WHERE user_id = $1 AND checkin_date = $2::date LIMIT 1`,
+      [input.userId, todayKey]
+    );
+    const dupLedger = await client.query<{ id: string }>(
+      `SELECT id FROM points_ledger WHERE reference_id = $1 LIMIT 1`,
+      [referenceId]
+    );
+    const recentGapCheck = await client.query<{ last_at: Date | null }>(
+      `SELECT MAX(created_at) AS last_at FROM daily_checkins WHERE user_id = $1`,
+      [input.userId]
+    );
+    const lastCheckinAt =
+      recentGapCheck.rows[0]?.last_at instanceof Date ? recentGapCheck.rows[0].last_at : null;
+    const violatedMinGap =
+      lastCheckinAt !== null && Date.now() - lastCheckinAt.getTime() < CHECKIN_MIN_GAP_MS;
+
+    if (dupCheckin.rows.length > 0 || dupLedger.rows.length > 0 || violatedMinGap) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'duplicate_claim', summary };
     }
+
+    const statsRes = await client.query<{
+      balance: string;
+      today_earned: string;
+      last_claim_at: Date | null;
+    }>(
+      `SELECT
+         (COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0) -
+          COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0))::text AS balance,
+         COALESCE(SUM(
+           CASE
+             WHEN type = 'earn'
+              AND reference_id NOT LIKE 'refund:payout:%'
+              AND (created_at AT TIME ZONE $3)::date = $2::date
+             THEN points
+             ELSE 0
+           END
+         ), 0)::text AS today_earned,
+         MAX(
+           CASE
+             WHEN type = 'earn'
+              AND (reference_id LIKE 'checkin:%' OR reference_id LIKE 'watch:%')
+             THEN created_at
+             ELSE NULL
+           END
+         ) AS last_claim_at
+       FROM points_ledger
+       WHERE user_id = $1`,
+      [input.userId, todayKey, timeZone]
+    );
+
+    const currentBalance = Math.max(0, Number(statsRes.rows[0]?.balance) || 0);
+    const todayEarned = Math.max(0, Number(statsRes.rows[0]?.today_earned) || 0);
+    const lastClaimAt =
+      statsRes.rows[0]?.last_claim_at instanceof Date ? statsRes.rows[0].last_claim_at : null;
+
+    if (lastClaimAt) {
+      const elapsedSec = Math.floor((Date.now() - lastClaimAt.getTime()) / 1000);
+      if (elapsedSec < cfg.claimCooldownSeconds) {
+        const remaining = Math.max(1, cfg.claimCooldownSeconds - elapsedSec);
+        const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+        await client.query('COMMIT');
+        return {
+          ok: false,
+          reason: 'cooldown_active',
+          cooldownSecondsRemaining: remaining,
+          summary,
+        };
+      }
+    }
+
+    if (todayEarned + amount > cfg.maxDailyEarnPoints) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'daily_cap_reached', summary };
+    }
+
+    const yestRes = await client.query<{ streak_day: number }>(
+      `SELECT streak_day FROM daily_checkins WHERE user_id = $1 AND checkin_date = $2::date LIMIT 1`,
+      [input.userId, yesterdayKey]
+    );
+    const streakDay =
+      yestRes.rows[0] && Number(yestRes.rows[0].streak_day) > 0
+        ? Number(yestRes.rows[0].streak_day) + 1
+        : 1;
+
+    const ledgerId = crypto.randomUUID();
+    const balanceAfter = currentBalance + amount;
+    const inserted = await client.query<{
+      id: string;
+      user_id: string;
+      type: string;
+      points: number;
+      description: string;
+      reference_id: string;
+      balance_after: number | null;
+      created_at: Date;
+    }>(
+      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
+       RETURNING id, user_id, type, points, description, reference_id, balance_after, created_at`,
+      [
+        ledgerId,
+        input.userId,
+        amount,
+        `Check-in Harian (Hari ke-${streakDay})`,
+        referenceId,
+        balanceAfter,
+      ]
+    );
+
+    await client.query(
+      `INSERT INTO daily_checkins (user_id, checkin_date, streak_day, points_awarded, ledger_id, created_at)
+       VALUES ($1, $2::date, $3, $4, $5, NOW())
+       ON CONFLICT (user_id, checkin_date) DO NOTHING`,
+      [input.userId, todayKey, streakDay, amount, ledgerId]
+    );
+
+    await client.query(
+      `UPDATE users
+       SET streak_count = $2,
+           last_visit_date = $3,
+           is_vip = CASE WHEN $2 >= 3 THEN TRUE ELSE is_vip END,
+           updated_at = NOW()
+       WHERE uid = $1`,
+      [input.userId, streakDay, todayKey]
+    );
+
+    const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      streakDay,
+      entry: inserted.rows[0] ? mapLedgerRow(inserted.rows[0]) : undefined,
+      summary,
+    };
+  } catch (err) {
+    try {
+      await client?.query('ROLLBACK');
+    } catch {
+      // Ignore rollback failure
+    }
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] claimDailyCheckinInDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
+}
+
+export async function claimWatchEpisodeInDb(input: {
+  userId: string;
+  provider: string;
+  dramaId: string;
+  episodeNumber: number;
+  sessionToken?: string;
+  title?: string;
+  displayName?: string;
+  timeZone?: string | null;
+}): Promise<{
+  ok: boolean;
+  reason?:
+    | 'duplicate_claim'
+    | 'cooldown_active'
+    | 'daily_cap_reached'
+    | 'watch_duration_insufficient'
+    | 'invalid_episode';
+  cooldownSecondsRemaining?: number;
+  watchedSeconds?: number;
+  minRequiredSeconds?: number;
+  entry?: PointsLedgerRecord;
+  summary: UserPointsSummary;
+}> {
+  const cfg = getPayoutRuntimeConfig();
+  const cleanProvider = String(input.provider || 'DramaBox').trim().slice(0, 60) || 'DramaBox';
+  const cleanDramaId = String(input.dramaId || '').trim().slice(0, 120);
+  const epNum = Math.floor(Number(input.episodeNumber) || 0);
+  const cleanToken = String(input.sessionToken || '').trim().slice(0, 80);
+
+  if (!cleanDramaId || epNum < 1) {
+    const summary = await getUserPointsSummaryFromDb(input.userId, input.timeZone);
+    return { ok: false, reason: 'invalid_episode', summary };
   }
 
-  return withPointsFallbackLock(() => {
-    const store = loadPointsFallbackStore();
-    return summarizeUserFallback(store, userId, cfg);
-  });
+  const referenceId = `watch:${input.userId}:${cleanProvider.toLowerCase()}:${cleanDramaId}:${epNum}`;
+  const amount = cfg.watchEpisodePoints;
+  const minRequired = ANTI_CHEAT_DEFAULTS.minEpisodeWatchSecForBonus;
+
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    await client.query('BEGIN');
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `points:${input.userId}`,
+    ]);
+
+    const { timeZone, todayKey } = await resolveUserTimeZonePg(
+      client,
+      input.userId,
+      input.timeZone,
+      true
+    );
+
+    const dupEp = await client.query<{ user_id: string }>(
+      `SELECT user_id
+       FROM rewarded_episodes
+       WHERE user_id = $1 AND LOWER(provider) = LOWER($2) AND drama_id = $3 AND episode_number = $4
+       LIMIT 1`,
+      [input.userId, cleanProvider, cleanDramaId, epNum]
+    );
+    const dupLedger = await client.query<{ id: string }>(
+      `SELECT id FROM points_ledger WHERE reference_id = $1 LIMIT 1`,
+      [referenceId]
+    );
+    if (dupEp.rows.length > 0 || dupLedger.rows.length > 0) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'duplicate_claim', summary };
+    }
+
+    const mediaKeyPattern = `${cleanProvider}:${cleanDramaId}:ep${epNum}`;
+    const sessRes = await client.query<{
+      session_token: string;
+      accumulated_sec: number;
+    }>(
+      `SELECT session_token, accumulated_sec
+       FROM watch_sessions
+       WHERE user_id = $1
+         AND (
+           ($2 <> '' AND session_token = $2)
+           OR (LOWER(provider) = LOWER($3) AND drama_id = $4 AND episode_number = $5)
+           OR LOWER(media_key) = LOWER($6)
+         )
+       ORDER BY accumulated_sec DESC, updated_at DESC
+       LIMIT 1`,
+      [input.userId, cleanToken, cleanProvider, cleanDramaId, epNum, mediaKeyPattern]
+    );
+    const watchedSeconds = Math.max(0, Number(sessRes.rows[0]?.accumulated_sec) || 0);
+    if (watchedSeconds < minRequired) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return {
+        ok: false,
+        reason: 'watch_duration_insufficient',
+        watchedSeconds,
+        minRequiredSeconds: minRequired,
+        summary,
+      };
+    }
+
+    const statsRes = await client.query<{
+      balance: string;
+      today_earned: string;
+      last_claim_at: Date | null;
+    }>(
+      `SELECT
+         (COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0) -
+          COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0))::text AS balance,
+         COALESCE(SUM(
+           CASE
+             WHEN type = 'earn'
+              AND reference_id NOT LIKE 'refund:payout:%'
+              AND (created_at AT TIME ZONE $3)::date = $2::date
+             THEN points
+             ELSE 0
+           END
+         ), 0)::text AS today_earned,
+         MAX(
+           CASE
+             WHEN type = 'earn'
+              AND (reference_id LIKE 'checkin:%' OR reference_id LIKE 'watch:%')
+             THEN created_at
+             ELSE NULL
+           END
+         ) AS last_claim_at
+       FROM points_ledger
+       WHERE user_id = $1`,
+      [input.userId, todayKey, timeZone]
+    );
+
+    const currentBalance = Math.max(0, Number(statsRes.rows[0]?.balance) || 0);
+    const todayEarned = Math.max(0, Number(statsRes.rows[0]?.today_earned) || 0);
+    const lastClaimAt =
+      statsRes.rows[0]?.last_claim_at instanceof Date ? statsRes.rows[0].last_claim_at : null;
+
+    if (lastClaimAt) {
+      const elapsedSec = Math.floor((Date.now() - lastClaimAt.getTime()) / 1000);
+      if (elapsedSec < cfg.claimCooldownSeconds) {
+        const remaining = Math.max(1, cfg.claimCooldownSeconds - elapsedSec);
+        const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+        await client.query('COMMIT');
+        return {
+          ok: false,
+          reason: 'cooldown_active',
+          cooldownSecondsRemaining: remaining,
+          summary,
+        };
+      }
+    }
+
+    if (todayEarned + amount > cfg.maxDailyEarnPoints) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'daily_cap_reached', summary };
+    }
+
+    const ledgerId = crypto.randomUUID();
+    const balanceAfter = currentBalance + amount;
+    const cleanTitle = String(input.title || '').trim().slice(0, 80);
+    const desc = cleanTitle
+      ? `Bonus Episode Baru: ${cleanTitle} Ep ${epNum}`
+      : `Bonus Episode Baru (${cleanProvider} Ep ${epNum})`;
+
+    const inserted = await client.query<{
+      id: string;
+      user_id: string;
+      type: string;
+      points: number;
+      description: string;
+      reference_id: string;
+      balance_after: number | null;
+      created_at: Date;
+    }>(
+      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
+       RETURNING id, user_id, type, points, description, reference_id, balance_after, created_at`,
+      [ledgerId, input.userId, amount, desc.slice(0, 240), referenceId.slice(0, 200), balanceAfter]
+    );
+
+    await client.query(
+      `INSERT INTO rewarded_episodes (user_id, provider, drama_id, episode_number, points_awarded, session_token, ledger_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (user_id, provider, drama_id, episode_number) DO NOTHING`,
+      [
+        input.userId,
+        cleanProvider.toLowerCase(),
+        cleanDramaId,
+        epNum,
+        amount,
+        sessRes.rows[0]?.session_token || cleanToken,
+        ledgerId,
+      ]
+    );
+
+    const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      entry: inserted.rows[0] ? mapLedgerRow(inserted.rows[0]) : undefined,
+      summary,
+    };
+  } catch (err) {
+    try {
+      await client?.query('ROLLBACK');
+    } catch {
+      // Ignore rollback failure
+    }
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] claimWatchEpisodeInDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
 }
 
 export async function claimPointsInDb(input: {
@@ -4374,198 +5213,40 @@ export async function claimPointsInDb(input: {
   displayName?: string;
 }): Promise<{
   ok: boolean;
-  reason?: 'duplicate_claim' | 'cooldown_active' | 'daily_cap_reached' | 'invalid_amount';
+  reason?:
+    | 'duplicate_claim'
+    | 'cooldown_active'
+    | 'daily_cap_reached'
+    | 'invalid_amount'
+    | 'watch_duration_insufficient';
   cooldownSecondsRemaining?: number;
   entry?: PointsLedgerRecord;
   summary: UserPointsSummary;
 }> {
-  const cfg = getPayoutRuntimeConfig();
-  const amount = Math.floor(input.amount);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    const summary = await getUserPointsSummaryFromDb(input.userId);
-    return { ok: false, reason: 'invalid_amount', summary };
-  }
-
-  const todayKey = getJakartaDateKey();
-  const activePool = getPool();
-  if (activePool && (await ensureDatabaseReady()) && dbAvailable) {
-    let client: PoolClient | null = null;
-    try {
-      client = await activePool.connect();
-      await client.query('BEGIN');
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
-        `points:${input.userId}`,
-      ]);
-
-      const dupRes = await client.query<{ id: string }>(
-        `SELECT id FROM points_ledger WHERE reference_id = $1 LIMIT 1`,
-        [input.referenceId]
-      );
-      if (dupRes.rows.length > 0) {
-        const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg);
-        await client.query('COMMIT');
-        return { ok: false, reason: 'duplicate_claim', summary };
-      }
-
-      const capRes = await client.query<{
-        today_earned: string;
-        last_claim_at: Date | null;
-      }>(
-        `SELECT
-           COALESCE(SUM(
-             CASE
-               WHEN type = 'earn'
-                AND reference_id NOT LIKE 'refund:payout:%'
-                AND (created_at AT TIME ZONE 'Asia/Jakarta')::date = $2::date
-               THEN points
-               ELSE 0
-             END
-           ), 0)::text AS today_earned,
-           MAX(
-             CASE
-               WHEN type = 'earn'
-                AND (reference_id LIKE 'checkin:%' OR reference_id LIKE 'watch:%')
-               THEN created_at
-               ELSE NULL
-             END
-           ) AS last_claim_at
-         FROM points_ledger
-         WHERE user_id = $1`,
-        [input.userId, todayKey]
-      );
-
-      const todayEarned = Math.max(0, Number(capRes.rows[0]?.today_earned) || 0);
-      const lastClaimAt =
-        capRes.rows[0]?.last_claim_at instanceof Date
-          ? capRes.rows[0].last_claim_at
-          : null;
-
-      if (lastClaimAt) {
-        const elapsedSec = Math.floor((Date.now() - lastClaimAt.getTime()) / 1000);
-        if (elapsedSec < cfg.claimCooldownSeconds) {
-          const remaining = Math.max(1, cfg.claimCooldownSeconds - elapsedSec);
-          const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg);
-          await client.query('COMMIT');
-          return {
-            ok: false,
-            reason: 'cooldown_active',
-            cooldownSecondsRemaining: remaining,
-            summary,
-          };
-        }
-      }
-
-      if (todayEarned + amount > cfg.maxDailyEarnPoints) {
-        const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg);
-        await client.query('COMMIT');
-        return { ok: false, reason: 'daily_cap_reached', summary };
-      }
-
-      const id = crypto.randomUUID();
-      const inserted = await client.query<{
-        id: string;
-        user_id: string;
-        type: string;
-        points: number;
-        description: string;
-        reference_id: string;
-        created_at: Date;
-      }>(
-        `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, created_at)
-         VALUES ($1, $2, 'earn', $3, $4, $5, NOW())
-         RETURNING id, user_id, type, points, description, reference_id, created_at`,
-        [
-          id,
-          input.userId,
-          amount,
-          input.description.trim().slice(0, 240),
-          input.referenceId.trim().slice(0, 200),
-        ]
-      );
-
-      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg);
-      await client.query('COMMIT');
-      return {
-        ok: true,
-        entry: inserted.rows[0] ? mapLedgerRow(inserted.rows[0]) : undefined,
-        summary,
-      };
-    } catch (err) {
-      try {
-        await client?.query('ROLLBACK');
-      } catch {
-        // Ignore rollback failure
-      }
-      console.warn(
-        '[PostgreSQL] claimPointsInDb failed, using fallback:',
-        err instanceof Error ? err.message : String(err)
-      );
-    } finally {
-      client?.release();
-    }
-  }
-
-  return withPointsFallbackLock(() => {
-    const store = loadPointsFallbackStore();
-    if (input.displayName) {
-      store.userNames[input.userId] = input.displayName;
-    }
-
-    if (store.ledger.some((r) => r.referenceId === input.referenceId)) {
-      return {
-        ok: false as const,
-        reason: 'duplicate_claim' as const,
-        summary: summarizeUserFallback(store, input.userId, cfg),
-      };
-    }
-
-    const preSummary = summarizeUserFallback(store, input.userId, cfg);
-    if (preSummary.cooldownSecondsRemaining > 0) {
-      return {
-        ok: false as const,
-        reason: 'cooldown_active' as const,
-        cooldownSecondsRemaining: preSummary.cooldownSecondsRemaining,
-        summary: preSummary,
-      };
-    }
-    if (preSummary.todayEarned + amount > cfg.maxDailyEarnPoints) {
-      return {
-        ok: false as const,
-        reason: 'daily_cap_reached' as const,
-        summary: preSummary,
-      };
-    }
-
-    const entry: PointsLedgerRecord = {
-      id: crypto.randomUUID(),
+  if (input.referenceId.startsWith('checkin:')) {
+    return claimDailyCheckinInDb({
       userId: input.userId,
-      type: 'earn',
-      points: amount,
-      description: input.description.trim().slice(0, 240),
-      referenceId: input.referenceId.trim().slice(0, 200),
-      createdAt: new Date().toISOString(),
-    };
-    store.ledger.push(entry);
-    persistPointsFallbackStore(store);
-
-    return {
-      ok: true as const,
-      entry,
-      summary: summarizeUserFallback(store, input.userId, cfg),
-    };
-  });
+      displayName: input.displayName,
+    });
+  }
+  const summary = await getUserPointsSummaryFromDb(input.userId);
+  return { ok: false, reason: 'invalid_amount', summary };
 }
 
 export async function createPayoutRequestInDb(input: {
   userId: string;
   pointsSpent: number;
   method: PayoutMethod;
+  bankCode?: string;
+  network?: string;
   destinationAccount: string;
   accountHolderName: string;
+  idempotencyKey?: string;
   displayName?: string;
 }): Promise<{
   ok: boolean;
-  reason?: 'below_minimum' | 'insufficient_balance' | 'invalid_amount';
+  deduplicated?: boolean;
+  reason?: 'below_minimum' | 'insufficient_balance' | 'invalid_amount' | 'invalid_method_details';
   minRequiredPoints?: number;
   payout?: PayoutRequestRecord;
   summary: UserPointsSummary;
@@ -4598,105 +5279,52 @@ export async function createPayoutRequestInDb(input: {
     };
   }
 
-  const methodMeta = getMethodMetadata(input.method);
+  const cleanBankCode =
+    input.method === 'bank_transfer'
+      ? String(input.bankCode || '').trim().toUpperCase().slice(0, 24)
+      : '';
+  if (
+    input.method === 'bank_transfer' &&
+    !INDONESIAN_BANK_OPTIONS.some((b) => b.code === cleanBankCode)
+  ) {
+    const summary = await getUserPointsSummaryFromDb(input.userId);
+    return { ok: false, reason: 'invalid_method_details', summary };
+  }
+
+  const cleanNetwork = input.method.startsWith('usdt_')
+    ? String(
+        input.network ||
+          (input.method === 'usdt_trc20'
+            ? 'TRC20'
+            : input.method === 'usdt_bep20'
+            ? 'BEP20'
+            : input.method === 'usdt_erc20'
+            ? 'ERC20'
+            : 'Polygon')
+      )
+        .trim()
+        .slice(0, 24)
+    : '';
+
+  const methodMeta = getMethodMetadata(input.method, cleanBankCode);
   const cleanDest = input.destinationAccount.trim().slice(0, 160);
+  const cleanHolder = input.accountHolderName.trim().slice(0, 100);
+  const cleanIdemKey = String(input.idempotencyKey || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9:_-]/g, '')
+    .slice(0, 80);
 
-  const activePool = getPool();
-  if (activePool && (await ensureDatabaseReady()) && dbAvailable) {
-    let client: PoolClient | null = null;
-    try {
-      client = await activePool.connect();
-      await client.query('BEGIN');
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
-        `points:${input.userId}`,
-      ]);
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    await client.query('BEGIN');
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `points:${input.userId}`,
+    ]);
 
-      const balRes = await client.query<{ balance: string }>(
-        `SELECT (
-           COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0) -
-           COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0)
-         )::text AS balance
-         FROM points_ledger
-         WHERE user_id = $1`,
-        [input.userId]
-      );
-      const balance = Math.max(0, Number(balRes.rows[0]?.balance) || 0);
-      if (balance < pointsSpent) {
-        const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg);
-        await client.query('COMMIT');
-        return { ok: false, reason: 'insufficient_balance', summary };
-      }
-
-      // Multi-account destination & existing risk check
-      const sharedDestRes = await client.query<{ user_id: string }>(
-        `SELECT DISTINCT user_id
-         FROM payout_requests
-         WHERE LOWER(destination_account) = LOWER($1) AND user_id <> $2
-         LIMIT 5`,
-        [cleanDest, input.userId]
-      );
-      const signalRes = await client.query<{
-        sec_risk: string | null;
-        sec_reason: string | null;
-        tel_risk: string | null;
-        tel_reason: string | null;
-      }>(
-        `SELECT s.risk_flag AS sec_risk, s.suspicious_reason AS sec_reason,
-                t.risk_flag AS tel_risk, t.suspicious_reason AS tel_reason
-         FROM (SELECT $1::text AS uid) base
-         LEFT JOIN user_security_signals s ON s.user_id = base.uid
-         LEFT JOIN watch_telemetry t ON t.user_id = base.uid`,
-        [input.userId]
-      );
-
-      const flags: string[] = [];
-      const reasons: string[] = [];
-      const sigRow = signalRes.rows[0];
-      if (sigRow?.sec_risk) flags.push(sigRow.sec_risk);
-      if (sigRow?.sec_reason) reasons.push(sigRow.sec_reason);
-      if (sigRow?.tel_risk && !flags.includes(sigRow.tel_risk)) flags.push(sigRow.tel_risk);
-      if (sigRow?.tel_reason && !reasons.includes(sigRow.tel_reason)) reasons.push(sigRow.tel_reason);
-
-      if (sharedDestRes.rows.length > 0) {
-        flags.push('shared_destination_account');
-        reasons.push(
-          `Destination account shared with ${sharedDestRes.rows.length} other account(s)`
-        );
-        await client.query(
-          `INSERT INTO user_security_signals (user_id, risk_flag, suspicious_reason, last_seen_at)
-           VALUES ($1, $2, $3, NOW())
-           ON CONFLICT (user_id) DO UPDATE SET
-             risk_flag = CASE WHEN user_security_signals.risk_flag = '' THEN EXCLUDED.risk_flag ELSE user_security_signals.risk_flag || ',shared_destination_account' END,
-             suspicious_reason = CASE WHEN user_security_signals.suspicious_reason = '' THEN EXCLUDED.suspicious_reason ELSE user_security_signals.suspicious_reason || '; ' || EXCLUDED.suspicious_reason END,
-             last_seen_at = NOW()`,
-          [
-            input.userId,
-            'shared_destination_account',
-            'Destination account previously used by another user',
-          ]
-        );
-        // Flag self-referral if referrer used the exact same destination account
-        const otherUids = sharedDestRes.rows.map((r) => r.user_id);
-        await client.query(
-          `UPDATE referrals
-           SET status = 'rejected_fraud',
-               risk_flag = 'shared_payout_destination',
-               suspicious_reason = 'Referee and referrer share identical payout destination account',
-               updated_at = NOW()
-           WHERE (referee_uid = $1 AND referrer_uid = ANY($2::text[]))
-              OR (referrer_uid = $1 AND referee_uid = ANY($2::text[]))`,
-          [input.userId, otherUids]
-        );
-      }
-
-      const riskFlag = Array.from(new Set(flags)).join(',').slice(0, 120);
-      const suspiciousReason = Array.from(new Set(reasons)).join('; ').slice(0, 300);
-
-      const payoutId = crypto.randomUUID();
-      const ledgerId = crypto.randomUUID();
-      const refId = `payout:${payoutId}`;
-
-      const payoutRes = await client.query<{
+    if (cleanIdemKey) {
+      const existingByIdem = await client.query<{
         id: string;
         user_id: string;
         points_spent: number;
@@ -4705,181 +5333,207 @@ export async function createPayoutRequestInDb(input: {
         fx_rate_used: string;
         currency: string;
         method: string;
+        bank_code: string;
+        network: string;
         destination_account: string;
         account_holder_name: string;
         status: string;
         admin_note: string;
+        idempotency_key: string | null;
         risk_flag: string;
         suspicious_reason: string;
         created_at: Date;
         updated_at: Date;
       }>(
-        `INSERT INTO payout_requests (
-           id, user_id, points_spent, usd_amount, idr_amount, fx_rate_used,
-           currency, method, destination_account, account_holder_name,
-           status, admin_note, risk_flag, suspicious_reason, created_at, updated_at
-         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', '', $11, $12, NOW(), NOW())
-         RETURNING id, user_id, points_spent, usd_amount, idr_amount, fx_rate_used,
-                   currency, method, destination_account, account_holder_name,
-                   status, admin_note, risk_flag, suspicious_reason, created_at, updated_at`,
-        [
-          payoutId,
-          input.userId,
-          pointsSpent,
-          usdAmount,
-          idrAmount,
-          fxRateUsed,
-          currency,
-          input.method,
-          cleanDest,
-          input.accountHolderName.trim().slice(0, 100),
-          riskFlag,
-          suspiciousReason,
-        ]
+        `SELECT id, user_id, points_spent, usd_amount, idr_amount, fx_rate_used,
+                currency, method, bank_code, network, destination_account, account_holder_name,
+                status, admin_note, idempotency_key, risk_flag, suspicious_reason, created_at, updated_at
+         FROM payout_requests
+         WHERE user_id = $1 AND idempotency_key = $2
+         LIMIT 1`,
+        [input.userId, cleanIdemKey]
       );
+      if (existingByIdem.rows[0]) {
+        const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg);
+        await client.query('COMMIT');
+        return {
+          ok: true,
+          deduplicated: true,
+          payout: mapPayoutRow(existingByIdem.rows[0], true),
+          summary,
+        };
+      }
+    }
 
-      await client.query(
-        `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, created_at)
-         VALUES ($1, $2, 'redeem', $3, $4, $5, NOW())`,
-        [
-          ledgerId,
-          input.userId,
-          pointsSpent,
-          `Payout request via ${methodMeta.label} (${currency})`,
-          refId,
-        ]
-      );
-
+    const balRes = await client.query<{ balance: string }>(
+      `SELECT (
+         COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0) -
+         COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0)
+       )::text AS balance
+       FROM points_ledger
+       WHERE user_id = $1`,
+      [input.userId]
+    );
+    const balance = Math.max(0, Number(balRes.rows[0]?.balance) || 0);
+    if (balance < pointsSpent) {
       const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg);
       await client.query('COMMIT');
-      return {
-        ok: true,
-        payout: payoutRes.rows[0] ? mapPayoutRow(payoutRes.rows[0]) : undefined,
-        summary,
-      };
-    } catch (err) {
-      try {
-        await client?.query('ROLLBACK');
-      } catch {
-        // Ignore rollback failure
-      }
-      console.warn(
-        '[PostgreSQL] createPayoutRequestInDb failed, using fallback:',
-        err instanceof Error ? err.message : String(err)
-      );
-    } finally {
-      client?.release();
-    }
-  }
-
-  return withPointsFallbackLock(() => {
-    const store = loadPointsFallbackStore();
-    if (input.displayName) {
-      store.userNames[input.userId] = input.displayName;
+      return { ok: false, reason: 'insufficient_balance', summary };
     }
 
-    const preSummary = summarizeUserFallback(store, input.userId, cfg);
-    if (preSummary.balance < pointsSpent) {
-      return {
-        ok: false as const,
-        reason: 'insufficient_balance' as const,
-        summary: preSummary,
-      };
-    }
+    // Multi-account destination & existing risk check
+    const sharedDestRes = await client.query<{ user_id: string }>(
+      `SELECT DISTINCT user_id
+       FROM payout_requests
+       WHERE LOWER(destination_account) = LOWER($1) AND user_id <> $2
+       LIMIT 5`,
+      [cleanDest, input.userId]
+    );
+    const signalRes = await client.query<{
+      sec_risk: string | null;
+      sec_reason: string | null;
+      tel_risk: string | null;
+      tel_reason: string | null;
+    }>(
+      `SELECT s.risk_flag AS sec_risk, s.suspicious_reason AS sec_reason,
+              t.risk_flag AS tel_risk, t.suspicious_reason AS tel_reason
+       FROM (SELECT $1::text AS uid) base
+       LEFT JOIN user_security_signals s ON s.user_id = base.uid
+       LEFT JOIN watch_telemetry t ON t.user_id = base.uid`,
+      [input.userId]
+    );
 
     const flags: string[] = [];
     const reasons: string[] = [];
-    const sig = store.securitySignals[input.userId];
-    const tel = store.watchTelemetry[input.userId];
-    if (sig?.riskFlag) flags.push(sig.riskFlag);
-    if (sig?.suspiciousReason) reasons.push(sig.suspiciousReason);
-    if (tel?.riskFlag && !flags.includes(tel.riskFlag)) flags.push(tel.riskFlag);
-    if (tel?.suspiciousReason && !reasons.includes(tel.suspiciousReason)) {
-      reasons.push(tel.suspiciousReason);
-    }
+    const sigRow = signalRes.rows[0];
+    if (sigRow?.sec_risk) flags.push(sigRow.sec_risk);
+    if (sigRow?.sec_reason) reasons.push(sigRow.sec_reason);
+    if (sigRow?.tel_risk && !flags.includes(sigRow.tel_risk)) flags.push(sigRow.tel_risk);
+    if (sigRow?.tel_reason && !reasons.includes(sigRow.tel_reason)) reasons.push(sigRow.tel_reason);
 
-    const sharedUsers = Array.from(
-      new Set(
-        store.payouts
-          .filter(
-            (p) =>
-              p.userId !== input.userId &&
-              p.destinationAccount.toLowerCase() === cleanDest.toLowerCase()
-          )
-          .map((p) => p.userId)
-      )
-    );
-    if (sharedUsers.length > 0) {
+    if (sharedDestRes.rows.length > 0) {
       flags.push('shared_destination_account');
-      reasons.push(`Destination account shared with ${sharedUsers.length} other account(s)`);
-      store.securitySignals[input.userId] = {
-        ...(sig || {
-          userId: input.userId,
-          ipHash: '',
-          subnetHash: '',
-          uaHash: '',
-          deviceHash: '',
-          riskFlag: '',
-          suspiciousReason: '',
-          lastSeenAt: new Date().toISOString(),
-        }),
-        riskFlag: 'shared_destination_account',
-        suspiciousReason: 'Destination account previously used by another user',
-        lastSeenAt: new Date().toISOString(),
-      };
-      for (const r of store.referrals) {
-        if (
-          (r.refereeUid === input.userId && sharedUsers.includes(r.referrerUid)) ||
-          (r.referrerUid === input.userId && sharedUsers.includes(r.refereeUid))
-        ) {
-          r.status = 'rejected_fraud';
-          r.riskFlag = 'shared_payout_destination';
-          r.suspiciousReason = 'Referee and referrer share identical payout destination account';
-          r.updatedAt = new Date().toISOString();
-        }
-      }
+      reasons.push(
+        `Destination account shared with ${sharedDestRes.rows.length} other account(s)`
+      );
+      await client.query(
+        `INSERT INTO user_security_signals (user_id, risk_flag, suspicious_reason, last_seen_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           risk_flag = CASE WHEN user_security_signals.risk_flag = '' THEN EXCLUDED.risk_flag ELSE user_security_signals.risk_flag || ',shared_destination_account' END,
+           suspicious_reason = CASE WHEN user_security_signals.suspicious_reason = '' THEN EXCLUDED.suspicious_reason ELSE user_security_signals.suspicious_reason || '; ' || EXCLUDED.suspicious_reason END,
+           last_seen_at = NOW()`,
+        [
+          input.userId,
+          'shared_destination_account',
+          'Destination account previously used by another user',
+        ]
+      );
+      const otherUids = sharedDestRes.rows.map((r) => r.user_id);
+      await client.query(
+        `UPDATE referrals
+         SET status = 'rejected_fraud',
+             risk_flag = 'shared_payout_destination',
+             suspicious_reason = 'Referee and referrer share identical payout destination account',
+             updated_at = NOW()
+         WHERE (referee_uid = $1 AND referrer_uid = ANY($2::text[]))
+            OR (referrer_uid = $1 AND referee_uid = ANY($2::text[]))`,
+        [input.userId, otherUids]
+      );
     }
 
-    const nowIso = new Date().toISOString();
-    const payoutId = crypto.randomUUID();
-    const payout: PayoutRequestRecord = {
-      id: payoutId,
-      userId: input.userId,
-      pointsSpent,
-      usdAmount,
-      idrAmount,
-      fxRateUsed,
-      currency,
-      method: input.method,
-      destinationAccount: cleanDest,
-      accountHolderName: input.accountHolderName.trim().slice(0, 100),
-      status: 'pending',
-      adminNote: '',
-      riskFlag: Array.from(new Set(flags)).join(',').slice(0, 120),
-      suspiciousReason: Array.from(new Set(reasons)).join('; ').slice(0, 300),
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    };
-    const ledgerEntry: PointsLedgerRecord = {
-      id: crypto.randomUUID(),
-      userId: input.userId,
-      type: 'redeem',
-      points: pointsSpent,
-      description: `Payout request via ${methodMeta.label} (${currency})`,
-      referenceId: `payout:${payoutId}`,
-      createdAt: nowIso,
-    };
-    store.payouts.push(payout);
-    store.ledger.push(ledgerEntry);
-    persistPointsFallbackStore(store);
+    const riskFlag = Array.from(new Set(flags)).join(',').slice(0, 120);
+    const suspiciousReason = Array.from(new Set(reasons)).join('; ').slice(0, 300);
 
+    const payoutId = crypto.randomUUID();
+    const ledgerId = crypto.randomUUID();
+    const refId = `payout:${payoutId}`;
+    const balanceAfter = Math.max(0, balance - pointsSpent);
+
+    const payoutRes = await client.query<{
+      id: string;
+      user_id: string;
+      points_spent: number;
+      usd_amount: string;
+      idr_amount: string;
+      fx_rate_used: string;
+      currency: string;
+      method: string;
+      bank_code: string;
+      network: string;
+      destination_account: string;
+      account_holder_name: string;
+      status: string;
+      admin_note: string;
+      idempotency_key: string | null;
+      risk_flag: string;
+      suspicious_reason: string;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `INSERT INTO payout_requests (
+         id, user_id, points_spent, usd_amount, idr_amount, fx_rate_used,
+         currency, method, bank_code, network, destination_account, account_holder_name,
+         status, admin_note, idempotency_key, risk_flag, suspicious_reason, created_at, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', '', NULLIF($13, ''), $14, $15, NOW(), NOW())
+       RETURNING id, user_id, points_spent, usd_amount, idr_amount, fx_rate_used,
+                 currency, method, bank_code, network, destination_account, account_holder_name,
+                 status, admin_note, idempotency_key, risk_flag, suspicious_reason, created_at, updated_at`,
+      [
+        payoutId,
+        input.userId,
+        pointsSpent,
+        usdAmount,
+        idrAmount,
+        fxRateUsed,
+        currency,
+        input.method,
+        cleanBankCode,
+        cleanNetwork,
+        cleanDest,
+        cleanHolder,
+        cleanIdemKey,
+        riskFlag,
+        suspiciousReason,
+      ]
+    );
+
+    await client.query(
+      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'redeem', $3, $4, $5, $6, NOW())`,
+      [
+        ledgerId,
+        input.userId,
+        pointsSpent,
+        `Penarikan ${methodMeta.label} (${currency})`,
+        refId,
+        balanceAfter,
+      ]
+    );
+
+    const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg);
+    await client.query('COMMIT');
     return {
-      ok: true as const,
-      payout,
-      summary: summarizeUserFallback(store, input.userId, cfg),
+      ok: true,
+      payout: payoutRes.rows[0] ? mapPayoutRow(payoutRes.rows[0], true) : undefined,
+      summary,
     };
-  });
+  } catch (err) {
+    try {
+      await client?.query('ROLLBACK');
+    } catch {
+      // Ignore rollback failure
+    }
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] createPayoutRequestInDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
 }
 
 export interface AdminPayoutRequestView extends PayoutRequestRecord {
@@ -4898,129 +5552,117 @@ export async function listAdminPayoutRequestsFromDb(options?: {
   offset?: number;
 }): Promise<{ items: AdminPayoutRequestView[]; total: number }> {
   const safeStatus = String(options?.status || 'all').trim().toLowerCase();
-  const hasFilter = ['pending', 'approved', 'paid', 'rejected'].includes(safeStatus);
+  const hasFilter = VALID_PAYOUT_STATUSES.has(safeStatus);
   const safeLimit = Math.min(200, Math.max(1, Number(options?.limit) || 50));
   const safeOffset = Math.max(0, Number(options?.offset) || 0);
 
-  const activePool = getPool();
-  if (activePool && (await ensureDatabaseReady()) && dbAvailable) {
-    try {
-      const countRes = await dbQuery<{ cnt: string }>(
-        hasFilter
-          ? `SELECT COUNT(*)::text AS cnt FROM payout_requests WHERE status = $1`
-          : `SELECT COUNT(*)::text AS cnt FROM payout_requests`,
-        hasFilter ? [safeStatus] : []
-      );
-      const listRes = await dbQuery<{
-        id: string;
-        user_id: string;
-        points_spent: number;
-        usd_amount: string;
-        idr_amount: string;
-        fx_rate_used: string;
-        currency: string;
-        method: string;
-        destination_account: string;
-        account_holder_name: string;
-        status: string;
-        admin_note: string;
-        risk_flag: string;
-        suspicious_reason: string;
-        created_at: Date;
-        updated_at: Date;
-        user_name: string | null;
-        user_email: string | null;
-        verified_watch_seconds: number | null;
-        fast_delta_strikes: number | null;
-        concurrent_tab_strikes: number | null;
-        signal_risk_flag: string | null;
-        signal_suspicious_reason: string | null;
-      }>(
-        hasFilter
-          ? `SELECT p.*,
-                    u.display_name AS user_name,
-                    u.email AS user_email,
-                    COALESCE(t.verified_watch_seconds, 0) AS verified_watch_seconds,
-                    COALESCE(t.fast_delta_strikes, 0) AS fast_delta_strikes,
-                    COALESCE(t.concurrent_tab_strikes, 0) AS concurrent_tab_strikes,
-                    COALESCE(NULLIF(s.risk_flag, ''), t.risk_flag, '') AS signal_risk_flag,
-                    COALESCE(NULLIF(s.suspicious_reason, ''), t.suspicious_reason, '') AS signal_suspicious_reason
-             FROM payout_requests p
-             LEFT JOIN users u ON u.uid = p.user_id
-             LEFT JOIN watch_telemetry t ON t.user_id = p.user_id
-             LEFT JOIN user_security_signals s ON s.user_id = p.user_id
-             WHERE p.status = $1
-             ORDER BY p.created_at DESC
-             LIMIT $2 OFFSET $3`
-          : `SELECT p.*,
-                    u.display_name AS user_name,
-                    u.email AS user_email,
-                    COALESCE(t.verified_watch_seconds, 0) AS verified_watch_seconds,
-                    COALESCE(t.fast_delta_strikes, 0) AS fast_delta_strikes,
-                    COALESCE(t.concurrent_tab_strikes, 0) AS concurrent_tab_strikes,
-                    COALESCE(NULLIF(s.risk_flag, ''), t.risk_flag, '') AS signal_risk_flag,
-                    COALESCE(NULLIF(s.suspicious_reason, ''), t.suspicious_reason, '') AS signal_suspicious_reason
-             FROM payout_requests p
-             LEFT JOIN users u ON u.uid = p.user_id
-             LEFT JOIN watch_telemetry t ON t.user_id = p.user_id
-             LEFT JOIN user_security_signals s ON s.user_id = p.user_id
-             ORDER BY p.created_at DESC
-             LIMIT $1 OFFSET $2`,
-        hasFilter ? [safeStatus, safeLimit, safeOffset] : [safeLimit, safeOffset]
-      );
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    const countRes = await client.query<{ cnt: string }>(
+      hasFilter
+        ? `SELECT COUNT(*)::text AS cnt FROM payout_requests WHERE status = $1`
+        : `SELECT COUNT(*)::text AS cnt FROM payout_requests`,
+      hasFilter ? [safeStatus] : []
+    );
+    const listRes = await client.query<{
+      id: string;
+      user_id: string;
+      points_spent: number;
+      usd_amount: string;
+      idr_amount: string;
+      fx_rate_used: string;
+      currency: string;
+      method: string;
+      bank_code: string;
+      network: string;
+      destination_account: string;
+      account_holder_name: string;
+      status: string;
+      admin_note: string;
+      idempotency_key: string | null;
+      risk_flag: string;
+      suspicious_reason: string;
+      created_at: Date;
+      updated_at: Date;
+      user_name: string | null;
+      user_email: string | null;
+      verified_watch_seconds: number | null;
+      fast_delta_strikes: number | null;
+      concurrent_tab_strikes: number | null;
+      signal_risk_flag: string | null;
+      signal_suspicious_reason: string | null;
+    }>(
+      hasFilter
+        ? `SELECT p.*,
+                  u.display_name AS user_name,
+                  u.email AS user_email,
+                  COALESCE(t.verified_watch_seconds, 0) AS verified_watch_seconds,
+                  COALESCE(t.fast_delta_strikes, 0) AS fast_delta_strikes,
+                  COALESCE(t.concurrent_tab_strikes, 0) AS concurrent_tab_strikes,
+                  COALESCE(NULLIF(s.risk_flag, ''), t.risk_flag, '') AS signal_risk_flag,
+                  COALESCE(NULLIF(s.suspicious_reason, ''), t.suspicious_reason, '') AS signal_suspicious_reason
+           FROM payout_requests p
+           LEFT JOIN users u ON u.uid = p.user_id
+           LEFT JOIN watch_telemetry t ON t.user_id = p.user_id
+           LEFT JOIN user_security_signals s ON s.user_id = p.user_id
+           WHERE p.status = $1
+           ORDER BY p.created_at DESC
+           LIMIT $2 OFFSET $3`
+        : `SELECT p.*,
+                  u.display_name AS user_name,
+                  u.email AS user_email,
+                  COALESCE(t.verified_watch_seconds, 0) AS verified_watch_seconds,
+                  COALESCE(t.fast_delta_strikes, 0) AS fast_delta_strikes,
+                  COALESCE(t.concurrent_tab_strikes, 0) AS concurrent_tab_strikes,
+                  COALESCE(NULLIF(s.risk_flag, ''), t.risk_flag, '') AS signal_risk_flag,
+                  COALESCE(NULLIF(s.suspicious_reason, ''), t.suspicious_reason, '') AS signal_suspicious_reason
+           FROM payout_requests p
+           LEFT JOIN users u ON u.uid = p.user_id
+           LEFT JOIN watch_telemetry t ON t.user_id = p.user_id
+           LEFT JOIN user_security_signals s ON s.user_id = p.user_id
+           ORDER BY p.created_at DESC
+           LIMIT $1 OFFSET $2`,
+      hasFilter ? [safeStatus, safeLimit, safeOffset] : [safeLimit, safeOffset]
+    );
 
-      if (listRes) {
-        return {
-          total: Number(countRes?.rows[0]?.cnt) || listRes.rows.length,
-          items: listRes.rows.map((r) => ({
-            ...mapPayoutRow(r),
-            userName: r.user_name || undefined,
-            userEmail: r.user_email || undefined,
-            verifiedWatchSeconds: Math.max(0, Number(r.verified_watch_seconds) || 0),
-            fastDeltaStrikes: Math.max(0, Number(r.fast_delta_strikes) || 0),
-            concurrentTabStrikes: Math.max(0, Number(r.concurrent_tab_strikes) || 0),
-            signalRiskFlag: r.signal_risk_flag || r.risk_flag || '',
-            signalSuspiciousReason:
-              r.signal_suspicious_reason || r.suspicious_reason || '',
-          })),
-        };
-      }
-    } catch (err) {
-      console.warn(
-        '[PostgreSQL] listAdminPayoutRequestsFromDb failed, using fallback:',
-        err instanceof Error ? err.message : String(err)
-      );
-    }
-  }
-
-  return withPointsFallbackLock(() => {
-    const store = loadPointsFallbackStore();
-    const filtered = store.payouts
-      .filter((p) => (!hasFilter ? true : p.status === safeStatus))
-      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
     return {
-      total: filtered.length,
-      items: filtered.slice(safeOffset, safeOffset + safeLimit).map((p) => {
-        const tel = store.watchTelemetry[p.userId];
-        const sig = store.securitySignals[p.userId];
-        return {
-          ...p,
-          userName: store.userNames[p.userId] || undefined,
-          verifiedWatchSeconds: tel?.verifiedWatchSeconds || 0,
-          fastDeltaStrikes: tel?.fastDeltaStrikes || 0,
-          concurrentTabStrikes: tel?.concurrentTabStrikes || 0,
-          signalRiskFlag: p.riskFlag || sig?.riskFlag || tel?.riskFlag || '',
-          signalSuspiciousReason:
-            p.suspiciousReason || sig?.suspiciousReason || tel?.suspiciousReason || '',
-        };
-      }),
+      total: Number(countRes.rows[0]?.cnt) || listRes.rows.length,
+      items: listRes.rows.map((r) => ({
+        ...mapPayoutRow(r, false),
+        userName: r.user_name || undefined,
+        userEmail: r.user_email || undefined,
+        verifiedWatchSeconds: Math.max(0, Number(r.verified_watch_seconds) || 0),
+        fastDeltaStrikes: Math.max(0, Number(r.fast_delta_strikes) || 0),
+        concurrentTabStrikes: Math.max(0, Number(r.concurrent_tab_strikes) || 0),
+        signalRiskFlag: r.signal_risk_flag || r.risk_flag || '',
+        signalSuspiciousReason:
+          r.signal_suspicious_reason || r.suspicious_reason || '',
+      })),
     };
-  });
+  } catch (err) {
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] listAdminPayoutRequestsFromDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
 }
+
+const FINAL_PAYOUT_STATUSES: ReadonlySet<string> = new Set([
+  'paid',
+  'completed',
+  'rejected',
+  'failed',
+]);
 
 export async function updateAdminPayoutStatusInDb(input: {
   payoutId: string;
-  status: 'approved' | 'paid' | 'rejected';
+  status: 'processing' | 'approved' | 'paid' | 'completed' | 'rejected' | 'failed';
   adminNote?: string;
 }): Promise<{
   ok: boolean;
@@ -5029,238 +5671,145 @@ export async function updateAdminPayoutStatusInDb(input: {
   refunded?: boolean;
 }> {
   const cleanNote = String(input.adminNote || '').trim().slice(0, 300);
-  const activePool = getPool();
-  if (activePool && (await ensureDatabaseReady()) && dbAvailable) {
-    let client: PoolClient | null = null;
-    try {
-      client = await activePool.connect();
-      await client.query('BEGIN');
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    await client.query('BEGIN');
 
-      const existingRes = await client.query<{
-        id: string;
-        user_id: string;
-        points_spent: number;
-        usd_amount: string;
-        idr_amount: string;
-        fx_rate_used: string;
-        currency: string;
-        method: string;
-        destination_account: string;
-        account_holder_name: string;
-        status: string;
-        admin_note: string;
-        created_at: Date;
-        updated_at: Date;
-      }>(`SELECT * FROM payout_requests WHERE id = $1 FOR UPDATE`, [
-        input.payoutId,
-      ]);
+    const existingRes = await client.query<{
+      id: string;
+      user_id: string;
+      points_spent: number;
+      usd_amount: string;
+      idr_amount: string;
+      fx_rate_used: string;
+      currency: string;
+      method: string;
+      bank_code: string;
+      network: string;
+      destination_account: string;
+      account_holder_name: string;
+      status: string;
+      admin_note: string;
+      idempotency_key: string | null;
+      risk_flag: string;
+      suspicious_reason: string;
+      created_at: Date;
+      updated_at: Date;
+    }>(`SELECT * FROM payout_requests WHERE id = $1 FOR UPDATE`, [
+      input.payoutId,
+    ]);
 
-      const row = existingRes.rows[0];
-      if (!row) {
-        await client.query('COMMIT');
-        return { ok: false, reason: 'not_found' };
-      }
+    const row = existingRes.rows[0];
+    if (!row) {
+      await client.query('COMMIT');
+      return { ok: false, reason: 'not_found' };
+    }
 
-      if (row.status === 'paid' || row.status === 'rejected') {
-        await client.query('COMMIT');
-        return {
-          ok: false,
-          reason: 'already_finalized',
-          payout: mapPayoutRow(row),
-        };
-      }
-      if (row.status === 'approved' && input.status === 'approved') {
-        await client.query('COMMIT');
-        return {
-          ok: true,
-          payout: mapPayoutRow(row),
-          refunded: false,
-        };
-      }
+    if (FINAL_PAYOUT_STATUSES.has(row.status)) {
+      await client.query('COMMIT');
+      return {
+        ok: false,
+        reason: 'already_finalized',
+        payout: mapPayoutRow(row, false),
+      };
+    }
 
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
-        `points:${row.user_id}`,
-      ]);
-
-      const updatedRes = await client.query<{
-        id: string;
-        user_id: string;
-        points_spent: number;
-        usd_amount: string;
-        idr_amount: string;
-        fx_rate_used: string;
-        currency: string;
-        method: string;
-        destination_account: string;
-        account_holder_name: string;
-        status: string;
-        admin_note: string;
-        created_at: Date;
-        updated_at: Date;
-      }>(
-        `UPDATE payout_requests
-         SET status = $2,
-             admin_note = CASE WHEN $3 <> '' THEN $3 ELSE admin_note END,
-             updated_at = NOW()
-         WHERE id = $1
-         RETURNING *`,
-        [input.payoutId, input.status, cleanNote]
-      );
-
-      let refunded = false;
-      if (input.status === 'rejected') {
-        const refundRef = `refund:payout:${row.id}`;
-        const refundInsert = await client.query(
-          `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, created_at)
-           VALUES ($1, $2, 'earn', $3, $4, $5, NOW())
-           ON CONFLICT (reference_id) DO NOTHING`,
-          [
-            crypto.randomUUID(),
-            row.user_id,
-            Math.max(1, Number(row.points_spent) || 1),
-            `Refund rejected payout #${row.id.slice(0, 8)}`,
-            refundRef,
-          ]
-        );
-        refunded = (refundInsert.rowCount ?? 0) > 0;
-      }
-
+    if (row.status === input.status) {
       await client.query('COMMIT');
       return {
         ok: true,
-        payout: updatedRes.rows[0] ? mapPayoutRow(updatedRes.rows[0]) : undefined,
-        refunded,
+        payout: mapPayoutRow(row, false),
+        refunded: false,
       };
-    } catch (err) {
-      try {
-        await client?.query('ROLLBACK');
-      } catch {
-        // Ignore rollback failure
-      }
-      console.warn(
-        '[PostgreSQL] updateAdminPayoutStatusInDb failed, using fallback:',
-        err instanceof Error ? err.message : String(err)
-      );
-    } finally {
-      client?.release();
     }
-  }
 
-  return withPointsFallbackLock(() => {
-    const store = loadPointsFallbackStore();
-    const target = store.payouts.find((p) => p.id === input.payoutId);
-    if (!target) {
-      return { ok: false as const, reason: 'not_found' as const };
-    }
-    if (target.status === 'paid' || target.status === 'rejected') {
-      return {
-        ok: false as const,
-        reason: 'already_finalized' as const,
-        payout: target,
-      };
-    }
-    target.status = input.status;
-    if (cleanNote) {
-      target.adminNote = cleanNote;
-    }
-    target.updatedAt = new Date().toISOString();
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `points:${row.user_id}`,
+    ]);
+
+    const updatedRes = await client.query<{
+      id: string;
+      user_id: string;
+      points_spent: number;
+      usd_amount: string;
+      idr_amount: string;
+      fx_rate_used: string;
+      currency: string;
+      method: string;
+      bank_code: string;
+      network: string;
+      destination_account: string;
+      account_holder_name: string;
+      status: string;
+      admin_note: string;
+      idempotency_key: string | null;
+      risk_flag: string;
+      suspicious_reason: string;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `UPDATE payout_requests
+       SET status = $2,
+           admin_note = CASE WHEN $3 <> '' THEN $3 ELSE admin_note END,
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [input.payoutId, input.status, cleanNote]
+    );
 
     let refunded = false;
-    if (input.status === 'rejected') {
-      const refundRef = `refund:payout:${target.id}`;
-      if (!store.ledger.some((l) => l.referenceId === refundRef)) {
-        store.ledger.push({
-          id: crypto.randomUUID(),
-          userId: target.userId,
-          type: 'earn',
-          points: target.pointsSpent,
-          description: `Refund rejected payout #${target.id.slice(0, 8)}`,
-          referenceId: refundRef,
-          createdAt: new Date().toISOString(),
-        });
-        refunded = true;
-      }
-    }
-    persistPointsFallbackStore(store);
-    return { ok: true as const, payout: target, refunded };
-  });
-}
-
-const LIVE_MASKED_USERS = [
-  'R***a',
-  'D***n',
-  'A***l',
-  'M***i',
-  'K***o',
-  'S***a',
-  'F***r',
-  'N***y',
-  'T***s',
-  'Y***i',
-  'B***i',
-  'W***y',
-  'E***n',
-  'H***a',
-  'L***a',
-  'Z***r',
-  'P***i',
-  'C***a',
-] as const;
-
-const LIVE_IDR_METHODS: PayoutMethod[] = ['dana', 'gopay', 'ovo', 'bank_transfer'];
-const LIVE_USD_METHODS: PayoutMethod[] = ['paypal', 'usdt_polygon', 'usdt_trc20', 'wise'];
-const LIVE_IDR_AMOUNTS = [50_000, 55_000, 62_000, 75_000, 91_000, 105_000, 125_000, 150_000, 182_000];
-const LIVE_USD_AMOUNTS = [5.0, 5.5, 6.25, 7.5, 8.0, 10.0, 12.5, 15.0];
-const LIVE_ROLL_STEP_MS = 12_000;
-
-function buildRollingLivePayouts(
-  nowMs: number,
-  cfg: PayoutRuntimeConfig,
-  count: number
-): LivePayoutFeedItem[] {
-  const currentSlot = Math.floor(nowMs / LIVE_ROLL_STEP_MS);
-  const items: LivePayoutFeedItem[] = [];
-
-  for (let i = 0; i < count; i += 1) {
-    const slot = currentSlot - i;
-    const h = Math.abs((slot * 2654435761) | 0);
-    const maskedUser = LIVE_MASKED_USERS[h % LIVE_MASKED_USERS.length];
-    const isUsd = (h >> 3) % 5 >= 3; // ~60% IDR, ~40% USD
-
-    let method: PayoutMethod;
-    let usdAmount: number;
-    let idrAmount: number;
-    if (isUsd) {
-      method = LIVE_USD_METHODS[(h >> 6) % LIVE_USD_METHODS.length];
-      const baseUsd = LIVE_USD_AMOUNTS[(h >> 9) % LIVE_USD_AMOUNTS.length];
-      usdAmount = Math.max(cfg.minPayoutUsd, baseUsd);
-      idrAmount = Math.round(usdAmount * cfg.usdToIdrRate);
-    } else {
-      method = LIVE_IDR_METHODS[(h >> 6) % LIVE_IDR_METHODS.length];
-      const baseIdr = LIVE_IDR_AMOUNTS[(h >> 9) % LIVE_IDR_AMOUNTS.length];
-      idrAmount = Math.max(cfg.minPayoutIdr, baseIdr);
-      usdAmount = Math.round((idrAmount / cfg.usdToIdrRate) * 100) / 100;
+    if (input.status === 'rejected' || input.status === 'failed') {
+      const balRes = await client.query<{ balance: string }>(
+        `SELECT (
+           COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0) -
+           COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0)
+         )::text AS balance
+         FROM points_ledger
+         WHERE user_id = $1`,
+        [row.user_id]
+      );
+      const currentBalance = Math.max(0, Number(balRes.rows[0]?.balance) || 0);
+      const spendPts = Math.max(1, Number(row.points_spent) || 1);
+      const refundRef = `refund:payout:${row.id}`;
+      const refundInsert = await client.query(
+        `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
+         VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
+         ON CONFLICT (reference_id) DO NOTHING`,
+        [
+          crypto.randomUUID(),
+          row.user_id,
+          spendPts,
+          `Pengembalian Poin (${input.status === 'failed' ? 'Penarikan Gagal' : 'Ditolak'}) #${row.id.slice(0, 8)}`,
+          refundRef,
+          currentBalance + spendPts,
+        ]
+      );
+      refunded = (refundInsert.rowCount ?? 0) > 0;
     }
 
-    const meta = getMethodMetadata(method);
-    const ageOffsetMs = (h % 7) * 1_000 + 2_000;
-    const createdAtMs = Math.max(0, slot * LIVE_ROLL_STEP_MS - ageOffsetMs);
-    items.push({
-      id: `live-roll-${slot}`,
-      maskedUser,
-      countryCode: meta.countryCode,
-      method,
-      methodLabel: meta.label,
-      currency: meta.currency,
-      usdAmount,
-      idrAmount,
-      status: i === 0 && h % 4 === 0 ? 'approved' : 'paid',
-      createdAt: new Date(createdAtMs).toISOString(),
-      isReal: false,
-    });
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      payout: updatedRes.rows[0] ? mapPayoutRow(updatedRes.rows[0], false) : undefined,
+      refunded,
+    };
+  } catch (err) {
+    try {
+      await client?.query('ROLLBACK');
+    } catch {
+      // Ignore rollback failure
+    }
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] updateAdminPayoutStatusInDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
   }
-
-  return items;
 }
 
 export async function listLivePayoutFeedFromDb(
@@ -5270,102 +5819,74 @@ export async function listLivePayoutFeedFromDb(
   const cfg = getPayoutRuntimeConfig();
   const realItems: LivePayoutFeedItem[] = [];
 
-  const activePool = getPool();
-  if (activePool && (await ensureDatabaseReady()) && dbAvailable) {
-    try {
-      const res = await dbQuery<{
-        id: string;
-        method: string;
-        currency: string;
-        usd_amount: string;
-        idr_amount: string;
-        status: string;
-        account_holder_name: string;
-        user_name: string | null;
-        updated_at: Date;
-      }>(
-        `SELECT p.id, p.method, p.currency, p.usd_amount, p.idr_amount, p.status,
-                p.account_holder_name, u.display_name AS user_name, p.updated_at
-         FROM payout_requests p
-         LEFT JOIN users u ON u.uid = p.user_id
-         WHERE p.status IN ('paid', 'approved')
-         ORDER BY p.updated_at DESC
-         LIMIT $1`,
-        [safeLimit]
-      );
-      if (res) {
-        for (const r of res.rows) {
-          const method = (ALLOWED_PAYOUT_METHODS.has(r.method as PayoutMethod)
-            ? r.method
-            : 'dana') as PayoutMethod;
-          const meta = getMethodMetadata(method);
-          const currency = r.currency === 'USD' ? 'USD' : 'IDR';
-          const usdAmount = Number(Number(r.usd_amount || 0).toFixed(2));
-          const idrAmount = Math.max(0, Math.round(Number(r.idr_amount) || 0));
-          if (currency === 'IDR' && idrAmount < cfg.minPayoutIdr) continue;
-          if (currency === 'USD' && usdAmount < cfg.minPayoutUsd) continue;
-          realItems.push({
-            id: r.id,
-            maskedUser: maskDisplayNameForFeed(r.user_name || r.account_holder_name),
-            countryCode: meta.countryCode,
-            method,
-            methodLabel: meta.label,
-            currency,
-            usdAmount,
-            idrAmount,
-            status: r.status === 'paid' ? 'paid' : 'approved',
-            createdAt:
-              r.updated_at instanceof Date
-                ? r.updated_at.toISOString()
-                : new Date().toISOString(),
-            isReal: true,
-          });
-        }
-      }
-    } catch (err) {
-      console.warn(
-        '[PostgreSQL] listLivePayoutFeedFromDb failed, using fallback:',
-        err instanceof Error ? err.message : String(err)
-      );
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    const res = await client.query<{
+      id: string;
+      method: string;
+      bank_code: string;
+      currency: string;
+      usd_amount: string;
+      idr_amount: string;
+      status: string;
+      account_holder_name: string;
+      user_name: string | null;
+      updated_at: Date;
+    }>(
+      `SELECT p.id, p.method, p.bank_code, p.currency, p.usd_amount, p.idr_amount, p.status,
+              p.account_holder_name, u.display_name AS user_name, p.updated_at
+       FROM payout_requests p
+       LEFT JOIN users u ON u.uid = p.user_id
+       WHERE p.status IN ('approved', 'paid', 'completed')
+       ORDER BY p.updated_at DESC
+       LIMIT $1`,
+      [safeLimit]
+    );
+    for (const r of res.rows) {
+      const method = (ALLOWED_PAYOUT_METHODS.has(r.method as PayoutMethod)
+        ? r.method
+        : 'dana') as PayoutMethod;
+      const meta = getMethodMetadata(method, r.bank_code);
+      const currency = r.currency === 'USD' ? 'USD' : 'IDR';
+      const usdAmount = Number(Number(r.usd_amount || 0).toFixed(2));
+      const idrAmount = Math.max(0, Math.round(Number(r.idr_amount) || 0));
+      if (currency === 'IDR' && idrAmount < cfg.minPayoutIdr) continue;
+      if (currency === 'USD' && usdAmount < cfg.minPayoutUsd) continue;
+      realItems.push({
+        id: r.id,
+        maskedUser: maskDisplayNameForFeed(r.user_name || r.account_holder_name),
+        countryCode: meta.countryCode,
+        method,
+        methodLabel: meta.label,
+        currency,
+        usdAmount,
+        idrAmount,
+        status:
+          r.status === 'completed'
+            ? 'completed'
+            : r.status === 'paid'
+            ? 'paid'
+            : 'approved',
+        createdAt:
+          r.updated_at instanceof Date
+            ? r.updated_at.toISOString()
+            : new Date().toISOString(),
+        isReal: true,
+      });
     }
-  } else {
-    await withPointsFallbackLock(() => {
-      const store = loadPointsFallbackStore();
-      const rows = store.payouts
-        .filter((p) => p.status === 'paid' || p.status === 'approved')
-        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-        .slice(0, safeLimit);
-
-      for (const r of rows) {
-        if (r.currency === 'IDR' && r.idrAmount < cfg.minPayoutIdr) continue;
-        if (r.currency === 'USD' && r.usdAmount < cfg.minPayoutUsd) continue;
-        const meta = getMethodMetadata(r.method);
-        realItems.push({
-          id: r.id,
-          maskedUser: maskDisplayNameForFeed(
-            store.userNames[r.userId] || r.accountHolderName
-          ),
-          countryCode: meta.countryCode,
-          method: r.method,
-          methodLabel: meta.label,
-          currency: r.currency,
-          usdAmount: r.usdAmount,
-          idrAmount: r.idrAmount,
-          status: r.status === 'paid' ? 'paid' : 'approved',
-          createdAt: r.updatedAt,
-          isReal: true,
-        });
-      }
-    });
-  }
-
-  if (realItems.length >= safeLimit) {
     return realItems.slice(0, safeLimit);
+  } catch (err) {
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] listLivePayoutFeedFromDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
   }
-
-  const remaining = safeLimit - realItems.length;
-  const rollingItems = buildRollingLivePayouts(Date.now(), cfg, remaining);
-  return [...realItems, ...rollingItems].slice(0, safeLimit);
 }
 
 // --- Referral System (1-Hour Verified Active Watch) & Multi-Layer Anti-Cheat ---
@@ -5379,156 +5900,108 @@ export async function recordUserSecuritySignalInDb(input: {
   displayName?: string;
 }): Promise<{ riskFlag: string; suspiciousReason: string; referralCode: string }> {
   const referralCode = buildReferralCodeForUser(input.userId);
-  const activePool = getPool();
+  const activePool = await requirePointsDbPool();
 
-  if (activePool && (await ensureDatabaseReady()) && dbAvailable) {
-    let client: PoolClient | null = null;
-    try {
-      client = await activePool.connect();
-      await client.query('BEGIN');
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    await client.query('BEGIN');
 
+    await client.query(
+      `UPDATE users
+       SET referral_code = CASE WHEN referral_code = '' THEN $2 ELSE referral_code END
+       WHERE uid = $1`,
+      [input.userId, referralCode]
+    );
+
+    await client.query(
+      `INSERT INTO user_security_signals (
+         user_id, ip_hash, subnet_hash, ua_hash, device_hash, last_seen_at
+       )
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         ip_hash = CASE WHEN EXCLUDED.ip_hash <> '' THEN EXCLUDED.ip_hash ELSE user_security_signals.ip_hash END,
+         subnet_hash = CASE WHEN EXCLUDED.subnet_hash <> '' THEN EXCLUDED.subnet_hash ELSE user_security_signals.subnet_hash END,
+         ua_hash = CASE WHEN EXCLUDED.ua_hash <> '' THEN EXCLUDED.ua_hash ELSE user_security_signals.ua_hash END,
+         device_hash = CASE WHEN EXCLUDED.device_hash <> '' THEN EXCLUDED.device_hash ELSE user_security_signals.device_hash END,
+         last_seen_at = NOW()`,
+      [
+        input.userId,
+        input.ipHash.slice(0, 64),
+        input.subnetHash.slice(0, 64),
+        input.uaHash.slice(0, 64),
+        input.deviceHash.slice(0, 64),
+      ]
+    );
+
+    let riskFlag = '';
+    let suspiciousReason = '';
+
+    if (input.deviceHash) {
+      const devCluster = await client.query<{ cnt: string }>(
+        `SELECT COUNT(DISTINCT user_id)::text AS cnt
+         FROM user_security_signals
+         WHERE device_hash = $1 AND last_seen_at >= NOW() - INTERVAL '7 days'`,
+        [input.deviceHash]
+      );
+      if ((Number(devCluster.rows[0]?.cnt) || 0) >= 3) {
+        riskFlag = 'multi_account_device';
+        suspiciousReason = '3+ accounts detected sharing identical device fingerprint';
+      }
+    }
+
+    if (!riskFlag && input.subnetHash) {
+      const netCluster = await client.query<{ cnt: string }>(
+        `SELECT COUNT(DISTINCT user_id)::text AS cnt
+         FROM user_security_signals
+         WHERE subnet_hash = $1 AND last_seen_at >= NOW() - INTERVAL '24 hours'`,
+        [input.subnetHash]
+      );
+      if ((Number(netCluster.rows[0]?.cnt) || 0) >= 5) {
+        riskFlag = 'multi_account_subnet';
+        suspiciousReason = '5+ accounts detected from identical IP subnet in 24h';
+      }
+    }
+
+    if (riskFlag) {
       await client.query(
-        `UPDATE users
-         SET referral_code = CASE WHEN referral_code = '' THEN $2 ELSE referral_code END
-         WHERE uid = $1`,
-        [input.userId, referralCode]
+        `UPDATE user_security_signals
+         SET risk_flag = CASE WHEN risk_flag = '' THEN $2 ELSE risk_flag END,
+             suspicious_reason = CASE WHEN suspicious_reason = '' THEN $3 ELSE suspicious_reason END
+         WHERE user_id = $1`,
+        [input.userId, riskFlag, suspiciousReason]
       );
-
-      await client.query(
-        `INSERT INTO user_security_signals (
-           user_id, ip_hash, subnet_hash, ua_hash, device_hash, last_seen_at
-         )
-         VALUES ($1, $2, $3, $4, $5, NOW())
-         ON CONFLICT (user_id) DO UPDATE SET
-           ip_hash = CASE WHEN EXCLUDED.ip_hash <> '' THEN EXCLUDED.ip_hash ELSE user_security_signals.ip_hash END,
-           subnet_hash = CASE WHEN EXCLUDED.subnet_hash <> '' THEN EXCLUDED.subnet_hash ELSE user_security_signals.subnet_hash END,
-           ua_hash = CASE WHEN EXCLUDED.ua_hash <> '' THEN EXCLUDED.ua_hash ELSE user_security_signals.ua_hash END,
-           device_hash = CASE WHEN EXCLUDED.device_hash <> '' THEN EXCLUDED.device_hash ELSE user_security_signals.device_hash END,
-           last_seen_at = NOW()`,
-        [
-          input.userId,
-          input.ipHash.slice(0, 64),
-          input.subnetHash.slice(0, 64),
-          input.uaHash.slice(0, 64),
-          input.deviceHash.slice(0, 64),
-        ]
-      );
-
-      let riskFlag = '';
-      let suspiciousReason = '';
-
-      if (input.deviceHash) {
-        const devCluster = await client.query<{ cnt: string }>(
-          `SELECT COUNT(DISTINCT user_id)::text AS cnt
-           FROM user_security_signals
-           WHERE device_hash = $1 AND last_seen_at >= NOW() - INTERVAL '7 days'`,
-          [input.deviceHash]
-        );
-        if ((Number(devCluster.rows[0]?.cnt) || 0) >= 3) {
-          riskFlag = 'multi_account_device';
-          suspiciousReason = '3+ accounts detected sharing identical device fingerprint';
-        }
-      }
-
-      if (!riskFlag && input.subnetHash) {
-        const netCluster = await client.query<{ cnt: string }>(
-          `SELECT COUNT(DISTINCT user_id)::text AS cnt
-           FROM user_security_signals
-           WHERE subnet_hash = $1 AND last_seen_at >= NOW() - INTERVAL '24 hours'`,
-          [input.subnetHash]
-        );
-        if ((Number(netCluster.rows[0]?.cnt) || 0) >= 5) {
-          riskFlag = 'multi_account_subnet';
-          suspiciousReason = '5+ accounts detected from identical IP subnet in 24h';
-        }
-      }
-
-      if (riskFlag) {
-        await client.query(
-          `UPDATE user_security_signals
-           SET risk_flag = CASE WHEN risk_flag = '' THEN $2 ELSE risk_flag END,
-               suspicious_reason = CASE WHEN suspicious_reason = '' THEN $3 ELSE suspicious_reason END
-           WHERE user_id = $1`,
-          [input.userId, riskFlag, suspiciousReason]
-        );
-      }
-
-      const finalRow = await client.query<{
-        risk_flag: string;
-        suspicious_reason: string;
-      }>(
-        `SELECT risk_flag, suspicious_reason FROM user_security_signals WHERE user_id = $1`,
-        [input.userId]
-      );
-
-      await client.query('COMMIT');
-      return {
-        riskFlag: finalRow.rows[0]?.risk_flag || '',
-        suspiciousReason: finalRow.rows[0]?.suspicious_reason || '',
-        referralCode,
-      };
-    } catch (err) {
-      try {
-        await client?.query('ROLLBACK');
-      } catch {
-        // Ignore rollback
-      }
-      console.warn(
-        '[PostgreSQL] recordUserSecuritySignalInDb failed, using fallback:',
-        err instanceof Error ? err.message : String(err)
-      );
-    } finally {
-      client?.release();
-    }
-  }
-
-  return withPointsFallbackLock(() => {
-    const store = loadPointsFallbackStore();
-    if (input.displayName) {
-      store.userNames[input.userId] = input.displayName;
-    }
-    store.referralCodeToUid[referralCode] = input.userId;
-
-    const prev = store.securitySignals[input.userId];
-    const nowIso = new Date().toISOString();
-    const nextSignal: UserSecuritySignalRecord = {
-      userId: input.userId,
-      ipHash: input.ipHash || prev?.ipHash || '',
-      subnetHash: input.subnetHash || prev?.subnetHash || '',
-      uaHash: input.uaHash || prev?.uaHash || '',
-      deviceHash: input.deviceHash || prev?.deviceHash || '',
-      riskFlag: prev?.riskFlag || '',
-      suspiciousReason: prev?.suspiciousReason || '',
-      lastSeenAt: nowIso,
-    };
-
-    const allSignals = Object.values({
-      ...store.securitySignals,
-      [input.userId]: nextSignal,
-    });
-    if (nextSignal.deviceHash) {
-      const sameDev = allSignals.filter((s) => s.deviceHash === nextSignal.deviceHash).length;
-      if (sameDev >= 3 && !nextSignal.riskFlag) {
-        nextSignal.riskFlag = 'multi_account_device';
-        nextSignal.suspiciousReason = '3+ accounts detected sharing identical device fingerprint';
-      }
-    }
-    if (nextSignal.subnetHash) {
-      const sameNet = allSignals.filter((s) => s.subnetHash === nextSignal.subnetHash).length;
-      if (sameNet >= 5 && !nextSignal.riskFlag) {
-        nextSignal.riskFlag = 'multi_account_subnet';
-        nextSignal.suspiciousReason = '5+ accounts detected from identical IP subnet in 24h';
-      }
     }
 
-    store.securitySignals[input.userId] = nextSignal;
-    persistPointsFallbackStore(store);
+    const finalRow = await client.query<{
+      risk_flag: string;
+      suspicious_reason: string;
+    }>(
+      `SELECT risk_flag, suspicious_reason FROM user_security_signals WHERE user_id = $1`,
+      [input.userId]
+    );
+
+    await client.query('COMMIT');
     return {
-      riskFlag: nextSignal.riskFlag,
-      suspiciousReason: nextSignal.suspiciousReason,
+      riskFlag: finalRow.rows[0]?.risk_flag || '',
+      suspiciousReason: finalRow.rows[0]?.suspicious_reason || '',
       referralCode,
     };
-  });
+  } catch (err) {
+    try {
+      await client?.query('ROLLBACK');
+    } catch {
+      // Ignore rollback
+    }
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] recordUserSecuritySignalInDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
 }
 
 export async function bindReferralForUserInDb(input: {
@@ -5555,142 +6028,116 @@ export async function bindReferralForUserInDb(input: {
   }
 
   const cfg = getPayoutRuntimeConfig();
-  const activePool = getPool();
+  const activePool = await requirePointsDbPool();
 
-  if (activePool && (await ensureDatabaseReady()) && dbAvailable) {
-    let client: PoolClient | null = null;
-    try {
-      client = await activePool.connect();
-      await client.query('BEGIN');
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
-        `referral:${input.refereeUid}`,
-      ]);
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    await client.query('BEGIN');
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `referral:${input.refereeUid}`,
+    ]);
 
-      const existingRef = await client.query<{ status: string }>(
-        `SELECT status FROM referrals WHERE referee_uid = $1 LIMIT 1`,
-        [input.refereeUid]
-      );
-      if (existingRef.rows.length > 0) {
-        await client.query('COMMIT');
-        return {
-          bound: false,
-          reason: 'already_referred',
-          status: existingRef.rows[0].status as ReferralStatus,
-        };
-      }
+    const existingRef = await client.query<{ status: string }>(
+      `SELECT status FROM referrals WHERE referee_uid = $1 LIMIT 1`,
+      [input.refereeUid]
+    );
+    if (existingRef.rows.length > 0) {
+      await client.query('COMMIT');
+      return {
+        bound: false,
+        reason: 'already_referred',
+        status: existingRef.rows[0].status as ReferralStatus,
+      };
+    }
 
-      const referrerRes = await client.query<{ uid: string }>(
-        `SELECT uid FROM users WHERE UPPER(referral_code) = $1 LIMIT 1`,
-        [cleanCode]
-      );
-      const referrerUid = referrerRes.rows[0]?.uid;
-      if (!referrerUid) {
-        await client.query('COMMIT');
-        return { bound: false, reason: 'invalid_code' };
-      }
+    const referrerRes = await client.query<{ uid: string; email: string }>(
+      `SELECT uid, COALESCE(LOWER(TRIM(email)), '') AS email
+       FROM users
+       WHERE UPPER(referral_code) = $1
+       LIMIT 1`,
+      [cleanCode]
+    );
+    const referrerUid = referrerRes.rows[0]?.uid;
+    if (!referrerUid) {
+      await client.query('COMMIT');
+      return { bound: false, reason: 'invalid_code' };
+    }
 
-      if (referrerUid === input.refereeUid) {
-        await client.query('COMMIT');
-        return { bound: false, reason: 'self_referral' };
-      }
+    if (referrerUid === input.refereeUid) {
+      await client.query('COMMIT');
+      return { bound: false, reason: 'self_referral' };
+    }
 
-      const activityCheck = await client.query<{
-        ledger_cnt: string;
-        watch_sec: number | null;
-      }>(
-        `SELECT
-           (SELECT COUNT(*)::text FROM points_ledger WHERE user_id = $1) AS ledger_cnt,
-           (SELECT verified_watch_seconds FROM watch_telemetry WHERE user_id = $1) AS watch_sec`,
-        [input.refereeUid]
-      );
-      if (
-        (Number(activityCheck.rows[0]?.ledger_cnt) || 0) > ANTI_CHEAT_DEFAULTS.newAccountMaxLedgerEntries ||
-        (Number(activityCheck.rows[0]?.watch_sec) || 0) >= ANTI_CHEAT_DEFAULTS.newAccountMaxWatchSeconds
-      ) {
-        await client.query('COMMIT');
-        return { bound: false, reason: 'account_not_new' };
-      }
+    const refereeUserRes = await client.query<{ email: string }>(
+      `SELECT COALESCE(LOWER(TRIM(email)), '') AS email FROM users WHERE uid = $1 LIMIT 1`,
+      [input.refereeUid]
+    );
+    const referrerEmail = referrerRes.rows[0]?.email || '';
+    const refereeEmail = refereeUserRes.rows[0]?.email || '';
+    if (referrerEmail && refereeEmail && referrerEmail === refereeEmail) {
+      await client.query('COMMIT');
+      return { bound: false, reason: 'self_referral' };
+    }
 
-      const refSigRes = await client.query<{
-        ip_hash: string;
-        subnet_hash: string;
-        ua_hash: string;
-        device_hash: string;
-      }>(
-        `SELECT ip_hash, subnet_hash, ua_hash, device_hash
-         FROM user_security_signals
-         WHERE user_id = $1`,
-        [referrerUid]
-      );
-      const refSig = refSigRes.rows[0];
+    const activityCheck = await client.query<{
+      ledger_cnt: string;
+      watch_sec: number | null;
+    }>(
+      `SELECT
+         (SELECT COUNT(*)::text FROM points_ledger WHERE user_id = $1) AS ledger_cnt,
+         (SELECT verified_watch_seconds FROM watch_telemetry WHERE user_id = $1) AS watch_sec`,
+      [input.refereeUid]
+    );
+    if (
+      (Number(activityCheck.rows[0]?.ledger_cnt) || 0) > ANTI_CHEAT_DEFAULTS.newAccountMaxLedgerEntries ||
+      (Number(activityCheck.rows[0]?.watch_sec) || 0) >= ANTI_CHEAT_DEFAULTS.newAccountMaxWatchSeconds
+    ) {
+      await client.query('COMMIT');
+      return { bound: false, reason: 'account_not_new' };
+    }
 
-      const sameIp = Boolean(input.ipHash && refSig?.ip_hash && input.ipHash === refSig.ip_hash);
-      const sameDevice = Boolean(
-        input.deviceHash && refSig?.device_hash && input.deviceHash === refSig.device_hash
-      );
-      const sameSubnetAndUa = Boolean(
-        input.subnetHash &&
-          refSig?.subnet_hash &&
-          input.uaHash &&
-          refSig?.ua_hash &&
-          input.subnetHash === refSig.subnet_hash &&
-          input.uaHash === refSig.ua_hash
-      );
+    const refSigRes = await client.query<{
+      ip_hash: string;
+      subnet_hash: string;
+      ua_hash: string;
+      device_hash: string;
+    }>(
+      `SELECT ip_hash, subnet_hash, ua_hash, device_hash
+       FROM user_security_signals
+       WHERE user_id = $1`,
+      [referrerUid]
+    );
+    const refSig = refSigRes.rows[0];
 
-      // Also check if another referral already used the same IP or device hash
-      const dupDeviceRef = input.deviceHash
-        ? await client.query<{ id: string }>(
-            `SELECT id FROM referrals WHERE referee_device_hash = $1 LIMIT 1`,
-            [input.deviceHash]
-          )
-        : { rows: [] };
+    const sameIp = Boolean(input.ipHash && refSig?.ip_hash && input.ipHash === refSig.ip_hash);
+    const sameDevice = Boolean(
+      input.deviceHash && refSig?.device_hash && input.deviceHash === refSig.device_hash
+    );
+    const sameSubnetAndUa = Boolean(
+      input.subnetHash &&
+        refSig?.subnet_hash &&
+        input.uaHash &&
+        refSig?.ua_hash &&
+        input.subnetHash === refSig.subnet_hash &&
+        input.uaHash === refSig.ua_hash
+    );
 
-      if (sameIp || sameDevice || sameSubnetAndUa || dupDeviceRef.rows.length > 0) {
-        const reasonText = sameDevice
-          ? 'Device fingerprint matches referrer or existing referral'
-          : sameIp
-          ? 'IP address matches referrer'
-          : sameSubnetAndUa
-          ? 'IP subnet + browser UA matches referrer'
-          : 'Duplicate device referral blocked';
+    const dupDeviceRef = input.deviceHash
+      ? await client.query<{ id: string }>(
+          `SELECT id FROM referrals WHERE referee_device_hash = $1 LIMIT 1`,
+          [input.deviceHash]
+        )
+      : { rows: [] };
 
-        await client.query(
-          `INSERT INTO referrals (
-             id, referrer_uid, referee_uid, referral_code, status, bonus_points,
-             referee_ip_hash, referee_subnet_hash, referee_ua_hash, referee_device_hash,
-             risk_flag, suspicious_reason, created_at, updated_at
-           )
-           VALUES ($1, $2, $3, $4, 'rejected_fraud', $5, $6, $7, $8, $9, 'self_referral_signal_match', $10, NOW(), NOW())
-           ON CONFLICT (referee_uid) DO NOTHING`,
-          [
-            crypto.randomUUID(),
-            referrerUid,
-            input.refereeUid,
-            cleanCode,
-            cfg.referralBonusPoints,
-            input.ipHash.slice(0, 64),
-            input.subnetHash.slice(0, 64),
-            input.uaHash.slice(0, 64),
-            input.deviceHash.slice(0, 64),
-            reasonText,
-          ]
-        );
-        await client.query(
-          `INSERT INTO user_security_signals (user_id, risk_flag, suspicious_reason, last_seen_at)
-           VALUES ($1, 'self_referral_attempt', $2, NOW())
-           ON CONFLICT (user_id) DO UPDATE SET
-             risk_flag = CASE WHEN user_security_signals.risk_flag = '' THEN 'self_referral_attempt' ELSE user_security_signals.risk_flag END,
-             suspicious_reason = CASE WHEN user_security_signals.suspicious_reason = '' THEN EXCLUDED.suspicious_reason ELSE user_security_signals.suspicious_reason END,
-             last_seen_at = NOW()`,
-          [input.refereeUid, reasonText]
-        );
-        await client.query('COMMIT');
-        return {
-          bound: false,
-          reason: 'fraud_signal_match',
-          status: 'rejected_fraud',
-        };
-      }
+    if (sameIp || sameDevice || sameSubnetAndUa || dupDeviceRef.rows.length > 0) {
+      const reasonText = sameDevice
+        ? 'Device fingerprint matches referrer or existing referral'
+        : sameIp
+        ? 'IP address matches referrer'
+        : sameSubnetAndUa
+        ? 'IP subnet + browser UA matches referrer'
+        : 'Duplicate device referral blocked';
 
       await client.query(
         `INSERT INTO referrals (
@@ -5698,7 +6145,7 @@ export async function bindReferralForUserInDb(input: {
            referee_ip_hash, referee_subnet_hash, referee_ua_hash, referee_device_hash,
            risk_flag, suspicious_reason, created_at, updated_at
          )
-         VALUES ($1, $2, $3, $4, 'pending_watch', $5, $6, $7, $8, $9, '', '', NOW(), NOW())
+         VALUES ($1, $2, $3, $4, 'rejected_fraud', $5, $6, $7, $8, $9, 'self_referral_signal_match', $10, NOW(), NOW())
          ON CONFLICT (referee_uid) DO NOTHING`,
         [
           crypto.randomUUID(),
@@ -5710,126 +6157,64 @@ export async function bindReferralForUserInDb(input: {
           input.subnetHash.slice(0, 64),
           input.uaHash.slice(0, 64),
           input.deviceHash.slice(0, 64),
+          reasonText,
         ]
       );
-
-      await client.query('COMMIT');
-      return { bound: true, status: 'pending_watch' };
-    } catch (err) {
-      try {
-        await client?.query('ROLLBACK');
-      } catch {
-        // Ignore rollback
-      }
-      console.warn(
-        '[PostgreSQL] bindReferralForUserInDb failed, using fallback:',
-        err instanceof Error ? err.message : String(err)
+      await client.query(
+        `INSERT INTO user_security_signals (user_id, risk_flag, suspicious_reason, last_seen_at)
+         VALUES ($1, 'self_referral_attempt', $2, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           risk_flag = CASE WHEN user_security_signals.risk_flag = '' THEN 'self_referral_attempt' ELSE user_security_signals.risk_flag END,
+           suspicious_reason = CASE WHEN user_security_signals.suspicious_reason = '' THEN EXCLUDED.suspicious_reason ELSE user_security_signals.suspicious_reason END,
+           last_seen_at = NOW()`,
+        [input.refereeUid, reasonText]
       );
-    } finally {
-      client?.release();
-    }
-  }
-
-  return withPointsFallbackLock(() => {
-    const store = loadPointsFallbackStore();
-    if (input.displayName) {
-      store.userNames[input.refereeUid] = input.displayName;
-    }
-
-    const existing = store.referrals.find((r) => r.refereeUid === input.refereeUid);
-    if (existing) {
-      return { bound: false, reason: 'already_referred' as const, status: existing.status };
-    }
-
-    const referrerUid = store.referralCodeToUid[cleanCode];
-    if (!referrerUid) {
-      return { bound: false, reason: 'invalid_code' as const };
-    }
-    if (referrerUid === input.refereeUid) {
-      return { bound: false, reason: 'self_referral' as const };
-    }
-
-    const priorWatch = store.watchTelemetry[input.refereeUid]?.verifiedWatchSeconds || 0;
-    const priorLedger = store.ledger.filter((l) => l.userId === input.refereeUid).length;
-    if (
-      priorWatch >= ANTI_CHEAT_DEFAULTS.newAccountMaxWatchSeconds ||
-      priorLedger > ANTI_CHEAT_DEFAULTS.newAccountMaxLedgerEntries
-    ) {
-      return { bound: false, reason: 'account_not_new' as const };
-    }
-
-    const refSig = store.securitySignals[referrerUid];
-    const sameIp = Boolean(input.ipHash && refSig?.ipHash && input.ipHash === refSig.ipHash);
-    const sameDevice = Boolean(
-      input.deviceHash && refSig?.deviceHash && input.deviceHash === refSig.deviceHash
-    );
-    const sameSubnetAndUa = Boolean(
-      input.subnetHash &&
-        refSig?.subnetHash &&
-        input.uaHash &&
-        refSig?.uaHash &&
-        input.subnetHash === refSig.subnetHash &&
-        input.uaHash === refSig.uaHash
-    );
-    const dupDeviceRef = Boolean(
-      input.deviceHash &&
-        store.referrals.some((r) => r.refereeDeviceHash === input.deviceHash)
-    );
-
-    const nowIso = new Date().toISOString();
-    if (sameIp || sameDevice || sameSubnetAndUa || dupDeviceRef) {
-      const reasonText = sameDevice
-        ? 'Device fingerprint matches referrer or existing referral'
-        : sameIp
-        ? 'IP address matches referrer'
-        : sameSubnetAndUa
-        ? 'IP subnet + browser UA matches referrer'
-        : 'Duplicate device referral blocked';
-      store.referrals.push({
-        id: crypto.randomUUID(),
-        referrerUid,
-        refereeUid: input.refereeUid,
-        referralCode: cleanCode,
-        status: 'rejected_fraud',
-        bonusPoints: cfg.referralBonusPoints,
-        refereeIpHash: input.ipHash,
-        refereeSubnetHash: input.subnetHash,
-        refereeUaHash: input.uaHash,
-        refereeDeviceHash: input.deviceHash,
-        riskFlag: 'self_referral_signal_match',
-        suspiciousReason: reasonText,
-        qualifiedAt: null,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      });
-      persistPointsFallbackStore(store);
+      await client.query('COMMIT');
       return {
         bound: false,
-        reason: 'fraud_signal_match' as const,
-        status: 'rejected_fraud' as const,
+        reason: 'fraud_signal_match',
+        status: 'rejected_fraud',
       };
     }
 
-    store.referrals.push({
-      id: crypto.randomUUID(),
-      referrerUid,
-      refereeUid: input.refereeUid,
-      referralCode: cleanCode,
-      status: 'pending_watch',
-      bonusPoints: cfg.referralBonusPoints,
-      refereeIpHash: input.ipHash,
-      refereeSubnetHash: input.subnetHash,
-      refereeUaHash: input.uaHash,
-      refereeDeviceHash: input.deviceHash,
-      riskFlag: '',
-      suspiciousReason: '',
-      qualifiedAt: null,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-    });
-    persistPointsFallbackStore(store);
-    return { bound: true, status: 'pending_watch' as const };
-  });
+    await client.query(
+      `INSERT INTO referrals (
+         id, referrer_uid, referee_uid, referral_code, status, bonus_points,
+         referee_ip_hash, referee_subnet_hash, referee_ua_hash, referee_device_hash,
+         risk_flag, suspicious_reason, created_at, updated_at
+       )
+       VALUES ($1, $2, $3, $4, 'pending_watch', $5, $6, $7, $8, $9, '', '', NOW(), NOW())
+       ON CONFLICT (referee_uid) DO NOTHING`,
+      [
+        crypto.randomUUID(),
+        referrerUid,
+        input.refereeUid,
+        cleanCode,
+        cfg.referralBonusPoints,
+        input.ipHash.slice(0, 64),
+        input.subnetHash.slice(0, 64),
+        input.uaHash.slice(0, 64),
+        input.deviceHash.slice(0, 64),
+      ]
+    );
+
+    await client.query('COMMIT');
+    return { bound: true, status: 'pending_watch' };
+  } catch (err) {
+    try {
+      await client?.query('ROLLBACK');
+    } catch {
+      // Ignore rollback
+    }
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] bindReferralForUserInDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
 }
 
 interface WatchMissionGrantResult {
@@ -5841,7 +6226,8 @@ interface WatchMissionGrantResult {
 async function getQuickPointsStatePg(
   client: PoolClient,
   userId: string,
-  todayKey: string
+  todayKey: string,
+  timeZone: string = DEFAULT_FALLBACK_TIMEZONE
 ): Promise<{
   balance: number;
   todayEarned: number;
@@ -5860,7 +6246,7 @@ async function getQuickPointsStatePg(
          CASE
            WHEN type = 'earn'
             AND reference_id NOT LIKE 'refund:payout:%'
-            AND (created_at AT TIME ZONE 'Asia/Jakarta')::date = $2::date
+            AND (created_at AT TIME ZONE $3)::date = $2::date
            THEN points
            ELSE 0
          END
@@ -5869,14 +6255,14 @@ async function getQuickPointsStatePg(
          CASE
            WHEN type = 'earn'
             AND (reference_id LIKE 'watch_min:%' OR reference_id LIKE 'mission_%')
-            AND (created_at AT TIME ZONE 'Asia/Jakarta')::date = $2::date
+            AND (created_at AT TIME ZONE $3)::date = $2::date
            THEN points
            ELSE 0
          END
        ), 0)::text AS today_watch_points
      FROM points_ledger
      WHERE user_id = $1`,
-    [userId, todayKey]
+    [userId, todayKey, timeZone]
   );
   const row = res.rows[0];
   const totalEarned = Math.max(0, Number(row?.total_earned) || 0);
@@ -5892,6 +6278,7 @@ async function grantWatchMissionPointsPg(
   client: PoolClient,
   userId: string,
   todayKey: string,
+  timeZone: string,
   todayWatchSeconds: number,
   cfg: PayoutRuntimeConfig,
   shouldAward: boolean
@@ -5900,7 +6287,7 @@ async function grantWatchMissionPointsPg(
     `points:${userId}`,
   ]);
 
-  const initial = await getQuickPointsStatePg(client, userId, todayKey);
+  const initial = await getQuickPointsStatePg(client, userId, todayKey, timeZone);
   if (!shouldAward) {
     return {
       awardedWatchPoints: 0,
@@ -5931,6 +6318,7 @@ async function grantWatchMissionPointsPg(
 
   let remainingDaily = Math.max(0, cfg.maxDailyEarnPoints - initial.todayEarned);
   let awardedWatchPoints = 0;
+  let runningBalance = initial.balance;
 
   const candidates: Array<{ refId: string; points: number; desc: string }> = [];
   const maxMinutes = Math.floor(maxMissionSec / 60);
@@ -5954,145 +6342,118 @@ async function grantWatchMissionPointsPg(
   for (const cand of candidates) {
     if (existingRefs.has(cand.refId)) continue;
     if (cand.points <= 0 || cand.points > remainingDaily) continue;
+    const nextBalance = runningBalance + cand.points;
     const ins = await client.query(
-      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, created_at)
-       VALUES ($1, $2, 'earn', $3, $4, $5, NOW())
+      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
        ON CONFLICT (reference_id) DO NOTHING`,
-      [crypto.randomUUID(), userId, cand.points, cand.desc, cand.refId]
+      [crypto.randomUUID(), userId, cand.points, cand.desc, cand.refId, nextBalance]
     );
     if ((ins.rowCount ?? 0) > 0) {
       existingRefs.add(cand.refId);
       remainingDaily -= cand.points;
       awardedWatchPoints += cand.points;
+      runningBalance = nextBalance;
     }
   }
 
   return {
     awardedWatchPoints,
     todayWatchPointsEarned: initial.todayWatchPointsEarned + awardedWatchPoints,
-    pointsBalance: initial.balance + awardedWatchPoints,
+    pointsBalance: runningBalance,
   };
 }
 
-function getQuickPointsStateFallback(
-  store: PointsFallbackStore,
-  userId: string,
-  todayKey: string
-): {
-  balance: number;
-  todayEarned: number;
-  todayWatchPointsEarned: number;
-} {
-  let totalEarned = 0;
-  let totalRedeemed = 0;
-  let todayEarned = 0;
-  let todayWatchPointsEarned = 0;
+export async function startWatchSessionInDb(input: {
+  userId: string;
+  mediaKey: string;
+  provider?: string;
+  dramaId?: string;
+  episodeNumber?: number;
+  deviceHash?: string;
+  previousSessionToken?: string;
+}): Promise<{
+  ok: boolean;
+  sessionToken: string;
+  expiresAt: string;
+  minEpisodeWatchSecForBonus: number;
+}> {
+  const cleanMediaKey = String(input.mediaKey || '').trim().slice(0, 140);
+  const cleanProvider = String(input.provider || 'DramaBox').trim().slice(0, 60) || 'DramaBox';
+  const cleanDramaId = String(input.dramaId || '').trim().slice(0, 120);
+  const epNum = Math.max(1, Math.floor(Number(input.episodeNumber) || 1));
+  const cleanDev = String(input.deviceHash || '').trim().slice(0, 64);
+  const prevToken = String(input.previousSessionToken || '').trim().slice(0, 80);
 
-  for (const row of store.ledger) {
-    if (row.userId !== userId) continue;
-    if (row.type === 'earn') {
-      totalEarned += row.points;
-      if (!row.referenceId.startsWith('refund:payout:')) {
-        if (getJakartaDateKey(new Date(row.createdAt)) === todayKey) {
-          todayEarned += row.points;
-          if (
-            row.referenceId.startsWith('watch_min:') ||
-            row.referenceId.startsWith('mission_')
-          ) {
-            todayWatchPointsEarned += row.points;
-          }
-        }
-      }
-    } else if (row.type === 'redeem') {
-      totalRedeemed += row.points;
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    await client.query('BEGIN');
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `watch:${input.userId}`,
+    ]);
+
+    if (prevToken) {
+      await client.query(
+        `UPDATE watch_sessions
+         SET is_active = FALSE, updated_at = NOW()
+         WHERE session_token = $1 AND user_id = $2`,
+        [prevToken, input.userId]
+      );
+      await client.query(
+        `UPDATE watch_telemetry
+         SET active_stream_session_id = CASE WHEN active_stream_session_id = $2 THEN '' ELSE active_stream_session_id END,
+             last_video_time_sec = -1,
+             updated_at = NOW()
+         WHERE user_id = $1`,
+        [input.userId, prevToken]
+      );
     }
-  }
 
-  return {
-    balance: Math.max(0, totalEarned - totalRedeemed),
-    todayEarned,
-    todayWatchPointsEarned,
-  };
-}
+    const sessionToken = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + ANTI_CHEAT_DEFAULTS.watchSessionTtlSec * 1000);
+    await client.query(
+      `INSERT INTO watch_sessions (
+         session_token, user_id, media_key, provider, drama_id, episode_number,
+         device_hash, started_at, last_heartbeat_at, last_video_time_sec,
+         accumulated_sec, last_seq, is_active, expires_at, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NULL, -1, 0, 0, TRUE, $8, NOW())`,
+      [
+        sessionToken,
+        input.userId,
+        cleanMediaKey || `${cleanProvider}:${cleanDramaId}:ep${epNum}`,
+        cleanProvider,
+        cleanDramaId,
+        epNum,
+        cleanDev,
+        expiresAt,
+      ]
+    );
 
-function grantWatchMissionPointsFallback(
-  store: PointsFallbackStore,
-  userId: string,
-  todayKey: string,
-  todayWatchSeconds: number,
-  cfg: PayoutRuntimeConfig,
-  shouldAward: boolean,
-  nowIso: string
-): WatchMissionGrantResult {
-  const initial = getQuickPointsStateFallback(store, userId, todayKey);
-  if (!shouldAward) {
+    await client.query('COMMIT');
     return {
-      awardedWatchPoints: 0,
-      todayWatchPointsEarned: initial.todayWatchPointsEarned,
-      pointsBalance: initial.balance,
+      ok: true,
+      sessionToken,
+      expiresAt: expiresAt.toISOString(),
+      minEpisodeWatchSecForBonus: ANTI_CHEAT_DEFAULTS.minEpisodeWatchSecForBonus,
     };
-  }
-
-  const maxMissionSec = Math.max(60, cfg.dailyMissionMaxWatchSeconds);
-  const cappedSeconds = Math.min(todayWatchSeconds, maxMissionSec);
-  const completedMinutes = Math.floor(cappedSeconds / 60);
-  if (completedMinutes <= 0) {
-    return {
-      awardedWatchPoints: 0,
-      todayWatchPointsEarned: initial.todayWatchPointsEarned,
-      pointsBalance: initial.balance,
-    };
-  }
-
-  const existingRefs = new Set(
-    store.ledger
-      .filter((r) => r.userId === userId)
-      .map((r) => r.referenceId)
-  );
-  let remainingDaily = Math.max(0, cfg.maxDailyEarnPoints - initial.todayEarned);
-  let awardedWatchPoints = 0;
-
-  const candidates: Array<{ refId: string; points: number; desc: string }> = [];
-  const maxMinutes = Math.floor(maxMissionSec / 60);
-  for (let m = 1; m <= Math.min(completedMinutes, maxMinutes); m += 1) {
-    candidates.push({
-      refId: `watch_min:${userId}:${todayKey}:m${m}`,
-      points: cfg.watchMinutePoints,
-      desc: `Misi Nonton Aktif (Menit ${m}/${maxMinutes})`,
-    });
-  }
-  for (const ms of cfg.dailyMissionMilestones) {
-    if (completedMinutes >= ms.minutes) {
-      candidates.push({
-        refId: `mission_${ms.minutes}m:${userId}:${todayKey}`,
-        points: ms.bonusPoints,
-        desc: `Bonus Misi Harian ${ms.minutes} Menit Nonton`,
-      });
+  } catch (err) {
+    try {
+      await client?.query('ROLLBACK');
+    } catch {
+      // Ignore rollback
     }
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] startWatchSessionInDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
   }
-
-  for (const cand of candidates) {
-    if (existingRefs.has(cand.refId)) continue;
-    if (cand.points <= 0 || cand.points > remainingDaily) continue;
-    store.ledger.push({
-      id: crypto.randomUUID(),
-      userId,
-      type: 'earn',
-      points: cand.points,
-      description: cand.desc,
-      referenceId: cand.refId,
-      createdAt: nowIso,
-    });
-    existingRefs.add(cand.refId);
-    remainingDaily -= cand.points;
-    awardedWatchPoints += cand.points;
-  }
-
-  return {
-    awardedWatchPoints,
-    todayWatchPointsEarned: initial.todayWatchPointsEarned + awardedWatchPoints,
-    pointsBalance: initial.balance + awardedWatchPoints,
-  };
 }
 
 export async function recordWatchHeartbeatInDb(input: {
@@ -6101,16 +6462,20 @@ export async function recordWatchHeartbeatInDb(input: {
   mediaKey: string;
   currentTimeSec: number;
   isPlaying: boolean;
+  isBuffering?: boolean;
   tabVisible: boolean;
   playbackRate: number;
+  seq?: number;
   ipHash: string;
   subnetHash: string;
   uaHash: string;
   deviceHash: string;
   displayName?: string;
+  timeZone?: string | null;
 }): Promise<{
   ok: boolean;
   addedSeconds: number;
+  sessionWatchSeconds?: number;
   verifiedWatchSeconds: number;
   todayWatchSeconds: number;
   awardedWatchPoints: number;
@@ -6122,19 +6487,24 @@ export async function recordWatchHeartbeatInDb(input: {
   reason?:
     | 'session_started'
     | 'paused_or_hidden'
+    | 'buffering'
     | 'invalid_playback_speed'
     | 'concurrent_stream_detected'
     | 'heartbeat_too_fast'
     | 'video_not_advancing'
+    | 'seek_jump_ignored'
+    | 'replay_blocked'
+    | 'invalid_session'
     | 'daily_watch_cap_reached'
     | 'counted';
 }> {
   const cfg = getPayoutRuntimeConfig();
-  const todayKey = getJakartaDateKey();
   const cleanSessionId = input.streamSessionId.trim().slice(0, 80);
   const cleanMediaKey = input.mediaKey.trim().slice(0, 140);
   const safeVideoTime = Math.max(0, Number(input.currentTimeSec) || 0);
   const safeRate = Number(input.playbackRate) || 1;
+  const hasSeq = typeof input.seq === 'number' && Number.isFinite(input.seq);
+  const incomingSeq = hasSeq ? Math.floor(input.seq as number) : 0;
 
   if (!cleanSessionId || !cleanMediaKey) {
     return {
@@ -6148,7 +6518,7 @@ export async function recordWatchHeartbeatInDb(input: {
       pointsBalance: null,
       referralQualified: false,
       riskFlag: '',
-      reason: 'session_started',
+      reason: 'invalid_session',
     };
   }
 
@@ -6162,491 +6532,124 @@ export async function recordWatchHeartbeatInDb(input: {
     displayName: input.displayName,
   });
 
-  const activePool = getPool();
-  if (activePool && (await ensureDatabaseReady()) && dbAvailable) {
-    let client: PoolClient | null = null;
-    try {
-      client = await activePool.connect();
-      await client.query('BEGIN');
-      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
-        `watch:${input.userId}`,
-      ]);
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    await client.query('BEGIN');
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `watch:${input.userId}`,
+    ]);
 
-      const telRes = await client.query<{
-        verified_watch_seconds: number;
-        today_watch_seconds: number;
-        today_date_key: string;
-        active_stream_session_id: string;
-        active_stream_media_key: string;
-        last_heartbeat_at: Date | null;
-        last_video_time_sec: string;
-        fast_delta_strikes: number;
-        concurrent_tab_strikes: number;
-        risk_flag: string;
-        suspicious_reason: string;
-      }>(`SELECT * FROM watch_telemetry WHERE user_id = $1 FOR UPDATE`, [
-        input.userId,
-      ]);
+    const { timeZone: effectiveTimeZone, todayKey } = await resolveUserTimeZonePg(
+      client,
+      input.userId,
+      input.timeZone,
+      true
+    );
 
-      const row = telRes.rows[0];
-      const nowMs = Date.now();
-      let verifiedWatchSeconds = row ? Math.max(0, Number(row.verified_watch_seconds) || 0) : 0;
-      let todayWatchSeconds =
-        row && row.today_date_key === todayKey
-          ? Math.max(0, Number(row.today_watch_seconds) || 0)
-          : 0;
-      let fastStrikes = row ? Math.max(0, Number(row.fast_delta_strikes) || 0) : 0;
-      let concurrentStrikes = row ? Math.max(0, Number(row.concurrent_tab_strikes) || 0) : 0;
-      let riskFlag = row?.risk_flag || '';
-      let suspiciousReason = row?.suspicious_reason || '';
-
-      const lastHbMs =
-        row?.last_heartbeat_at instanceof Date ? row.last_heartbeat_at.getTime() : 0;
-      const wallElapsedSec = lastHbMs > 0 ? Math.floor((nowMs - lastHbMs) / 1000) : 0;
-      const lastSessionId = row?.active_stream_session_id || '';
-      const lastMediaKey = row?.active_stream_media_key || '';
-      const lastVideoSec = row ? Number(row.last_video_time_sec) || 0 : 0;
-
-      // 1. Concurrent stream lock across different browser tabs/sessions
-      if (
-        lastSessionId &&
-        lastSessionId !== cleanSessionId &&
-        lastHbMs > 0 &&
-        wallElapsedSec < ANTI_CHEAT_DEFAULTS.concurrentSessionWindowSec
-      ) {
-        concurrentStrikes += 1;
-        if (
-          concurrentStrikes >= ANTI_CHEAT_DEFAULTS.maxConcurrentStrikes &&
-          !riskFlag.includes('concurrent_streams')
-        ) {
-          riskFlag = riskFlag ? `${riskFlag},concurrent_streams` : 'concurrent_streams';
-          suspiciousReason = suspiciousReason
-            ? `${suspiciousReason}; Multiple simultaneous watch streams detected`
-            : 'Multiple simultaneous watch streams detected';
-        }
-        await client.query(
-          `UPDATE watch_telemetry
-           SET concurrent_tab_strikes = $2, risk_flag = $3, suspicious_reason = $4, updated_at = NOW()
-           WHERE user_id = $1`,
-          [input.userId, concurrentStrikes, riskFlag.slice(0, 120), suspiciousReason.slice(0, 300)]
-        );
-        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
-        await client.query('COMMIT');
-        return {
-          ok: false,
-          addedSeconds: 0,
-          verifiedWatchSeconds,
-          todayWatchSeconds,
-          awardedWatchPoints: 0,
-          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
-          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
-          pointsBalance: ptsState.balance,
-          referralQualified: false,
-          riskFlag,
-          reason: 'concurrent_stream_detected',
-        };
-      }
-
-      // 2. Paused or backgrounded tab -> release active lock & reset anchor without incrementing
-      if (!input.isPlaying || !input.tabVisible) {
-        await client.query(
-          `INSERT INTO watch_telemetry (
-             user_id, verified_watch_seconds, today_watch_seconds, today_date_key,
-             active_stream_session_id, active_stream_media_key, last_heartbeat_at,
-             last_video_time_sec, fast_delta_strikes, concurrent_tab_strikes,
-             risk_flag, suspicious_reason, updated_at
-           )
-           VALUES ($1, $2, $3, $4, '', $5, NOW(), -1, $6, $7, $8, $9, NOW())
-           ON CONFLICT (user_id) DO UPDATE SET
-             today_watch_seconds = EXCLUDED.today_watch_seconds,
-             today_date_key = EXCLUDED.today_date_key,
-             active_stream_session_id = '',
-             active_stream_media_key = EXCLUDED.active_stream_media_key,
-             last_heartbeat_at = NOW(),
-             last_video_time_sec = -1,
-             updated_at = NOW()`,
-          [
-            input.userId,
-            verifiedWatchSeconds,
-            todayWatchSeconds,
-            todayKey,
-            cleanMediaKey,
-            fastStrikes,
-            concurrentStrikes,
-            riskFlag,
-            suspiciousReason,
-          ]
-        );
-        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
-        await client.query('COMMIT');
-        return {
-          ok: true,
-          addedSeconds: 0,
-          verifiedWatchSeconds,
-          todayWatchSeconds,
-          awardedWatchPoints: 0,
-          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
-          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
-          pointsBalance: ptsState.balance,
-          referralQualified: false,
-          riskFlag,
-          reason: 'paused_or_hidden',
-        };
-      }
-
-      // 3. Playback speed guard (1x normal speed required) -> reset anchor
-      if (
-        safeRate > ANTI_CHEAT_DEFAULTS.maxPlaybackRate ||
-        safeRate < ANTI_CHEAT_DEFAULTS.minPlaybackRate
-      ) {
-        await client.query(
-          `INSERT INTO watch_telemetry (
-             user_id, verified_watch_seconds, today_watch_seconds, today_date_key,
-             active_stream_session_id, active_stream_media_key, last_heartbeat_at,
-             last_video_time_sec, fast_delta_strikes, concurrent_tab_strikes,
-             risk_flag, suspicious_reason, updated_at
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, NOW(), -1, $7, $8, $9, $10, NOW())
-           ON CONFLICT (user_id) DO UPDATE SET
-             last_heartbeat_at = NOW(),
-             last_video_time_sec = -1,
-             updated_at = NOW()`,
-          [
-            input.userId,
-            verifiedWatchSeconds,
-            todayWatchSeconds,
-            todayKey,
-            cleanSessionId,
-            cleanMediaKey,
-            fastStrikes,
-            concurrentStrikes,
-            riskFlag,
-            suspiciousReason,
-          ]
-        );
-        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
-        await client.query('COMMIT');
-        return {
-          ok: true,
-          addedSeconds: 0,
-          verifiedWatchSeconds,
-          todayWatchSeconds,
-          awardedWatchPoints: 0,
-          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
-          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
-          pointsBalance: ptsState.balance,
-          referralQualified: false,
-          riskFlag,
-          reason: 'invalid_playback_speed',
-        };
-      }
-
-      // 4. First heartbeat for session, media switch, or post-pause resume -> establish baseline
-      if (
-        !row ||
-        lastSessionId !== cleanSessionId ||
-        lastMediaKey !== cleanMediaKey ||
-        lastHbMs <= 0 ||
-        lastVideoSec < 0
-      ) {
-        await client.query(
-          `INSERT INTO watch_telemetry (
-             user_id, verified_watch_seconds, today_watch_seconds, today_date_key,
-             active_stream_session_id, active_stream_media_key, last_heartbeat_at,
-             last_video_time_sec, fast_delta_strikes, concurrent_tab_strikes,
-             risk_flag, suspicious_reason, updated_at
-           )
-           VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10, $11, NOW())
-           ON CONFLICT (user_id) DO UPDATE SET
-             today_watch_seconds = EXCLUDED.today_watch_seconds,
-             today_date_key = EXCLUDED.today_date_key,
-             active_stream_session_id = EXCLUDED.active_stream_session_id,
-             active_stream_media_key = EXCLUDED.active_stream_media_key,
-             last_heartbeat_at = NOW(),
-             last_video_time_sec = EXCLUDED.last_video_time_sec,
-             updated_at = NOW()`,
-          [
-            input.userId,
-            verifiedWatchSeconds,
-            todayWatchSeconds,
-            todayKey,
-            cleanSessionId,
-            cleanMediaKey,
-            safeVideoTime,
-            fastStrikes,
-            concurrentStrikes,
-            riskFlag,
-            suspiciousReason,
-          ]
-        );
-        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
-        await client.query('COMMIT');
-        return {
-          ok: true,
-          addedSeconds: 0,
-          verifiedWatchSeconds,
-          todayWatchSeconds,
-          awardedWatchPoints: 0,
-          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
-          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
-          pointsBalance: ptsState.balance,
-          referralQualified: false,
-          riskFlag,
-          reason: 'session_started',
-        };
-      }
-
-      // 5. Timestamp delta check (reject faster than real time)
-      if (wallElapsedSec < ANTI_CHEAT_DEFAULTS.minHeartbeatIntervalSec) {
-        fastStrikes += 1;
-        if (
-          fastStrikes >= ANTI_CHEAT_DEFAULTS.maxFastDeltaStrikes &&
-          !riskFlag.includes('heartbeat_flood')
-        ) {
-          riskFlag = riskFlag ? `${riskFlag},heartbeat_flood` : 'heartbeat_flood';
-          suspiciousReason = suspiciousReason
-            ? `${suspiciousReason}; Rapid heartbeat flood detected`
-            : 'Rapid heartbeat flood detected';
-        }
-        await client.query(
-          `UPDATE watch_telemetry
-           SET fast_delta_strikes = $2, risk_flag = $3, suspicious_reason = $4, updated_at = NOW()
-           WHERE user_id = $1`,
-          [input.userId, fastStrikes, riskFlag.slice(0, 120), suspiciousReason.slice(0, 300)]
-        );
-        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
-        await client.query('COMMIT');
-        return {
-          ok: false,
-          addedSeconds: 0,
-          verifiedWatchSeconds,
-          todayWatchSeconds,
-          awardedWatchPoints: 0,
-          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
-          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
-          pointsBalance: ptsState.balance,
-          referralQualified: false,
-          riskFlag,
-          reason: 'heartbeat_too_fast',
-        };
-      }
-
-      const videoDeltaSec = safeVideoTime - lastVideoSec;
-      if (videoDeltaSec <= ANTI_CHEAT_DEFAULTS.minVideoAdvanceSec) {
-        await client.query(
-          `UPDATE watch_telemetry
-           SET last_heartbeat_at = NOW(), last_video_time_sec = $2, updated_at = NOW()
-           WHERE user_id = $1`,
-          [input.userId, safeVideoTime]
-        );
-        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
-        await client.query('COMMIT');
-        return {
-          ok: true,
-          addedSeconds: 0,
-          verifiedWatchSeconds,
-          todayWatchSeconds,
-          awardedWatchPoints: 0,
-          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
-          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
-          pointsBalance: ptsState.balance,
-          referralQualified: false,
-          riskFlag,
-          reason: 'video_not_advancing',
-        };
-      }
-
-      if (todayWatchSeconds >= cfg.maxDailyVerifiedWatchSeconds) {
-        await client.query(
-          `UPDATE watch_telemetry
-           SET last_heartbeat_at = NOW(), last_video_time_sec = $2, updated_at = NOW()
-           WHERE user_id = $1`,
-          [input.userId, safeVideoTime]
-        );
-        const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey);
-        await client.query('COMMIT');
-        return {
-          ok: true,
-          addedSeconds: 0,
-          verifiedWatchSeconds,
-          todayWatchSeconds,
-          awardedWatchPoints: 0,
-          todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
-          dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
-          pointsBalance: ptsState.balance,
-          referralQualified: false,
-          riskFlag,
-          reason: 'daily_watch_cap_reached',
-        };
-      }
-
-      const rawStep = Math.min(
-        wallElapsedSec,
-        Math.ceil(videoDeltaSec * 1.1),
-        ANTI_CHEAT_DEFAULTS.maxHeartbeatStepSec
-      );
-      const remainingDaily = Math.max(0, cfg.maxDailyVerifiedWatchSeconds - todayWatchSeconds);
-      const addedSeconds = Math.max(0, Math.min(rawStep, remainingDaily));
-      verifiedWatchSeconds += addedSeconds;
-      todayWatchSeconds += addedSeconds;
-
-      await client.query(
-        `UPDATE watch_telemetry
-         SET verified_watch_seconds = $2,
-             today_watch_seconds = $3,
-             today_date_key = $4,
-             active_stream_session_id = $5,
-             active_stream_media_key = $6,
-             last_heartbeat_at = NOW(),
-             last_video_time_sec = $7,
-             updated_at = NOW()
-         WHERE user_id = $1`,
-        [
-          input.userId,
-          verifiedWatchSeconds,
-          todayWatchSeconds,
-          todayKey,
-          cleanSessionId,
-          cleanMediaKey,
-          safeVideoTime,
-        ]
-      );
-
-      // 6. Grant daily watch-minute + milestone mission points (max 1h/day)
-      const secCheckSelf = await client.query<{ risk_flag: string }>(
-        `SELECT risk_flag FROM user_security_signals WHERE user_id = $1`,
-        [input.userId]
-      );
-      const hasRiskFlag = Boolean(riskFlag || secCheckSelf.rows[0]?.risk_flag);
-      const missionGrant = await grantWatchMissionPointsPg(
-        client,
-        input.userId,
-        todayKey,
-        todayWatchSeconds,
-        cfg,
-        addedSeconds > 0 && !hasRiskFlag
-      );
-
-      // 7. Auto-qualify referral if verifiedWatchSeconds >= 3600 (1 hour)
-      let referralQualified = false;
-      if (verifiedWatchSeconds >= cfg.referralQualifySeconds) {
-        const refRes = await client.query<{
-          id: string;
-          referrer_uid: string;
-          bonus_points: number;
-        }>(
-          `SELECT id, referrer_uid, bonus_points
-           FROM referrals
-           WHERE referee_uid = $1 AND status = 'pending_watch'
-           FOR UPDATE`,
-          [input.userId]
-        );
-        const pendingRef = refRes.rows[0];
-        if (pendingRef) {
-          const quotaRes = await client.query<{
-            daily_cnt: string;
-            weekly_cnt: string;
-          }>(
-            `SELECT
-               COUNT(*) FILTER (WHERE (qualified_at AT TIME ZONE 'Asia/Jakarta')::date = $2::date)::text AS daily_cnt,
-               COUNT(*) FILTER (WHERE qualified_at >= NOW() - INTERVAL '7 days')::text AS weekly_cnt
-             FROM referrals
-             WHERE referrer_uid = $1 AND status = 'qualified'`,
-            [pendingRef.referrer_uid, todayKey]
-          );
-          const dailyCnt = Number(quotaRes.rows[0]?.daily_cnt) || 0;
-          const weeklyCnt = Number(quotaRes.rows[0]?.weekly_cnt) || 0;
-
-          if (hasRiskFlag) {
-            await client.query(
-              `UPDATE referrals
-               SET status = 'rejected_fraud',
-                   risk_flag = $2,
-                   suspicious_reason = 'Referee flagged by anti-cheat during 1-hour verification',
-                   updated_at = NOW()
-               WHERE id = $1`,
-              [pendingRef.id, riskFlag || secCheckSelf.rows[0]?.risk_flag || 'anti_cheat_flag']
-            );
-          } else if (
-            dailyCnt < cfg.maxDailyReferrals &&
-            weeklyCnt < cfg.maxWeeklyReferrals
-          ) {
-            await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
-              `points:${pendingRef.referrer_uid}`,
-            ]);
-            await client.query(
-              `UPDATE referrals
-               SET status = 'qualified', qualified_at = NOW(), updated_at = NOW()
-               WHERE id = $1`,
-              [pendingRef.id]
-            );
-            const bonus = Math.max(1, Number(pendingRef.bonus_points) || cfg.referralBonusPoints);
-            const insertBonus = await client.query(
-              `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, created_at)
-               VALUES ($1, $2, 'earn', $3, $4, $5, NOW())
-               ON CONFLICT (reference_id) DO NOTHING`,
-              [
-                crypto.randomUUID(),
-                pendingRef.referrer_uid,
-                bonus,
-                'Valid Referral Bonus (1h+ verified watch)',
-                `referral:qualify:${input.userId}`,
-              ]
-            );
-            referralQualified = (insertBonus.rowCount ?? 0) > 0;
-          }
-        }
-      }
-
+    const sessRes = await client.query<{
+      session_token: string;
+      accumulated_sec: number;
+      last_seq: number;
+      is_active: boolean;
+      expires_at: Date;
+    }>(
+      `SELECT session_token, accumulated_sec, last_seq, is_active, expires_at
+       FROM watch_sessions
+       WHERE session_token = $1 AND user_id = $2
+       FOR UPDATE`,
+      [cleanSessionId, input.userId]
+    );
+    const sessRow = sessRes.rows[0];
+    const nowMs = Date.now();
+    if (
+      !sessRow ||
+      !sessRow.is_active ||
+      (sessRow.expires_at instanceof Date && sessRow.expires_at.getTime() <= nowMs)
+    ) {
+      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
       await client.query('COMMIT');
       return {
-        ok: true,
-        addedSeconds,
-        verifiedWatchSeconds,
-        todayWatchSeconds,
-        awardedWatchPoints: missionGrant.awardedWatchPoints,
-        todayWatchPointsEarned: missionGrant.todayWatchPointsEarned,
+        ok: false,
+        addedSeconds: 0,
+        verifiedWatchSeconds: 0,
+        todayWatchSeconds: 0,
+        awardedWatchPoints: 0,
+        todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
         dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
-        pointsBalance: missionGrant.pointsBalance,
-        referralQualified,
-        riskFlag,
-        reason: 'counted',
+        pointsBalance: ptsState.balance,
+        referralQualified: false,
+        riskFlag: '',
+        reason: 'invalid_session',
       };
-    } catch (err) {
-      try {
-        await client?.query('ROLLBACK');
-      } catch {
-        // Ignore rollback
-      }
-      console.warn(
-        '[PostgreSQL] recordWatchHeartbeatInDb failed, using fallback:',
-        err instanceof Error ? err.message : String(err)
-      );
-    } finally {
-      client?.release();
     }
-  }
 
-  return withPointsFallbackLock(() => {
-    const store = loadPointsFallbackStore();
-    const prev = store.watchTelemetry[input.userId];
-    const nowMs = Date.now();
-    const nowIso = new Date(nowMs).toISOString();
+    const sessionAccumSec = Math.max(0, Number(sessRow.accumulated_sec) || 0);
+    if (hasSeq && incomingSeq <= Math.max(0, Number(sessRow.last_seq) || 0)) {
+      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      await client.query('COMMIT');
+      return {
+        ok: false,
+        addedSeconds: 0,
+        sessionWatchSeconds: sessionAccumSec,
+        verifiedWatchSeconds: 0,
+        todayWatchSeconds: 0,
+        awardedWatchPoints: 0,
+        todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+        dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+        pointsBalance: ptsState.balance,
+        referralQualified: false,
+        riskFlag: 'replay_attempt',
+        reason: 'replay_blocked',
+      };
+    }
 
-    let verifiedWatchSeconds = prev?.verifiedWatchSeconds || 0;
+    if (hasSeq) {
+      await client.query(
+        `UPDATE watch_sessions SET last_seq = $2, updated_at = NOW() WHERE session_token = $1`,
+        [cleanSessionId, incomingSeq]
+      );
+    }
+
+    const telRes = await client.query<{
+      verified_watch_seconds: number;
+      today_watch_seconds: number;
+      today_date_key: string;
+      active_stream_session_id: string;
+      active_stream_media_key: string;
+      last_heartbeat_at: Date | null;
+      last_video_time_sec: string;
+      fast_delta_strikes: number;
+      concurrent_tab_strikes: number;
+      risk_flag: string;
+      suspicious_reason: string;
+    }>(`SELECT * FROM watch_telemetry WHERE user_id = $1 FOR UPDATE`, [
+      input.userId,
+    ]);
+
+    const row = telRes.rows[0];
+    let verifiedWatchSeconds = row ? Math.max(0, Number(row.verified_watch_seconds) || 0) : 0;
     let todayWatchSeconds =
-      prev && prev.todayDateKey === todayKey ? prev.todayWatchSeconds : 0;
-    let fastStrikes = prev?.fastDeltaStrikes || 0;
-    let concurrentStrikes = prev?.concurrentTabStrikes || 0;
-    let riskFlag = prev?.riskFlag || '';
-    let suspiciousReason = prev?.suspiciousReason || '';
+      row && row.today_date_key === todayKey
+        ? Math.max(0, Number(row.today_watch_seconds) || 0)
+        : 0;
+    let fastStrikes = row ? Math.max(0, Number(row.fast_delta_strikes) || 0) : 0;
+    let concurrentStrikes = row ? Math.max(0, Number(row.concurrent_tab_strikes) || 0) : 0;
+    let riskFlag = row?.risk_flag || '';
+    let suspiciousReason = row?.suspicious_reason || '';
 
-    const lastHbMs = prev?.lastHeartbeatAt ? Date.parse(prev.lastHeartbeatAt) : 0;
+    const lastHbMs =
+      row?.last_heartbeat_at instanceof Date ? row.last_heartbeat_at.getTime() : 0;
     const wallElapsedSec = lastHbMs > 0 ? Math.floor((nowMs - lastHbMs) / 1000) : 0;
+    const lastSessionId = row?.active_stream_session_id || '';
+    const lastMediaKey = row?.active_stream_media_key || '';
+    const lastVideoSec = row ? Number(row.last_video_time_sec) || 0 : 0;
 
+    // 1. Concurrent stream lock across different browser tabs/sessions
     if (
-      prev?.activeStreamSessionId &&
-      prev.activeStreamSessionId !== cleanSessionId &&
+      lastSessionId &&
+      lastSessionId !== cleanSessionId &&
       lastHbMs > 0 &&
       wallElapsedSec < ANTI_CHEAT_DEFAULTS.concurrentSessionWindowSec
     ) {
@@ -6660,32 +6663,18 @@ export async function recordWatchHeartbeatInDb(input: {
           ? `${suspiciousReason}; Multiple simultaneous watch streams detected`
           : 'Multiple simultaneous watch streams detected';
       }
-      store.watchTelemetry[input.userId] = {
-        ...(prev || {
-          userId: input.userId,
-          verifiedWatchSeconds,
-          todayWatchSeconds,
-          todayDateKey: todayKey,
-          activeStreamSessionId: cleanSessionId,
-          activeStreamMediaKey: cleanMediaKey,
-          lastHeartbeatAt: nowIso,
-          lastVideoTimeSec: safeVideoTime,
-          fastDeltaStrikes: fastStrikes,
-          concurrentTabStrikes: concurrentStrikes,
-          riskFlag,
-          suspiciousReason,
-          updatedAt: nowIso,
-        }),
-        concurrentTabStrikes: concurrentStrikes,
-        riskFlag,
-        suspiciousReason,
-        updatedAt: nowIso,
-      };
-      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
-      persistPointsFallbackStore(store);
+      await client.query(
+        `UPDATE watch_telemetry
+         SET concurrent_tab_strikes = $2, risk_flag = $3, suspicious_reason = $4, updated_at = NOW()
+         WHERE user_id = $1`,
+        [input.userId, concurrentStrikes, riskFlag.slice(0, 120), suspiciousReason.slice(0, 300)]
+      );
+      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      await client.query('COMMIT');
       return {
         ok: false,
         addedSeconds: 0,
+        sessionWatchSeconds: sessionAccumSec,
         verifiedWatchSeconds,
         todayWatchSeconds,
         awardedWatchPoints: 0,
@@ -6694,31 +6683,46 @@ export async function recordWatchHeartbeatInDb(input: {
         pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
-        reason: 'concurrent_stream_detected' as const,
+        reason: 'concurrent_stream_detected',
       };
     }
 
-    if (!input.isPlaying || !input.tabVisible) {
-      store.watchTelemetry[input.userId] = {
-        userId: input.userId,
-        verifiedWatchSeconds,
-        todayWatchSeconds,
-        todayDateKey: todayKey,
-        activeStreamSessionId: '',
-        activeStreamMediaKey: cleanMediaKey,
-        lastHeartbeatAt: nowIso,
-        lastVideoTimeSec: -1,
-        fastDeltaStrikes: fastStrikes,
-        concurrentTabStrikes: concurrentStrikes,
-        riskFlag,
-        suspiciousReason,
-        updatedAt: nowIso,
-      };
-      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
-      persistPointsFallbackStore(store);
+    // 2. Buffering, paused, or backgrounded tab -> release active lock & reset anchor without incrementing
+    if (input.isBuffering || !input.isPlaying || !input.tabVisible) {
+      await client.query(
+        `INSERT INTO watch_telemetry (
+           user_id, verified_watch_seconds, today_watch_seconds, today_date_key,
+           active_stream_session_id, active_stream_media_key, last_heartbeat_at,
+           last_video_time_sec, fast_delta_strikes, concurrent_tab_strikes,
+           risk_flag, suspicious_reason, updated_at
+         )
+         VALUES ($1, $2, $3, $4, '', $5, NOW(), -1, $6, $7, $8, $9, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           today_watch_seconds = EXCLUDED.today_watch_seconds,
+           today_date_key = EXCLUDED.today_date_key,
+           active_stream_session_id = '',
+           active_stream_media_key = EXCLUDED.active_stream_media_key,
+           last_heartbeat_at = NOW(),
+           last_video_time_sec = -1,
+           updated_at = NOW()`,
+        [
+          input.userId,
+          verifiedWatchSeconds,
+          todayWatchSeconds,
+          todayKey,
+          cleanMediaKey,
+          fastStrikes,
+          concurrentStrikes,
+          riskFlag,
+          suspiciousReason,
+        ]
+      );
+      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      await client.query('COMMIT');
       return {
         ok: true,
         addedSeconds: 0,
+        sessionWatchSeconds: sessionAccumSec,
         verifiedWatchSeconds,
         todayWatchSeconds,
         awardedWatchPoints: 0,
@@ -6727,34 +6731,46 @@ export async function recordWatchHeartbeatInDb(input: {
         pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
-        reason: 'paused_or_hidden' as const,
+        reason: input.isBuffering ? 'buffering' : 'paused_or_hidden',
       };
     }
 
+    // 3. Playback speed guard (0.75x - 1.15x normal speed required) -> reset anchor
     if (
       safeRate > ANTI_CHEAT_DEFAULTS.maxPlaybackRate ||
       safeRate < ANTI_CHEAT_DEFAULTS.minPlaybackRate
     ) {
-      store.watchTelemetry[input.userId] = {
-        userId: input.userId,
-        verifiedWatchSeconds,
-        todayWatchSeconds,
-        todayDateKey: todayKey,
-        activeStreamSessionId: cleanSessionId,
-        activeStreamMediaKey: cleanMediaKey,
-        lastHeartbeatAt: nowIso,
-        lastVideoTimeSec: -1,
-        fastDeltaStrikes: fastStrikes,
-        concurrentTabStrikes: concurrentStrikes,
-        riskFlag,
-        suspiciousReason,
-        updatedAt: nowIso,
-      };
-      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
-      persistPointsFallbackStore(store);
+      await client.query(
+        `INSERT INTO watch_telemetry (
+           user_id, verified_watch_seconds, today_watch_seconds, today_date_key,
+           active_stream_session_id, active_stream_media_key, last_heartbeat_at,
+           last_video_time_sec, fast_delta_strikes, concurrent_tab_strikes,
+           risk_flag, suspicious_reason, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, NOW(), -1, $7, $8, $9, $10, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           last_heartbeat_at = NOW(),
+           last_video_time_sec = -1,
+           updated_at = NOW()`,
+        [
+          input.userId,
+          verifiedWatchSeconds,
+          todayWatchSeconds,
+          todayKey,
+          cleanSessionId,
+          cleanMediaKey,
+          fastStrikes,
+          concurrentStrikes,
+          riskFlag,
+          suspiciousReason,
+        ]
+      );
+      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      await client.query('COMMIT');
       return {
         ok: true,
         addedSeconds: 0,
+        sessionWatchSeconds: sessionAccumSec,
         verifiedWatchSeconds,
         todayWatchSeconds,
         awardedWatchPoints: 0,
@@ -6763,37 +6779,60 @@ export async function recordWatchHeartbeatInDb(input: {
         pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
-        reason: 'invalid_playback_speed' as const,
+        reason: 'invalid_playback_speed',
       };
     }
 
+    // 4. First heartbeat for session, media switch, or post-pause resume -> establish baseline
     if (
-      !prev ||
-      prev.activeStreamSessionId !== cleanSessionId ||
-      prev.activeStreamMediaKey !== cleanMediaKey ||
+      !row ||
+      lastSessionId !== cleanSessionId ||
+      lastMediaKey !== cleanMediaKey ||
       lastHbMs <= 0 ||
-      prev.lastVideoTimeSec < 0
+      lastVideoSec < 0
     ) {
-      store.watchTelemetry[input.userId] = {
-        userId: input.userId,
-        verifiedWatchSeconds,
-        todayWatchSeconds,
-        todayDateKey: todayKey,
-        activeStreamSessionId: cleanSessionId,
-        activeStreamMediaKey: cleanMediaKey,
-        lastHeartbeatAt: nowIso,
-        lastVideoTimeSec: safeVideoTime,
-        fastDeltaStrikes: fastStrikes,
-        concurrentTabStrikes: concurrentStrikes,
-        riskFlag,
-        suspiciousReason,
-        updatedAt: nowIso,
-      };
-      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
-      persistPointsFallbackStore(store);
+      await client.query(
+        `INSERT INTO watch_telemetry (
+           user_id, verified_watch_seconds, today_watch_seconds, today_date_key,
+           active_stream_session_id, active_stream_media_key, last_heartbeat_at,
+           last_video_time_sec, fast_delta_strikes, concurrent_tab_strikes,
+           risk_flag, suspicious_reason, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, $9, $10, $11, NOW())
+         ON CONFLICT (user_id) DO UPDATE SET
+           today_watch_seconds = EXCLUDED.today_watch_seconds,
+           today_date_key = EXCLUDED.today_date_key,
+           active_stream_session_id = EXCLUDED.active_stream_session_id,
+           active_stream_media_key = EXCLUDED.active_stream_media_key,
+           last_heartbeat_at = NOW(),
+           last_video_time_sec = EXCLUDED.last_video_time_sec,
+           updated_at = NOW()`,
+        [
+          input.userId,
+          verifiedWatchSeconds,
+          todayWatchSeconds,
+          todayKey,
+          cleanSessionId,
+          cleanMediaKey,
+          safeVideoTime,
+          fastStrikes,
+          concurrentStrikes,
+          riskFlag,
+          suspiciousReason,
+        ]
+      );
+      await client.query(
+        `UPDATE watch_sessions
+         SET last_heartbeat_at = NOW(), last_video_time_sec = $2, updated_at = NOW()
+         WHERE session_token = $1`,
+        [cleanSessionId, safeVideoTime]
+      );
+      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      await client.query('COMMIT');
       return {
         ok: true,
         addedSeconds: 0,
+        sessionWatchSeconds: sessionAccumSec,
         verifiedWatchSeconds,
         todayWatchSeconds,
         awardedWatchPoints: 0,
@@ -6802,10 +6841,11 @@ export async function recordWatchHeartbeatInDb(input: {
         pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
-        reason: 'session_started' as const,
+        reason: 'session_started',
       };
     }
 
+    // 5. Timestamp delta check (reject faster than real time)
     if (wallElapsedSec < ANTI_CHEAT_DEFAULTS.minHeartbeatIntervalSec) {
       fastStrikes += 1;
       if (
@@ -6817,18 +6857,18 @@ export async function recordWatchHeartbeatInDb(input: {
           ? `${suspiciousReason}; Rapid heartbeat flood detected`
           : 'Rapid heartbeat flood detected';
       }
-      store.watchTelemetry[input.userId] = {
-        ...prev,
-        fastDeltaStrikes: fastStrikes,
-        riskFlag,
-        suspiciousReason,
-        updatedAt: nowIso,
-      };
-      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
-      persistPointsFallbackStore(store);
+      await client.query(
+        `UPDATE watch_telemetry
+         SET fast_delta_strikes = $2, risk_flag = $3, suspicious_reason = $4, updated_at = NOW()
+         WHERE user_id = $1`,
+        [input.userId, fastStrikes, riskFlag.slice(0, 120), suspiciousReason.slice(0, 300)]
+      );
+      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      await client.query('COMMIT');
       return {
         ok: false,
         addedSeconds: 0,
+        sessionWatchSeconds: sessionAccumSec,
         verifiedWatchSeconds,
         todayWatchSeconds,
         awardedWatchPoints: 0,
@@ -6837,23 +6877,30 @@ export async function recordWatchHeartbeatInDb(input: {
         pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
-        reason: 'heartbeat_too_fast' as const,
+        reason: 'heartbeat_too_fast',
       };
     }
 
-    const videoDeltaSec = safeVideoTime - prev.lastVideoTimeSec;
+    const videoDeltaSec = safeVideoTime - lastVideoSec;
     if (videoDeltaSec <= ANTI_CHEAT_DEFAULTS.minVideoAdvanceSec) {
-      store.watchTelemetry[input.userId] = {
-        ...prev,
-        lastHeartbeatAt: nowIso,
-        lastVideoTimeSec: safeVideoTime,
-        updatedAt: nowIso,
-      };
-      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
-      persistPointsFallbackStore(store);
+      await client.query(
+        `UPDATE watch_telemetry
+         SET last_heartbeat_at = NOW(), last_video_time_sec = $2, updated_at = NOW()
+         WHERE user_id = $1`,
+        [input.userId, safeVideoTime]
+      );
+      await client.query(
+        `UPDATE watch_sessions
+         SET last_heartbeat_at = NOW(), last_video_time_sec = $2, updated_at = NOW()
+         WHERE session_token = $1`,
+        [cleanSessionId, safeVideoTime]
+      );
+      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      await client.query('COMMIT');
       return {
         ok: true,
         addedSeconds: 0,
+        sessionWatchSeconds: sessionAccumSec,
         verifiedWatchSeconds,
         todayWatchSeconds,
         awardedWatchPoints: 0,
@@ -6862,22 +6909,59 @@ export async function recordWatchHeartbeatInDb(input: {
         pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
-        reason: 'video_not_advancing' as const,
+        reason: 'video_not_advancing',
+      };
+    }
+
+    // 6. Seek / forward-skip jump guard: re-anchor without awarding skipped seconds
+    const maxAllowedVideoDelta = Math.max(
+      8,
+      wallElapsedSec * ANTI_CHEAT_DEFAULTS.maxSeekRatio + 4
+    );
+    if (videoDeltaSec > maxAllowedVideoDelta) {
+      await client.query(
+        `UPDATE watch_telemetry
+         SET last_heartbeat_at = NOW(), last_video_time_sec = $2, updated_at = NOW()
+         WHERE user_id = $1`,
+        [input.userId, safeVideoTime]
+      );
+      await client.query(
+        `UPDATE watch_sessions
+         SET last_heartbeat_at = NOW(), last_video_time_sec = $2, updated_at = NOW()
+         WHERE session_token = $1`,
+        [cleanSessionId, safeVideoTime]
+      );
+      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      await client.query('COMMIT');
+      return {
+        ok: true,
+        addedSeconds: 0,
+        sessionWatchSeconds: sessionAccumSec,
+        verifiedWatchSeconds,
+        todayWatchSeconds,
+        awardedWatchPoints: 0,
+        todayWatchPointsEarned: ptsState.todayWatchPointsEarned,
+        dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+        pointsBalance: ptsState.balance,
+        referralQualified: false,
+        riskFlag,
+        reason: 'seek_jump_ignored',
       };
     }
 
     if (todayWatchSeconds >= cfg.maxDailyVerifiedWatchSeconds) {
-      store.watchTelemetry[input.userId] = {
-        ...prev,
-        lastHeartbeatAt: nowIso,
-        lastVideoTimeSec: safeVideoTime,
-        updatedAt: nowIso,
-      };
-      const ptsState = getQuickPointsStateFallback(store, input.userId, todayKey);
-      persistPointsFallbackStore(store);
+      await client.query(
+        `UPDATE watch_telemetry
+         SET last_heartbeat_at = NOW(), last_video_time_sec = $2, updated_at = NOW()
+         WHERE user_id = $1`,
+        [input.userId, safeVideoTime]
+      );
+      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      await client.query('COMMIT');
       return {
         ok: true,
         addedSeconds: 0,
+        sessionWatchSeconds: sessionAccumSec,
         verifiedWatchSeconds,
         todayWatchSeconds,
         awardedWatchPoints: 0,
@@ -6886,7 +6970,7 @@ export async function recordWatchHeartbeatInDb(input: {
         pointsBalance: ptsState.balance,
         referralQualified: false,
         riskFlag,
-        reason: 'daily_watch_cap_reached' as const,
+        reason: 'daily_watch_cap_reached',
       };
     }
 
@@ -6899,86 +6983,142 @@ export async function recordWatchHeartbeatInDb(input: {
     const addedSeconds = Math.max(0, Math.min(rawStep, remainingDaily));
     verifiedWatchSeconds += addedSeconds;
     todayWatchSeconds += addedSeconds;
+    const nextSessionSec = sessionAccumSec + addedSeconds;
 
-    store.watchTelemetry[input.userId] = {
-      userId: input.userId,
-      verifiedWatchSeconds,
-      todayWatchSeconds,
-      todayDateKey: todayKey,
-      activeStreamSessionId: cleanSessionId,
-      activeStreamMediaKey: cleanMediaKey,
-      lastHeartbeatAt: nowIso,
-      lastVideoTimeSec: safeVideoTime,
-      fastDeltaStrikes: fastStrikes,
-      concurrentTabStrikes: concurrentStrikes,
-      riskFlag,
-      suspiciousReason,
-      updatedAt: nowIso,
-    };
-
-    const sigRisk = store.securitySignals[input.userId]?.riskFlag || '';
-    const hasRisk = Boolean(riskFlag || sigRisk);
-    const missionGrant = grantWatchMissionPointsFallback(
-      store,
-      input.userId,
-      todayKey,
-      todayWatchSeconds,
-      cfg,
-      addedSeconds > 0 && !hasRisk,
-      nowIso
+    await client.query(
+      `UPDATE watch_telemetry
+       SET verified_watch_seconds = $2,
+           today_watch_seconds = $3,
+           today_date_key = $4,
+           active_stream_session_id = $5,
+           active_stream_media_key = $6,
+           last_heartbeat_at = NOW(),
+           last_video_time_sec = $7,
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      [
+        input.userId,
+        verifiedWatchSeconds,
+        todayWatchSeconds,
+        todayKey,
+        cleanSessionId,
+        cleanMediaKey,
+        safeVideoTime,
+      ]
+    );
+    await client.query(
+      `UPDATE watch_sessions
+       SET accumulated_sec = $2,
+           last_heartbeat_at = NOW(),
+           last_video_time_sec = $3,
+           updated_at = NOW()
+       WHERE session_token = $1`,
+      [cleanSessionId, nextSessionSec, safeVideoTime]
     );
 
+    // 7. Grant daily watch-minute + milestone mission points (max 1h/day)
+    const secCheckSelf = await client.query<{ risk_flag: string }>(
+      `SELECT risk_flag FROM user_security_signals WHERE user_id = $1`,
+      [input.userId]
+    );
+    const hasRiskFlag = Boolean(riskFlag || secCheckSelf.rows[0]?.risk_flag);
+    const missionGrant = await grantWatchMissionPointsPg(
+      client,
+      input.userId,
+      todayKey,
+      effectiveTimeZone,
+      todayWatchSeconds,
+      cfg,
+      addedSeconds > 0 && !hasRiskFlag
+    );
+
+    // 8. Auto-qualify referral if verifiedWatchSeconds >= 3600 (1 hour)
     let referralQualified = false;
     if (verifiedWatchSeconds >= cfg.referralQualifySeconds) {
-      const pendingRef = store.referrals.find(
-        (r) => r.refereeUid === input.userId && r.status === 'pending_watch'
+      const refRes = await client.query<{
+        id: string;
+        referrer_uid: string;
+        bonus_points: number;
+      }>(
+        `SELECT id, referrer_uid, bonus_points
+         FROM referrals
+         WHERE referee_uid = $1 AND status = 'pending_watch'
+         FOR UPDATE`,
+        [input.userId]
       );
+      const pendingRef = refRes.rows[0];
       if (pendingRef) {
-        const weekAgoMs = nowMs - 7 * 86400_000;
-        const qualifiedForReferrer = store.referrals.filter(
-          (r) => r.referrerUid === pendingRef.referrerUid && r.status === 'qualified'
+        const quotaRes = await client.query<{
+          daily_cnt: string;
+          weekly_cnt: string;
+        }>(
+          `SELECT
+             COUNT(*) FILTER (WHERE (qualified_at AT TIME ZONE $3)::date = $2::date)::text AS daily_cnt,
+             COUNT(*) FILTER (WHERE qualified_at >= NOW() - INTERVAL '7 days')::text AS weekly_cnt
+           FROM referrals
+           WHERE referrer_uid = $1 AND status = 'qualified'`,
+          [pendingRef.referrer_uid, todayKey, effectiveTimeZone]
         );
-        const dailyCnt = qualifiedForReferrer.filter(
-          (r) => r.qualifiedAt && getJakartaDateKey(new Date(r.qualifiedAt)) === todayKey
-        ).length;
-        const weeklyCnt = qualifiedForReferrer.filter(
-          (r) => r.qualifiedAt && Date.parse(r.qualifiedAt) >= weekAgoMs
-        ).length;
+        const dailyCnt = Number(quotaRes.rows[0]?.daily_cnt) || 0;
+        const weeklyCnt = Number(quotaRes.rows[0]?.weekly_cnt) || 0;
 
-        if (hasRisk) {
-          pendingRef.status = 'rejected_fraud';
-          pendingRef.riskFlag = riskFlag || sigRisk || 'anti_cheat_flag';
-          pendingRef.suspiciousReason =
-            'Referee flagged by anti-cheat during 1-hour verification';
-          pendingRef.updatedAt = nowIso;
+        if (hasRiskFlag) {
+          await client.query(
+            `UPDATE referrals
+             SET status = 'rejected_fraud',
+                 risk_flag = $2,
+                 suspicious_reason = 'Referee flagged by anti-cheat during 1-hour verification',
+                 updated_at = NOW()
+             WHERE id = $1`,
+            [pendingRef.id, riskFlag || secCheckSelf.rows[0]?.risk_flag || 'anti_cheat_flag']
+          );
         } else if (
           dailyCnt < cfg.maxDailyReferrals &&
           weeklyCnt < cfg.maxWeeklyReferrals
         ) {
-          pendingRef.status = 'qualified';
-          pendingRef.qualifiedAt = nowIso;
-          pendingRef.updatedAt = nowIso;
-          const qualifyRefId = `referral:qualify:${input.userId}`;
-          if (!store.ledger.some((l) => l.referenceId === qualifyRefId)) {
-            store.ledger.push({
-              id: crypto.randomUUID(),
-              userId: pendingRef.referrerUid,
-              type: 'earn',
-              points: pendingRef.bonusPoints || cfg.referralBonusPoints,
-              description: 'Valid Referral Bonus (1h+ verified watch)',
-              referenceId: qualifyRefId,
-              createdAt: nowIso,
-            });
-            referralQualified = true;
-          }
+          await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+            `points:${pendingRef.referrer_uid}`,
+          ]);
+          await client.query(
+            `UPDATE referrals
+             SET status = 'qualified', qualified_at = NOW(), updated_at = NOW()
+             WHERE id = $1`,
+            [pendingRef.id]
+          );
+          const refBalRes = await client.query<{ balance: string }>(
+            `SELECT (
+               COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0) -
+               COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0)
+             )::text AS balance
+             FROM points_ledger
+             WHERE user_id = $1`,
+            [pendingRef.referrer_uid]
+          );
+          const refBal = Math.max(0, Number(refBalRes.rows[0]?.balance) || 0);
+          const bonus = Math.max(1, Number(pendingRef.bonus_points) || cfg.referralBonusPoints);
+          const insertBonus = await client.query(
+            `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
+             VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
+             ON CONFLICT (reference_id) DO NOTHING`,
+            [
+              crypto.randomUUID(),
+              pendingRef.referrer_uid,
+              bonus,
+              'Bonus Referral Valid (Tontonan 1+ Jam Terverifikasi)',
+              `referral:qualify:${input.userId}`,
+              refBal + bonus,
+            ]
+          );
+          referralQualified = (insertBonus.rowCount ?? 0) > 0;
         }
       }
     }
 
-    persistPointsFallbackStore(store);
+    await client.query('COMMIT');
     return {
       ok: true,
       addedSeconds,
+      sessionWatchSeconds: nextSessionSec,
       verifiedWatchSeconds,
       todayWatchSeconds,
       awardedWatchPoints: missionGrant.awardedWatchPoints,
@@ -6987,153 +7127,116 @@ export async function recordWatchHeartbeatInDb(input: {
       pointsBalance: missionGrant.pointsBalance,
       referralQualified,
       riskFlag,
-      reason: 'counted' as const,
+      reason: 'counted',
     };
-  });
+  } catch (err) {
+    try {
+      await client?.query('ROLLBACK');
+    } catch {
+      // Ignore rollback
+    }
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] recordWatchHeartbeatInDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
 }
 
 export async function getUserReferralSummaryFromDb(
-  userId: string
+  userId: string,
+  timeZone?: string | null
 ): Promise<UserReferralSummary> {
   const cfg = getPayoutRuntimeConfig();
   const referralCode = buildReferralCodeForUser(userId);
-  const todayKey = getJakartaDateKey();
 
-  const activePool = getPool();
-  if (activePool && (await ensureDatabaseReady()) && dbAvailable) {
-    try {
-      await dbQuery(
-        `UPDATE users
-         SET referral_code = CASE WHEN referral_code = '' THEN $2 ELSE referral_code END
-         WHERE uid = $1`,
-        [userId, referralCode]
-      );
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    const { todayKey } = await resolveUserTimeZonePg(client, userId, timeZone, true);
+    await client.query(
+      `UPDATE users
+       SET referral_code = CASE WHEN referral_code = '' THEN $2 ELSE referral_code END
+       WHERE uid = $1`,
+      [userId, referralCode]
+    );
 
-      const selfTel = await dbQuery<{
-        verified_watch_seconds: number;
-        today_watch_seconds: number;
-        today_date_key: string;
-        risk_flag: string;
-        sig_risk: string | null;
-      }>(
-        `SELECT COALESCE(t.verified_watch_seconds, 0) AS verified_watch_seconds,
-                COALESCE(t.today_watch_seconds, 0) AS today_watch_seconds,
-                COALESCE(t.today_date_key, '') AS today_date_key,
-                COALESCE(t.risk_flag, '') AS risk_flag,
-                s.risk_flag AS sig_risk
-         FROM (SELECT $1::text AS uid) base
-         LEFT JOIN watch_telemetry t ON t.user_id = base.uid
-         LEFT JOIN user_security_signals s ON s.user_id = base.uid`,
-        [userId]
-      );
+    const selfTel = await client.query<{
+      verified_watch_seconds: number;
+      today_watch_seconds: number;
+      today_date_key: string;
+      risk_flag: string;
+      sig_risk: string | null;
+    }>(
+      `SELECT COALESCE(t.verified_watch_seconds, 0) AS verified_watch_seconds,
+              COALESCE(t.today_watch_seconds, 0) AS today_watch_seconds,
+              COALESCE(t.today_date_key, '') AS today_date_key,
+              COALESCE(t.risk_flag, '') AS risk_flag,
+              s.risk_flag AS sig_risk
+       FROM (SELECT $1::text AS uid) base
+       LEFT JOIN watch_telemetry t ON t.user_id = base.uid
+       LEFT JOIN user_security_signals s ON s.user_id = base.uid`,
+      [userId]
+    );
 
-      const refsRes = await dbQuery<{
-        id: string;
-        referee_uid: string;
-        status: string;
-        bonus_points: number;
-        risk_flag: string;
-        qualified_at: Date | null;
-        created_at: Date;
-        referee_name: string | null;
-        verified_watch_seconds: number | null;
-      }>(
-        `SELECT r.id, r.referee_uid, r.status, r.bonus_points, r.risk_flag,
-                r.qualified_at, r.created_at,
-                u.display_name AS referee_name,
-                COALESCE(t.verified_watch_seconds, 0) AS verified_watch_seconds
-         FROM referrals r
-         LEFT JOIN users u ON u.uid = r.referee_uid
-         LEFT JOIN watch_telemetry t ON t.user_id = r.referee_uid
-         WHERE r.referrer_uid = $1
-         ORDER BY r.created_at DESC
-         LIMIT 50`,
-        [userId]
-      );
+    const refsRes = await client.query<{
+      id: string;
+      referee_uid: string;
+      status: string;
+      bonus_points: number;
+      risk_flag: string;
+      qualified_at: Date | null;
+      created_at: Date;
+      referee_name: string | null;
+      verified_watch_seconds: number | null;
+    }>(
+      `SELECT r.id, r.referee_uid, r.status, r.bonus_points, r.risk_flag,
+              r.qualified_at, r.created_at,
+              u.display_name AS referee_name,
+              COALESCE(t.verified_watch_seconds, 0) AS verified_watch_seconds
+       FROM referrals r
+       LEFT JOIN users u ON u.uid = r.referee_uid
+       LEFT JOIN watch_telemetry t ON t.user_id = r.referee_uid
+       WHERE r.referrer_uid = $1
+       ORDER BY r.created_at DESC
+       LIMIT 50`,
+      [userId]
+    );
 
-      if (refsRes) {
-        const items: UserReferralItemView[] = refsRes.rows.map((r) => ({
-          id: r.id,
-          maskedReferee: maskDisplayNameForFeed(r.referee_name || r.referee_uid),
-          status: (['pending_watch', 'qualified', 'rejected_fraud'].includes(r.status)
-            ? r.status
-            : 'pending_watch') as ReferralStatus,
-          bonusPoints: Math.max(0, Number(r.bonus_points) || cfg.referralBonusPoints),
-          verifiedWatchSeconds: Math.max(0, Number(r.verified_watch_seconds) || 0),
-          requiredWatchSeconds: cfg.referralQualifySeconds,
-          riskFlag: r.risk_flag || undefined,
-          qualifiedAt:
-            r.qualified_at instanceof Date ? r.qualified_at.toISOString() : null,
-          createdAt:
-            r.created_at instanceof Date
-              ? r.created_at.toISOString()
-              : new Date().toISOString(),
-        }));
+    const items: UserReferralItemView[] = refsRes.rows.map((r) => ({
+      id: r.id,
+      maskedReferee: maskDisplayNameForFeed(r.referee_name || r.referee_uid),
+      status: (['pending_watch', 'qualified', 'rejected_fraud'].includes(r.status)
+        ? r.status
+        : 'pending_watch') as ReferralStatus,
+      bonusPoints: Math.max(0, Number(r.bonus_points) || cfg.referralBonusPoints),
+      verifiedWatchSeconds: Math.max(0, Number(r.verified_watch_seconds) || 0),
+      requiredWatchSeconds: cfg.referralQualifySeconds,
+      riskFlag: r.risk_flag || undefined,
+      qualifiedAt:
+        r.qualified_at instanceof Date ? r.qualified_at.toISOString() : null,
+      createdAt:
+        r.created_at instanceof Date
+          ? r.created_at.toISOString()
+          : new Date().toISOString(),
+    }));
 
-        const tRow = selfTel?.rows[0];
-        return {
-          referralCode,
-          referralQualifySeconds: cfg.referralQualifySeconds,
-          referralBonusPoints: cfg.referralBonusPoints,
-          verifiedWatchSeconds: Math.max(0, Number(tRow?.verified_watch_seconds) || 0),
-          todayWatchSeconds:
-            tRow && tRow.today_date_key === todayKey
-              ? Math.max(0, Number(tRow.today_watch_seconds) || 0)
-              : 0,
-          maxDailyVerifiedWatchSeconds: cfg.maxDailyVerifiedWatchSeconds,
-          riskFlag: tRow?.sig_risk || tRow?.risk_flag || '',
-          stats: {
-            totalInvited: items.length,
-            pendingCount: items.filter((i) => i.status === 'pending_watch').length,
-            qualifiedCount: items.filter((i) => i.status === 'qualified').length,
-            rejectedCount: items.filter((i) => i.status === 'rejected_fraud').length,
-            totalBonusEarned: items
-              .filter((i) => i.status === 'qualified')
-              .reduce((acc, i) => acc + i.bonusPoints, 0),
-          },
-          referrals: items,
-        };
-      }
-    } catch (err) {
-      console.warn(
-        '[PostgreSQL] getUserReferralSummaryFromDb failed, using fallback:',
-        err instanceof Error ? err.message : String(err)
-      );
-    }
-  }
-
-  return withPointsFallbackLock(() => {
-    const store = loadPointsFallbackStore();
-    store.referralCodeToUid[referralCode] = userId;
-    const tel = store.watchTelemetry[userId];
-    const sig = store.securitySignals[userId];
-    const items: UserReferralItemView[] = store.referrals
-      .filter((r) => r.referrerUid === userId)
-      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-      .map((r) => ({
-        id: r.id,
-        maskedReferee: maskDisplayNameForFeed(
-          store.userNames[r.refereeUid] || r.refereeUid
-        ),
-        status: r.status,
-        bonusPoints: r.bonusPoints,
-        verifiedWatchSeconds:
-          store.watchTelemetry[r.refereeUid]?.verifiedWatchSeconds || 0,
-        requiredWatchSeconds: cfg.referralQualifySeconds,
-        riskFlag: r.riskFlag || undefined,
-        qualifiedAt: r.qualifiedAt,
-        createdAt: r.createdAt,
-      }));
-
+    const tRow = selfTel.rows[0];
     return {
       referralCode,
       referralQualifySeconds: cfg.referralQualifySeconds,
       referralBonusPoints: cfg.referralBonusPoints,
-      verifiedWatchSeconds: tel?.verifiedWatchSeconds || 0,
+      verifiedWatchSeconds: Math.max(0, Number(tRow?.verified_watch_seconds) || 0),
       todayWatchSeconds:
-        tel && tel.todayDateKey === todayKey ? tel.todayWatchSeconds : 0,
+        tRow && tRow.today_date_key === todayKey
+          ? Math.max(0, Number(tRow.today_watch_seconds) || 0)
+          : 0,
       maxDailyVerifiedWatchSeconds: cfg.maxDailyVerifiedWatchSeconds,
-      riskFlag: sig?.riskFlag || tel?.riskFlag || '',
+      riskFlag: tRow?.sig_risk || tRow?.risk_flag || '',
       stats: {
         totalInvited: items.length,
         pendingCount: items.filter((i) => i.status === 'pending_watch').length,
@@ -7145,7 +7248,16 @@ export async function getUserReferralSummaryFromDb(
       },
       referrals: items,
     };
-  });
+  } catch (err) {
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] getUserReferralSummaryFromDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
 }
 
 
