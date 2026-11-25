@@ -567,11 +567,15 @@ const SCHEMA_STATEMENTS: string[] = [
     type TEXT NOT NULL CHECK (type IN ('earn', 'redeem')),
     points INTEGER NOT NULL CHECK (points > 0),
     description TEXT NOT NULL DEFAULT '',
+    event_code TEXT NOT NULL DEFAULT '',
+    event_meta JSONB NOT NULL DEFAULT '{}'::jsonb,
     reference_id TEXT UNIQUE NOT NULL,
     balance_after INTEGER,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `ALTER TABLE points_ledger ADD COLUMN IF NOT EXISTS balance_after INTEGER`,
+  `ALTER TABLE points_ledger ADD COLUMN IF NOT EXISTS event_code TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE points_ledger ADD COLUMN IF NOT EXISTS event_meta JSONB NOT NULL DEFAULT '{}'::jsonb`,
   `CREATE INDEX IF NOT EXISTS idx_points_ledger_user_created ON points_ledger (user_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_points_ledger_user_type_created ON points_ledger (user_id, type, created_at DESC)`,
 
@@ -631,7 +635,7 @@ const SCHEMA_STATEMENTS: string[] = [
     referee_uid TEXT UNIQUE NOT NULL,
     referral_code TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending_watch' CHECK (status IN ('pending_watch', 'qualified', 'rejected_fraud')),
-    bonus_points INTEGER NOT NULL DEFAULT 1000,
+    bonus_points INTEGER NOT NULL DEFAULT 10000,
     referee_ip_hash TEXT NOT NULL DEFAULT '',
     referee_subnet_hash TEXT NOT NULL DEFAULT '',
     referee_ua_hash TEXT NOT NULL DEFAULT '',
@@ -642,7 +646,7 @@ const SCHEMA_STATEMENTS: string[] = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
-  `ALTER TABLE referrals ALTER COLUMN bonus_points SET DEFAULT 1000`,
+  `ALTER TABLE referrals ALTER COLUMN bonus_points SET DEFAULT 10000`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_referrer_created ON referrals (referrer_uid, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_referrer_status ON referrals (referrer_uid, status, qualified_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_code ON referrals (referral_code)`,
@@ -667,7 +671,7 @@ const SCHEMA_STATEMENTS: string[] = [
     user_id TEXT NOT NULL,
     checkin_date DATE NOT NULL,
     streak_day INTEGER NOT NULL DEFAULT 1,
-    points_awarded INTEGER NOT NULL DEFAULT 100,
+    points_awarded INTEGER NOT NULL DEFAULT 1000,
     ledger_id TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, checkin_date)
@@ -679,7 +683,7 @@ const SCHEMA_STATEMENTS: string[] = [
     provider TEXT NOT NULL,
     drama_id TEXT NOT NULL,
     episode_number INTEGER NOT NULL,
-    points_awarded INTEGER NOT NULL DEFAULT 50,
+    points_awarded INTEGER NOT NULL DEFAULT 400,
     session_token TEXT NOT NULL DEFAULT '',
     ledger_id TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -3884,6 +3888,7 @@ export interface PayoutRuntimeConfig {
   maxDailyWatchPoints: number;
   claimCooldownSeconds: number;
   firstLoginBonusPoints: number;
+  bindReferralBonusPoints: number;
   dailyCheckinPoints: number;
   watchEpisodePoints: number;
   watchMinutePoints: number;
@@ -3900,12 +3905,45 @@ export interface PayoutRuntimeConfig {
   usdtNetworks: UsdtNetworkOption[];
 }
 
+export type PointsLedgerEventCode =
+  | 'welcome_login'
+  | 'daily_checkin'
+  | 'watch_minute'
+  | 'watch_milestone'
+  | 'watch_episode'
+  | 'referral_bind'
+  | 'referral_qualify'
+  | 'payout_request'
+  | 'payout_refund'
+  | 'legacy';
+
+export interface PointsLedgerEventMeta {
+  streakDay?: number;
+  minute?: number;
+  maxMinutes?: number;
+  milestoneMinutes?: number;
+  provider?: string;
+  dramaId?: string;
+  title?: string;
+  episodeNumber?: number;
+  tierName?: string;
+  multiplier?: number;
+  level?: number;
+  referralCode?: string;
+  methodLabel?: string;
+  currency?: PayoutCurrency;
+  payoutId?: string;
+  payoutStatus?: 'rejected' | 'failed';
+}
+
 export interface PointsLedgerRecord {
   id: string;
   userId: string;
   type: PointsLedgerType;
   points: number;
   description: string;
+  eventCode: PointsLedgerEventCode;
+  eventMeta: PointsLedgerEventMeta;
   referenceId: string;
   balanceAfter?: number | null;
   createdAt: string;
@@ -4301,22 +4339,181 @@ export function buildReferralCodeForUser(userId: string): string {
   return `KD${digest.slice(0, 8)}`;
 }
 
+const VALID_LEDGER_EVENT_CODES: ReadonlySet<PointsLedgerEventCode> = new Set([
+  'welcome_login',
+  'daily_checkin',
+  'watch_minute',
+  'watch_milestone',
+  'watch_episode',
+  'referral_bind',
+  'referral_qualify',
+  'payout_request',
+  'payout_refund',
+  'legacy',
+]);
+
+function parseEventMeta(raw: unknown): PointsLedgerEventMeta {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? (parsed as PointsLedgerEventMeta) : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw === 'object') {
+    return raw as PointsLedgerEventMeta;
+  }
+  return {};
+}
+
+function extractTierSuffixMeta(description: string): Pick<PointsLedgerEventMeta, 'tierName' | 'multiplier'> {
+  const tierMatch = /(?:·|-)?\s*(Silver|Gold|Platinum)\s+([0-9]+(?:\.[0-9]+)?)x/i.exec(description);
+  if (!tierMatch) return {};
+  const tierRaw = tierMatch[1];
+  const tierName = tierRaw.charAt(0).toUpperCase() + tierRaw.slice(1).toLowerCase();
+  const multiplier = Number(tierMatch[2]);
+  return Number.isFinite(multiplier) && multiplier > 1 ? { tierName, multiplier } : { tierName };
+}
+
+function inferLedgerEventFromLegacyRow(r: {
+  reference_id: string;
+  description: string;
+  type: string;
+  event_code?: string | null;
+  event_meta?: unknown;
+}): { eventCode: PointsLedgerEventCode; eventMeta: PointsLedgerEventMeta } {
+  const parsedMeta = parseEventMeta(r.event_meta);
+  const rawCode = String(r.event_code || '').trim() as PointsLedgerEventCode;
+  if (rawCode && rawCode !== 'legacy' && VALID_LEDGER_EVENT_CODES.has(rawCode)) {
+    return { eventCode: rawCode, eventMeta: parsedMeta };
+  }
+
+  const ref = String(r.reference_id || '').trim();
+  const desc = String(r.description || '').trim();
+  const tierMeta = extractTierSuffixMeta(desc);
+
+  if (ref.startsWith('welcome_login:') || /Bonus Login Pertama/i.test(desc)) {
+    return { eventCode: 'welcome_login', eventMeta: { ...parsedMeta } };
+  }
+
+  if (ref.startsWith('checkin:') || /Check-in Harian/i.test(desc)) {
+    const dayMatch = /Hari ke-(\d+)/i.exec(desc);
+    return {
+      eventCode: 'daily_checkin',
+      eventMeta: {
+        ...tierMeta,
+        streakDay: parsedMeta.streakDay ?? (dayMatch ? Number(dayMatch[1]) : undefined),
+        ...parsedMeta,
+      },
+    };
+  }
+
+  if (ref.startsWith('watch_min:') || /Misi Nonton Aktif/i.test(desc)) {
+    const refMinMatch = /:m(\d+)$/.exec(ref);
+    const descMinMatch = /Menit\s+(\d+)\/(\d+)/i.exec(desc);
+    return {
+      eventCode: 'watch_minute',
+      eventMeta: {
+        ...tierMeta,
+        minute: parsedMeta.minute ?? (refMinMatch ? Number(refMinMatch[1]) : descMinMatch ? Number(descMinMatch[1]) : undefined),
+        maxMinutes: parsedMeta.maxMinutes ?? (descMinMatch ? Number(descMinMatch[2]) : 60),
+        ...parsedMeta,
+      },
+    };
+  }
+
+  const missionRefMatch = /^mission_(\d+)m:/.exec(ref);
+  if (missionRefMatch || /Bonus Milestone Nonton/i.test(desc)) {
+    const descMsMatch = /(\d+)\s*Menit/i.exec(desc);
+    return {
+      eventCode: 'watch_milestone',
+      eventMeta: {
+        ...tierMeta,
+        milestoneMinutes:
+          parsedMeta.milestoneMinutes ??
+          (missionRefMatch ? Number(missionRefMatch[1]) : descMsMatch ? Number(descMsMatch[1]) : undefined),
+        ...parsedMeta,
+      },
+    };
+  }
+
+  if (ref.startsWith('watch:') || /Bonus Episode Baru/i.test(desc)) {
+    const epRefMatch = /^watch:[^:]+:([^:]+):([^:]+):(\d+)$/.exec(ref);
+    const titleMatch = /Bonus Episode Baru:\s*(.+?)\s+Ep\s+(\d+)/i.exec(desc);
+    const epFallbackMatch = /\(([^)]+?)\s+Ep\s+(\d+)\)/i.exec(desc);
+    return {
+      eventCode: 'watch_episode',
+      eventMeta: {
+        ...tierMeta,
+        provider: parsedMeta.provider ?? (epRefMatch?.[1] || epFallbackMatch?.[1]),
+        dramaId: parsedMeta.dramaId ?? epRefMatch?.[2],
+        episodeNumber:
+          parsedMeta.episodeNumber ??
+          (epRefMatch ? Number(epRefMatch[3]) : titleMatch ? Number(titleMatch[2]) : epFallbackMatch ? Number(epFallbackMatch[2]) : undefined),
+        title: parsedMeta.title ?? (titleMatch?.[1]?.trim() || undefined),
+        ...parsedMeta,
+      },
+    };
+  }
+
+  if (ref.startsWith('referral:bind:') || /Bonus Bind Referral/i.test(desc)) {
+    return { eventCode: 'referral_bind', eventMeta: { ...parsedMeta } };
+  }
+
+  if (ref.startsWith('referral:qualify:') || /Bonus Referral Valid/i.test(desc)) {
+    return { eventCode: 'referral_qualify', eventMeta: { ...parsedMeta } };
+  }
+
+  if (ref.startsWith('refund:payout:') || /Pengembalian Poin/i.test(desc)) {
+    const idMatch = /#([A-Za-z0-9]+)/.exec(desc);
+    return {
+      eventCode: 'payout_refund',
+      eventMeta: {
+        payoutStatus: /Gagal/i.test(desc) ? 'failed' : 'rejected',
+        payoutId: idMatch?.[1] || ref.replace('refund:payout:', '').slice(0, 8),
+        ...parsedMeta,
+      },
+    };
+  }
+
+  if (ref.startsWith('payout:') || /Penarikan\s+/i.test(desc) || r.type === 'redeem') {
+    const withdrawMatch = /Penarikan\s+(.+?)\s*\((USD|IDR)\)/i.exec(desc);
+    return {
+      eventCode: 'payout_request',
+      eventMeta: {
+        methodLabel: parsedMeta.methodLabel ?? withdrawMatch?.[1]?.trim(),
+        currency: parsedMeta.currency ?? (withdrawMatch?.[2]?.toUpperCase() === 'USD' ? 'USD' : withdrawMatch?.[2] ? 'IDR' : undefined),
+        ...parsedMeta,
+      },
+    };
+  }
+
+  return { eventCode: 'legacy', eventMeta: parsedMeta };
+}
+
 function mapLedgerRow(r: {
   id: string;
   user_id: string;
   type: string;
   points: number | string;
   description: string;
+  event_code?: string | null;
+  event_meta?: unknown;
   reference_id: string;
   balance_after?: number | string | null;
   created_at: Date | string;
 }): PointsLedgerRecord {
+  const { eventCode, eventMeta } = inferLedgerEventFromLegacyRow(r);
   return {
     id: r.id,
     userId: r.user_id,
     type: r.type === 'redeem' ? 'redeem' : 'earn',
     points: Math.max(0, Number(r.points) || 0),
     description: r.description || '',
+    eventCode,
+    eventMeta,
     referenceId: r.reference_id,
     balanceAfter:
       r.balance_after === null || r.balance_after === undefined
@@ -4655,11 +4852,13 @@ async function queryUserPointsSummaryOnClient(
     type: string;
     points: number;
     description: string;
+    event_code: string | null;
+    event_meta: unknown;
     reference_id: string;
     balance_after: number | null;
     created_at: Date;
   }>(
-    `SELECT id, user_id, type, points, description, reference_id, balance_after, created_at
+    `SELECT id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at
      FROM points_ledger
      WHERE user_id = $1
      ORDER BY created_at DESC
@@ -4773,11 +4972,13 @@ export async function listUserLedgerFromDb(
       type: string;
       points: number;
       description: string;
+      event_code: string | null;
+      event_meta: unknown;
       reference_id: string;
       balance_after: number | null;
       created_at: Date;
     }>(
-      `SELECT id, user_id, type, points, description, reference_id, balance_after, created_at
+      `SELECT id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at
        FROM points_ledger
        WHERE user_id = $1
        ORDER BY created_at DESC
@@ -5029,24 +5230,33 @@ export async function claimDailyCheckinInDb(input: {
       levelInfo.level > 1
         ? `Check-in Harian (Hari ke-${streakDay} · ${levelInfo.tierName} ${levelInfo.multiplier}x)`
         : `Check-in Harian (Hari ke-${streakDay})`;
+    const checkinMeta: PointsLedgerEventMeta = {
+      streakDay,
+      level: levelInfo.level,
+      tierName: levelInfo.tierName,
+      multiplier: levelInfo.multiplier,
+    };
     const inserted = await client.query<{
       id: string;
       user_id: string;
       type: string;
       points: number;
       description: string;
+      event_code: string;
+      event_meta: unknown;
       reference_id: string;
       balance_after: number | null;
       created_at: Date;
     }>(
-      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
-       VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
-       RETURNING id, user_id, type, points, description, reference_id, balance_after, created_at`,
+      `INSERT INTO points_ledger (id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, 'daily_checkin', $5::jsonb, $6, $7, NOW())
+       RETURNING id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at`,
       [
         ledgerId,
         input.userId,
         checkinAmount,
         checkinDesc,
+        JSON.stringify(checkinMeta),
         referenceId,
         balanceAfter,
       ]
@@ -5291,6 +5501,15 @@ export async function claimWatchEpisodeInDb(input: {
       levelInfo.level > 1
         ? `${baseDesc} · ${levelInfo.tierName} ${levelInfo.multiplier}x`
         : baseDesc;
+    const episodeMeta: PointsLedgerEventMeta = {
+      provider: cleanProvider,
+      dramaId: cleanDramaId,
+      episodeNumber: epNum,
+      ...(cleanTitle ? { title: cleanTitle } : {}),
+      level: levelInfo.level,
+      tierName: levelInfo.tierName,
+      multiplier: levelInfo.multiplier,
+    };
 
     const inserted = await client.query<{
       id: string;
@@ -5298,14 +5517,24 @@ export async function claimWatchEpisodeInDb(input: {
       type: string;
       points: number;
       description: string;
+      event_code: string;
+      event_meta: unknown;
       reference_id: string;
       balance_after: number | null;
       created_at: Date;
     }>(
-      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
-       VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
-       RETURNING id, user_id, type, points, description, reference_id, balance_after, created_at`,
-      [ledgerId, input.userId, episodeAmount, desc.slice(0, 240), referenceId.slice(0, 200), balanceAfter]
+      `INSERT INTO points_ledger (id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, 'watch_episode', $5::jsonb, $6, $7, NOW())
+       RETURNING id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at`,
+      [
+        ledgerId,
+        input.userId,
+        episodeAmount,
+        desc.slice(0, 240),
+        JSON.stringify(episodeMeta),
+        referenceId.slice(0, 200),
+        balanceAfter,
+      ]
     );
 
     await client.query(
@@ -5475,6 +5704,12 @@ export async function claimWatchMilestoneInDb(input: {
       levelInfo.level > 1
         ? `Bonus Milestone Nonton ${validMilestone.minutes} Menit · ${levelInfo.tierName} ${levelInfo.multiplier}x`
         : `Bonus Milestone Nonton ${validMilestone.minutes} Menit`;
+    const milestoneMeta: PointsLedgerEventMeta = {
+      milestoneMinutes: validMilestone.minutes,
+      level: levelInfo.level,
+      tierName: levelInfo.tierName,
+      multiplier: levelInfo.multiplier,
+    };
 
     const inserted = await client.query<{
       id: string;
@@ -5482,15 +5717,25 @@ export async function claimWatchMilestoneInDb(input: {
       type: string;
       points: number;
       description: string;
+      event_code: string;
+      event_meta: unknown;
       reference_id: string;
       balance_after: number | null;
       created_at: Date;
     }>(
-      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
-       VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
+      `INSERT INTO points_ledger (id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, 'watch_milestone', $5::jsonb, $6, $7, NOW())
        ON CONFLICT (reference_id) DO NOTHING
-       RETURNING id, user_id, type, points, description, reference_id, balance_after, created_at`,
-      [ledgerId, input.userId, bonusAmount, desc.slice(0, 240), referenceId, balanceAfter]
+       RETURNING id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at`,
+      [
+        ledgerId,
+        input.userId,
+        bonusAmount,
+        desc.slice(0, 240),
+        JSON.stringify(milestoneMeta),
+        referenceId,
+        balanceAfter,
+      ]
     );
 
     if (inserted.rows.length === 0) {
@@ -5576,6 +5821,7 @@ export async function grantFirstLoginBonusIfEligibleInDb(input: {
     const balanceAfter = currentBalance + bonusPoints;
     const ledgerId = crypto.randomUUID();
     const description = `Bonus Login Pertama (+${bonusPoints.toLocaleString('id-ID')} Poin)`;
+    const welcomeMeta: PointsLedgerEventMeta = {};
 
     const inserted = await client.query<{
       id: string;
@@ -5583,15 +5829,25 @@ export async function grantFirstLoginBonusIfEligibleInDb(input: {
       type: string;
       points: number;
       description: string;
+      event_code: string;
+      event_meta: unknown;
       reference_id: string;
       balance_after: number | null;
       created_at: Date;
     }>(
-      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
-       VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
+      `INSERT INTO points_ledger (id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, 'welcome_login', $5::jsonb, $6, $7, NOW())
        ON CONFLICT (reference_id) DO NOTHING
-       RETURNING id, user_id, type, points, description, reference_id, balance_after, created_at`,
-      [ledgerId, cleanUserId, bonusPoints, description, referenceId, balanceAfter]
+       RETURNING id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at`,
+      [
+        ledgerId,
+        cleanUserId,
+        bonusPoints,
+        description,
+        JSON.stringify(welcomeMeta),
+        referenceId,
+        balanceAfter,
+      ]
     );
 
     await client.query('COMMIT');
@@ -5914,14 +6170,20 @@ export async function createPayoutRequestInDb(input: {
       ]
     );
 
+    const payoutLedgerMeta: PointsLedgerEventMeta = {
+      methodLabel: methodMeta.label,
+      currency,
+      payoutId: payoutId.slice(0, 8),
+    };
     await client.query(
-      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
-       VALUES ($1, $2, 'redeem', $3, $4, $5, $6, NOW())`,
+      `INSERT INTO points_ledger (id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'redeem', $3, $4, 'payout_request', $5::jsonb, $6, $7, NOW())`,
       [
         ledgerId,
         input.userId,
         pointsSpent,
         `Penarikan ${methodMeta.label} (${currency})`,
+        JSON.stringify(payoutLedgerMeta),
         refId,
         balanceAfter,
       ]
@@ -6199,15 +6461,21 @@ export async function updateAdminPayoutStatusInDb(input: {
       const currentBalance = Math.max(0, Number(balRes.rows[0]?.balance) || 0);
       const spendPts = Math.max(1, Number(row.points_spent) || 1);
       const refundRef = `refund:payout:${row.id}`;
+      const refundStatus = input.status === 'failed' ? 'failed' : 'rejected';
+      const refundMeta: PointsLedgerEventMeta = {
+        payoutStatus: refundStatus,
+        payoutId: row.id.slice(0, 8),
+      };
       const refundInsert = await client.query(
-        `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
-         VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
+        `INSERT INTO points_ledger (id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at)
+         VALUES ($1, $2, 'earn', $3, $4, 'payout_refund', $5::jsonb, $6, $7, NOW())
          ON CONFLICT (reference_id) DO NOTHING`,
         [
           crypto.randomUUID(),
           row.user_id,
           spendPts,
           `Pengembalian Poin (${input.status === 'failed' ? 'Penarikan Gagal' : 'Ditolak'}) #${row.id.slice(0, 8)}`,
+          JSON.stringify(refundMeta),
           refundRef,
           currentBalance + spendPts,
         ]
@@ -6238,6 +6506,61 @@ export async function updateAdminPayoutStatusInDb(input: {
   }
 }
 
+interface BaselineLivePayoutSeed {
+  id: string;
+  maskedUser: string;
+  method: PayoutMethod;
+  bankCode?: string;
+  currency: PayoutCurrency;
+  idrAmount: number;
+  usdAmount: number;
+  status: 'approved' | 'paid' | 'completed';
+  minutesAgo: number;
+}
+
+const BASELINE_LIVE_PAYOUT_SEEDS: readonly BaselineLivePayoutSeed[] = [
+  { id: 'kd-lp-01', maskedUser: 'R***a', method: 'dana', currency: 'IDR', idrAmount: 72_800, usdAmount: 4.0, status: 'completed', minutesAgo: 6 },
+  { id: 'kd-lp-02', maskedUser: 'D***n', method: 'gopay', currency: 'IDR', idrAmount: 54_600, usdAmount: 3.0, status: 'paid', minutesAgo: 19 },
+  { id: 'kd-lp-03', maskedUser: 'M***l', method: 'usdt_trc20', currency: 'USD', idrAmount: 109_200, usdAmount: 6.0, status: 'completed', minutesAgo: 34 },
+  { id: 'kd-lp-04', maskedUser: 'S***i', method: 'ovo', currency: 'IDR', idrAmount: 91_000, usdAmount: 5.0, status: 'paid', minutesAgo: 52 },
+  { id: 'kd-lp-05', maskedUser: 'A***r', method: 'bank_transfer', bankCode: 'BCA', currency: 'IDR', idrAmount: 145_600, usdAmount: 8.0, status: 'completed', minutesAgo: 78 },
+  { id: 'kd-lp-06', maskedUser: 'J***n', method: 'paypal', currency: 'USD', idrAmount: 100_100, usdAmount: 5.5, status: 'paid', minutesAgo: 104 },
+  { id: 'kd-lp-07', maskedUser: 'N***a', method: 'shopeepay', currency: 'IDR', idrAmount: 63_700, usdAmount: 3.5, status: 'approved', minutesAgo: 136 },
+  { id: 'kd-lp-08', maskedUser: 'B***i', method: 'bank_transfer', bankCode: 'BRI', currency: 'IDR', idrAmount: 109_200, usdAmount: 6.0, status: 'completed', minutesAgo: 171 },
+  { id: 'kd-lp-09', maskedUser: 'K***n', method: 'wise', currency: 'USD', idrAmount: 136_500, usdAmount: 7.5, status: 'completed', minutesAgo: 215 },
+  { id: 'kd-lp-10', maskedUser: 'F***h', method: 'dana', currency: 'IDR', idrAmount: 81_900, usdAmount: 4.5, status: 'paid', minutesAgo: 268 },
+  { id: 'kd-lp-11', maskedUser: 'E***a', method: 'usdt_polygon', currency: 'USD', idrAmount: 163_800, usdAmount: 9.0, status: 'completed', minutesAgo: 324 },
+  { id: 'kd-lp-12', maskedUser: 'T***o', method: 'linkaja', currency: 'IDR', idrAmount: 54_600, usdAmount: 3.0, status: 'paid', minutesAgo: 389 },
+];
+
+function buildBaselineLivePayoutFeed(
+  cfg: PayoutRuntimeConfig,
+  limit: number
+): LivePayoutFeedItem[] {
+  const now = Date.now();
+  const items: LivePayoutFeedItem[] = [];
+  for (const seed of BASELINE_LIVE_PAYOUT_SEEDS) {
+    if (seed.currency === 'IDR' && seed.idrAmount < cfg.minPayoutIdr) continue;
+    if (seed.currency === 'USD' && seed.usdAmount < cfg.minPayoutUsd) continue;
+    const meta = getMethodMetadata(seed.method, seed.bankCode);
+    items.push({
+      id: seed.id,
+      maskedUser: seed.maskedUser,
+      countryCode: meta.countryCode,
+      method: seed.method,
+      methodLabel: meta.label,
+      currency: seed.currency,
+      usdAmount: Number(seed.usdAmount.toFixed(2)),
+      idrAmount: seed.idrAmount,
+      status: seed.status,
+      createdAt: new Date(now - seed.minutesAgo * 60_000).toISOString(),
+      isReal: false,
+    });
+    if (items.length >= limit) break;
+  }
+  return items;
+}
+
 export async function listLivePayoutFeedFromDb(
   limit = 12
 ): Promise<LivePayoutFeedItem[]> {
@@ -6245,7 +6568,13 @@ export async function listLivePayoutFeedFromDb(
   const cfg = getPayoutRuntimeConfig();
   const realItems: LivePayoutFeedItem[] = [];
 
-  const activePool = await requirePointsDbPool();
+  let activePool: Pool | null = null;
+  try {
+    activePool = await requirePointsDbPool();
+  } catch {
+    return buildBaselineLivePayoutFeed(cfg, safeLimit);
+  }
+
   let client: PoolClient | null = null;
   try {
     client = await activePool.connect();
@@ -6302,17 +6631,20 @@ export async function listLivePayoutFeedFromDb(
         isReal: true,
       });
     }
-    return realItems.slice(0, safeLimit);
   } catch (err) {
-    if (err instanceof DatabaseUnavailableError) throw err;
     console.warn(
-      '[PostgreSQL] listLivePayoutFeedFromDb failed:',
+      '[PostgreSQL] listLivePayoutFeedFromDb fallback to baseline:',
       err instanceof Error ? err.message : String(err)
     );
-    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
   } finally {
     client?.release();
   }
+
+  if (realItems.length >= safeLimit) {
+    return realItems.slice(0, safeLimit);
+  }
+  const baseline = buildBaselineLivePayoutFeed(cfg, safeLimit - realItems.length);
+  return [...realItems, ...baseline].slice(0, safeLimit);
 }
 
 // --- Referral System (1-Hour Verified Active Watch) & Multi-Layer Anti-Cheat ---
@@ -6441,12 +6773,15 @@ export async function bindReferralForUserInDb(input: {
 }): Promise<{
   bound: boolean;
   status?: ReferralStatus;
+  bindBonusAwarded?: number;
   reason?:
     | 'invalid_code'
     | 'self_referral'
     | 'already_referred'
     | 'account_not_new'
-    | 'fraud_signal_match';
+    | 'fraud_signal_match'
+    | 'daily_limit'
+    | 'weekly_limit';
 }> {
   const cfg = getPayoutRuntimeConfig();
   const activePool = await requirePointsDbPool();
@@ -6603,7 +6938,30 @@ export async function bindReferralForUserInDb(input: {
       };
     }
 
-    await client.query(
+    const canonical = getCanonicalResetPeriod();
+    const refQuotaRes = await client.query<{
+      daily_cnt: string;
+      weekly_cnt: string;
+    }>(
+      `SELECT
+         COUNT(*) FILTER (WHERE created_at >= $2 AND created_at < $3)::text AS daily_cnt,
+         COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::text AS weekly_cnt
+       FROM referrals
+       WHERE referrer_uid = $1 AND status IN ('pending_watch', 'qualified')`,
+      [referrerUid, canonical.periodStartAt, canonical.nextResetAt]
+    );
+    const refDailyCnt = Number(refQuotaRes.rows[0]?.daily_cnt) || 0;
+    const refWeeklyCnt = Number(refQuotaRes.rows[0]?.weekly_cnt) || 0;
+    if (refDailyCnt >= cfg.maxDailyReferrals) {
+      await client.query('COMMIT');
+      return { bound: false, reason: 'daily_limit' };
+    }
+    if (refWeeklyCnt >= cfg.maxWeeklyReferrals) {
+      await client.query('COMMIT');
+      return { bound: false, reason: 'weekly_limit' };
+    }
+
+    const bindInsert = await client.query(
       `INSERT INTO referrals (
          id, referrer_uid, referee_uid, referral_code, status, bonus_points,
          referee_ip_hash, referee_subnet_hash, referee_ua_hash, referee_device_hash,
@@ -6624,8 +6982,44 @@ export async function bindReferralForUserInDb(input: {
       ]
     );
 
+    let bindBonusAwarded = 0;
+    const bindBonusPoints = Math.max(0, Math.floor(cfg.bindReferralBonusPoints || 0));
+    if ((bindInsert.rowCount ?? 0) > 0 && bindBonusPoints > 0) {
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `points:${input.refereeUid}`,
+      ]);
+      const balRes = await client.query<{ balance: string }>(
+        `SELECT (
+           COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0) -
+           COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0)
+         )::text AS balance
+         FROM points_ledger
+         WHERE user_id = $1`,
+        [input.refereeUid]
+      );
+      const currentBalance = Math.max(0, Number(balRes.rows[0]?.balance) || 0);
+      const bindMeta: PointsLedgerEventMeta = { referralCode: cleanCode };
+      const bindLedgerRes = await client.query(
+        `INSERT INTO points_ledger (id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at)
+         VALUES ($1, $2, 'earn', $3, $4, 'referral_bind', $5::jsonb, $6, $7, NOW())
+         ON CONFLICT (reference_id) DO NOTHING`,
+        [
+          crypto.randomUUID(),
+          input.refereeUid,
+          bindBonusPoints,
+          `Bonus Bind Referral (${cleanCode})`,
+          JSON.stringify(bindMeta),
+          `referral:bind:${input.refereeUid}`,
+          currentBalance + bindBonusPoints,
+        ]
+      );
+      if ((bindLedgerRes.rowCount ?? 0) > 0) {
+        bindBonusAwarded = bindBonusPoints;
+      }
+    }
+
     await client.query('COMMIT');
-    return { bound: true, status: 'pending_watch' };
+    return { bound: true, status: 'pending_watch', bindBonusAwarded };
   } catch (err) {
     try {
       await client?.query('ROLLBACK');
@@ -6792,6 +7186,7 @@ async function grantWatchMissionPointsPg(
     refId: string;
     basePoints: number;
     desc: string;
+    minute: number;
   }> = [];
 
   for (let m = 1; m <= Math.min(completedMinutes, maxMinutes); m += 1) {
@@ -6799,6 +7194,7 @@ async function grantWatchMissionPointsPg(
       refId: `watch_min:${userId}:${todayKey}:m${m}`,
       basePoints: cfg.watchMinutePoints,
       desc: `Misi Nonton Aktif (Menit ${m}/${maxMinutes})`,
+      minute: m,
     });
   }
 
@@ -6822,11 +7218,26 @@ async function grantWatchMissionPointsPg(
       currentLevel.level > 1
         ? `${cand.desc} · ${currentLevel.tierName} ${currentLevel.multiplier}x`
         : cand.desc;
+    const watchMinMeta: PointsLedgerEventMeta = {
+      minute: cand.minute,
+      maxMinutes,
+      level: currentLevel.level,
+      tierName: currentLevel.tierName,
+      multiplier: currentLevel.multiplier,
+    };
     const ins = await client.query(
-      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
-       VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
+      `INSERT INTO points_ledger (id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, 'watch_minute', $5::jsonb, $6, $7, NOW())
        ON CONFLICT (reference_id) DO NOTHING`,
-      [crypto.randomUUID(), userId, pointsToAward, descWithLevel, cand.refId, nextBalance]
+      [
+        crypto.randomUUID(),
+        userId,
+        pointsToAward,
+        descWithLevel,
+        JSON.stringify(watchMinMeta),
+        cand.refId,
+        nextBalance,
+      ]
     );
     if ((ins.rowCount ?? 0) > 0) {
       existingRefs.add(cand.refId);
@@ -7588,15 +7999,17 @@ export async function recordWatchHeartbeatInDb(input: {
           );
           const refBal = Math.max(0, Number(refBalRes.rows[0]?.balance) || 0);
           const bonus = Math.max(1, Number(pendingRef.bonus_points) || cfg.referralBonusPoints);
+          const refQualifyMeta: PointsLedgerEventMeta = {};
           const insertBonus = await client.query(
-            `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
-             VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
+            `INSERT INTO points_ledger (id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at)
+             VALUES ($1, $2, 'earn', $3, $4, 'referral_qualify', $5::jsonb, $6, $7, NOW())
              ON CONFLICT (reference_id) DO NOTHING`,
             [
               crypto.randomUUID(),
               pendingRef.referrer_uid,
               bonus,
               'Bonus Referral Valid (Tontonan 1+ Jam Terverifikasi)',
+              JSON.stringify(refQualifyMeta),
               `referral:qualify:${input.userId}`,
               refBal + bonus,
             ]

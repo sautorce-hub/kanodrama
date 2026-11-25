@@ -244,8 +244,8 @@ export const AuthProfileModal: React.FC = () => {
                 </p>
                 <p className="text-[11px] font-bold text-[#FDE68A] tabular-nums">
                   {isId
-                    ? 'Bonus login pertama akun baru: +5.000 poin otomatis'
-                    : 'New account first login bonus: +5,000 pts automatically'}
+                    ? 'Bonus login pertama akun baru: +10.000 poin otomatis'
+                    : 'New account first login bonus: +10,000 pts automatically'}
                 </p>
               </div>
             </div>

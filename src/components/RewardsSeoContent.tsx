@@ -11,6 +11,7 @@ interface RewardsSeoContentProps {
   minPayoutPointsIdr?: number;
   minPayoutPointsUsd?: number;
   firstLoginBonusPoints?: number;
+  bindReferralBonusPoints?: number;
   dailyCheckinPoints?: number;
   watchEpisodePoints?: number;
   watchMinutePoints?: number;
@@ -67,18 +68,19 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
   minPayoutUsd = 5,
   minPayoutPointsIdr = 274726,
   minPayoutPointsUsd = 500000,
-  firstLoginBonusPoints = 5000,
-  dailyCheckinPoints = 500,
-  watchEpisodePoints = 200,
-  watchMinutePoints = 20,
+  firstLoginBonusPoints = 10000,
+  bindReferralBonusPoints = 200,
+  dailyCheckinPoints = 1000,
+  watchEpisodePoints = 400,
+  watchMinutePoints = 40,
   dailyMissionMilestones = [
-    { minutes: 15, bonusPoints: 500 },
-    { minutes: 30, bonusPoints: 1200 },
-    { minutes: 60, bonusPoints: 2800 },
+    { minutes: 15, bonusPoints: 1000 },
+    { minutes: 30, bonusPoints: 2400 },
+    { minutes: 60, bonusPoints: 5600 },
   ],
   levelTiers = [],
-  referralBonusPoints = 5000,
-  maxDailyEarnPoints = 25000,
+  referralBonusPoints = 10000,
+  maxDailyEarnPoints = 50000,
   isSignedIn = false,
   onActionSignIn,
 }) => {
@@ -111,11 +113,11 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
         },
         {
           q: `Kapan bonus referral +${referralBonusPoints.toLocaleString()} poin masuk ke akun pengundang?`,
-          a: `Bagikan tautan referral resmi https://kano-drama.live/?ref=KODEANDA kepada teman baru. Setelah teman mendaftar dan menyelesaikan total 60 menit (1 jam) menonton terverifikasi tanpa aktivitas mencurigakan, sistem secara otomatis mengkreditkan +${referralBonusPoints.toLocaleString()} poin ke saldo Anda.`,
+          a: `Bagikan tautan referral resmi https://kano-drama.live/?ref=KODEANDA kepada teman baru. Teman yang menautkan kode memperoleh bonus bind referral +${bindReferralBonusPoints.toLocaleString()} poin, dan setelah menyelesaikan total 60 menit (1 jam) menonton terverifikasi tanpa aktivitas mencurigakan, sistem secara otomatis mengkreditkan +${referralBonusPoints.toLocaleString()} poin ke saldo Anda.`,
         },
         {
           q: 'Kapan misi menonton harian dan check-in direset?',
-          a: 'Seluruh progres misi menonton harian, klaim milestone, batas perolehan poin harian, dan klaim check-in dikunci pada satu periode server dan direset otomatis setiap pukul 00.00 WIB (17.00 UTC) berdasarkan waktu server.',
+          a: 'Seluruh progres misi menonton harian, klaim milestone, batas perolehan poin harian, dan klaim check-in dikunci pada satu periode server dan direset otomatis setiap pukul 00.00 WIB berdasarkan waktu server.',
         },
       ]
     : [
@@ -129,11 +131,11 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
         },
         {
           q: `When is the +${referralBonusPoints.toLocaleString()} pts referral bonus unlocked?`,
-          a: `Share your permanent link at https://kano-drama.live/?ref=YOURCODE. Once your invited friend completes 1 full hour (60 minutes) of verified active watching, +${referralBonusPoints.toLocaleString()} points are credited automatically.`,
+          a: `Share your permanent link at https://kano-drama.live/?ref=YOURCODE. New friends receive a +${bindReferralBonusPoints.toLocaleString()} pts bind bonus when linking your code, and once they complete 1 full hour (60 minutes) of verified active watching, +${referralBonusPoints.toLocaleString()} points are credited automatically to your balance.`,
         },
         {
           q: 'When do daily watch missions and check-ins reset?',
-          a: 'All daily check-ins, milestone claims, daily caps, and watch missions are locked to a single canonical server period and reset automatically once per day at 17:00 UTC (00:00 WIB).',
+          a: 'All daily check-ins, milestone claims, daily caps, and watch missions are locked to a single canonical server period and reset automatically once per day at 17:00 UTC.',
         },
       ];
 
@@ -250,7 +252,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
                   {milestoneSummaryText}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
-                  {isId ? 'Reset otomatis setiap 00.00 WIB (17.00 UTC)' : 'Resets daily at 17:00 UTC (00:00 WIB)'}
+                  {isId ? 'Reset otomatis setiap 00.00 WIB' : 'Resets daily at 17:00 UTC'}
                 </td>
               </tr>
               <tr>
@@ -279,15 +281,16 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
               </tr>
               <tr>
                 <td className="py-2.5 pr-4 font-medium">
-                  {isId ? 'Bonus Undangan Referral' : 'Referral Invitation Bonus'}
+                  {isId ? 'Bonus Undangan & Bind Referral' : 'Referral Invite & Bind Bonus'}
                 </td>
                 <td className="py-2.5 pr-4 font-bold text-emerald-300 tabular-nums">
-                  +{referralBonusPoints.toLocaleString()} {isId ? 'poin / teman lolos' : 'pts / qualified friend'}
+                  +{bindReferralBonusPoints.toLocaleString()} bind · +{referralBonusPoints.toLocaleString()}{' '}
+                  {isId ? 'poin / teman lolos' : 'pts / qualified friend'}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
                   {isId
-                    ? 'Teman baru menonton aktif terverifikasi total 60 menit'
-                    : 'Invited user reaches 60 min verified watch time'}
+                    ? `+${bindReferralBonusPoints.toLocaleString()} saat taut kode; +${referralBonusPoints.toLocaleString()} setelah 60 mnt tonton`
+                    : `+${bindReferralBonusPoints.toLocaleString()} on code bind; +${referralBonusPoints.toLocaleString()} after 60m watch`}
                 </td>
               </tr>
               <tr>

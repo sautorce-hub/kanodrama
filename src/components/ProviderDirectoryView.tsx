@@ -144,8 +144,17 @@ export const ProviderDirectoryView: React.FC<ProviderDirectoryViewProps> = ({
 
       {/* Providers Grid */}
       {filtered.length === 0 ? (
-        <div className="py-12 px-6 rounded-2xl bg-[var(--cd-surface)] border border-white/10 text-center text-sm text-[#A1A1AA]">
-          {t.providers.noMatches}
+        <div className="py-12 px-6 rounded-2xl bg-[var(--cd-surface)] border border-white/10 text-center space-y-3">
+          <Search className="w-8 h-8 cd-accent-text mx-auto opacity-70" />
+          <p className="text-sm font-semibold text-white">{t.providers.noMatches}</p>
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            className="inline-flex items-center gap-1.5 px-4 py-2 min-h-[40px] rounded-full cd-accent-bg text-xs font-semibold text-white"
+          >
+            <X className="w-3.5 h-3.5" />
+            <span>{t.exploreFilters.resetFilters}</span>
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">

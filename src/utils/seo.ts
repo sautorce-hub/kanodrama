@@ -23,12 +23,7 @@ import {
 export { generateMetadata, type GeneratedSeoMetadata };
 
 export function getSeoOrigin(): string {
-  if (typeof window === 'undefined') return DEFAULT_SITE_ORIGIN;
-  const origin = window.location.origin;
-  if (/^https?:\/\/(www\.)?(kano-drama\.live|kano-drama\.xyz)$/i.test(origin)) {
-    return DEFAULT_SITE_ORIGIN;
-  }
-  return origin;
+  return DEFAULT_SITE_ORIGIN;
 }
 
 function formatMovieDisplayTitle(title: string, year?: string): string {
@@ -424,12 +419,11 @@ export function buildDramaSeoMetadata(
 export function buildDramaJsonLd(
   drama: DramaItem,
   episodes: EpisodeItem[],
-  originUrl: string,
+  _originUrl: string,
   episodeNumber = 1,
   lang: LanguageCode = 'en'
 ) {
   const brandOrigin = DEFAULT_SITE_ORIGIN;
-  const imgOrigin = originUrl.replace(/\/$/, '') || brandOrigin;
   const safeEpisodeNumber = Math.max(1, Math.floor(Number(episodeNumber) || 1));
   const detailPath = getDramaPath(
     drama.bookId,
@@ -447,7 +441,7 @@ export function buildDramaJsonLd(
   const dramaUrl = `${brandOrigin}${detailPath}`;
   const epWatchUrl = `${brandOrigin}${watchPath}`;
   const episodeCount = Math.max(1, episodes.length || drama.chapterCount || 1);
-  const coverImage = buildOgImageEndpointUrl(drama.cover, imgOrigin, drama.title);
+  const coverImage = buildOgImageEndpointUrl(drama.cover, brandOrigin, drama.title);
 
   const isMovie =
     drama.mediaType === 'movie' ||
@@ -756,8 +750,8 @@ export function syncSectionDocumentSeo(
             '@type': 'Answer',
             text:
               lang === 'id'
-                ? 'Masuk ke akun KanoDrama untuk langsung mendapatkan bonus login pertama +5.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan normal (1x). Anda mendapatkan +20 poin/menit otomatis hingga 60 menit/hari (dikalikan multiplier level akun hingga 1,6x), +200 poin episode baru (minimal 15 detik), check-in harian +500 poin, serta bonus milestone 15, 30, dan 60 menit yang dapat diklaim setelah target tercapai.'
-                : 'Sign in to claim a +5,000 pts first-login bonus (once per account) and actively watch short dramas or movies at normal playback speed. You earn +20 pts/min automatically up to 60 min/day (scaled by account level multiplier up to 1.6x), +200 pts per new episode (min 15s watch), daily check-in +500 pts, and claimable 15/30/60 minute milestone bonuses.',
+                ? 'Masuk ke akun KanoDrama untuk langsung mendapatkan bonus login pertama +10.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan normal (1x). Anda mendapatkan +40 poin/menit otomatis hingga 60 menit/hari (dikalikan multiplier level akun hingga 1,6x), +400 poin episode baru (minimal 15 detik), check-in harian +1.000 poin (reset pukul 00.00 WIB), serta bonus milestone 15, 30, dan 60 menit (+1.000 / +2.400 / +5.600 poin) yang dapat diklaim setelah target tercapai.'
+                : 'Sign in to claim a +10,000 pts first-login bonus (once per account) and actively watch short dramas or movies at normal playback speed. You earn +40 pts/min automatically up to 60 min/day (scaled by account level multiplier up to 1.6x), +400 pts per new episode (min 15s watch), daily check-in +1,000 pts (resets at 17:00 UTC), and claimable 15/30/60 minute milestone bonuses (+1,000 / +2,400 / +5,600 pts).',
           },
         },
         {
@@ -784,8 +778,8 @@ export function syncSectionDocumentSeo(
             '@type': 'Answer',
             text:
               lang === 'id'
-                ? 'Bagikan tautan undangan resmi kano-drama.live Anda. Setelah teman mendaftar dan menyelesaikan total 1 jam (60 menit) durasi menonton terverifikasi, +5.000 poin otomatis masuk ke saldo Anda.'
-                : 'Share your kano-drama.live referral link. Once your invited friend registers and completes 1 hour of verified active watch time, +5,000 bonus points are credited automatically.',
+                ? 'Bagikan tautan undangan resmi kano-drama.live Anda. Teman yang mengikat kode referral Anda langsung menerima +200 poin, dan setelah menyelesaikan total 1 jam (3.600 detik) durasi menonton terverifikasi, +10.000 poin otomatis masuk ke saldo Anda.'
+                : 'Share your kano-drama.live referral link. Friends who bind your referral code receive +200 bonus points immediately, and once they complete 1 hour (3,600 seconds) of verified active watch time, +10,000 bonus points are credited automatically.',
           },
         },
       ],

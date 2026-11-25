@@ -10,7 +10,9 @@ import {
   getProxiedLogoUrl,
 } from '../constants/providerLogos';
 import { useDramaContext } from '../context/DramaContext';
+import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import { DramaCard } from './DramaCard';
+import { SkeletonCard } from './SkeletonCard';
 import type { DramaItem, LanguageCode, ProviderName } from '../types/drama';
 
 interface EndpointFeedState {
@@ -216,14 +218,37 @@ export const ProviderEndpointSection: React.FC<ProviderEndpointSectionProps> = (
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick={onResetProvider}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 min-h-[36px] rounded-full bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-white/30 text-xs font-medium text-[#E4E4E7] hover:text-white transition-colors whitespace-nowrap shrink-0"
-        >
-          <X className="w-3.5 h-3.5" />
-          <span>{t.providers.all}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {isDedicatedPage && (
+            <a
+              href={`${DEFAULT_SITE_ORIGIN}/explore`}
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                window.dispatchEvent(
+                  new CustomEvent('kd:navigate-path', {
+                    detail: { path: '/explore' },
+                  })
+                );
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 min-h-[36px] rounded-full bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-xs font-medium text-[#D4AF37] hover:text-white transition-colors whitespace-nowrap shrink-0"
+            >
+              <span>{t.nav.explore}</span>
+            </a>
+          )}
+          <a
+            href={`${DEFAULT_SITE_ORIGIN}/providers`}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+              e.preventDefault();
+              onResetProvider();
+            }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 min-h-[36px] rounded-full bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-white/30 text-xs font-medium text-[#E4E4E7] hover:text-white transition-colors whitespace-nowrap shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
+            <span>{t.providers.all}</span>
+          </a>
+        </div>
       </div>
 
       {/* Single Horizontal Row of ALL Unique Endpoints for this Provider (Never Wraps Vertically) */}
@@ -260,13 +285,7 @@ export const ProviderEndpointSection: React.FC<ProviderEndpointSectionProps> = (
       {activeState.loading && activeState.items.length === 0 ? (
         <div className="grid grid-cols-2 gap-3.5 pr-10 sm:pr-0 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 sm:gap-5">
           {Array.from({ length: 10 }).map((_, i) => (
-            <div key={i} className="w-full space-y-2">
-              <div className="w-full aspect-[2/3] rounded-xl skeleton-espresso border border-white/10" />
-              <div className="px-0.5 space-y-1.5">
-                <div className="h-3.5 w-[88%] rounded skeleton-espresso" />
-                <div className="h-3 w-[55%] rounded skeleton-espresso" />
-              </div>
-            </div>
+            <SkeletonCard key={i} fluid />
           ))}
         </div>
       ) : activeState.error && activeState.items.length === 0 ? (
@@ -290,9 +309,29 @@ export const ProviderEndpointSection: React.FC<ProviderEndpointSectionProps> = (
           </button>
         </div>
       ) : activeState.items.length === 0 ? (
-        <div className="py-12 px-6 rounded-2xl bg-[var(--cd-surface)] border border-white/10 text-center">
-          <p className="text-sm font-semibold text-white">{t.search.noResults}</p>
-          <p className="text-xs text-[#A1A1AA] mt-1">{t.search.tryAnother}</p>
+        <div className="py-12 px-6 rounded-2xl bg-[var(--cd-surface)] border border-white/10 text-center space-y-3">
+          <Layers className="w-8 h-8 cd-accent-text mx-auto opacity-70" />
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-white">{t.search.noResults}</p>
+            <p className="text-xs text-[#A1A1AA]">{t.search.tryAnother}</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => void loadEndpointPage(activeEndpoint, 1, false, true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 min-h-[40px] rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-semibold text-white transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>{t.player.retry}</span>
+            </button>
+            <button
+              type="button"
+              onClick={onResetProvider}
+              className="inline-flex items-center gap-1.5 px-4 py-2 min-h-[40px] rounded-full cd-accent-bg text-xs font-semibold text-white transition-colors"
+            >
+              <span>{t.providers.all}</span>
+            </button>
+          </div>
         </div>
       ) : (
         <>

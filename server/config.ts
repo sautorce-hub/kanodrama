@@ -12,19 +12,20 @@ export const REWARDS_DEFAULTS = {
   pointsPerUsd: 100_000, // 100.000 poin = 1 USDT ($1.00 USD)
   minPayoutIdr: 50_000,
   minPayoutUsd: 5.0,
-  maxDailyEarnPoints: 25_000,
-  maxDailyWatchPoints: 10_000, // Batas poin nonton harian (per-menit + milestone, cukup hingga Platinum 1.6x = 9.120 poin)
+  maxDailyEarnPoints: 50_000,
+  maxDailyWatchPoints: 20_000, // Batas poin nonton harian (per-menit + milestone, cukup hingga Platinum 1.6x = 18.240 poin)
   claimCooldownSeconds: 45,
-  firstLoginBonusPoints: 5_000,
-  dailyCheckinPoints: 500,
-  watchEpisodePoints: 200,
-  watchMinutePoints: 20, // WATCH_POINTS_PER_MINUTE default +20 poin / menit nonton aktif
+  firstLoginBonusPoints: 10_000,
+  bindReferralBonusPoints: 200,
+  dailyCheckinPoints: 1_000,
+  watchEpisodePoints: 400,
+  watchMinutePoints: 40, // WATCH_POINTS_PER_MINUTE default +40 poin / menit nonton aktif
   dailyMissionMaxWatchSeconds: 3_600, // Maksimal 1 jam (60 menit) misi nonton harian
-  dailyMission15mPoints: 500,
-  dailyMission30mPoints: 1_200,
-  dailyMission60mPoints: 2_800,
+  dailyMission15mPoints: 1_000,
+  dailyMission30mPoints: 2_400,
+  dailyMission60mPoints: 5_600,
   referralQualifySeconds: 3_600, // 1 hour active verified watch
-  referralBonusPoints: 5_000,
+  referralBonusPoints: 10_000,
   maxDailyReferrals: 5,
   maxWeeklyReferrals: 15,
   maxDailyVerifiedWatchSeconds: 28_800, // 8 hours/day telemetry cap
@@ -286,6 +287,7 @@ export interface RewardsRuntimeValues {
   maxDailyWatchPoints: number;
   claimCooldownSeconds: number;
   firstLoginBonusPoints: number;
+  bindReferralBonusPoints: number;
   dailyCheckinPoints: number;
   watchEpisodePoints: number;
   watchMinutePoints: number;
@@ -308,6 +310,7 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     maxDailyWatchPoints,
     claimCooldownSeconds,
     firstLoginBonusPoints,
+    bindReferralBonusPoints,
     dailyCheckinPoints,
     watchEpisodePoints,
     watchMinutePoints,
@@ -336,6 +339,7 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     maxDailyWatchPoints,
     claimCooldownSeconds,
     firstLoginBonusPoints,
+    bindReferralBonusPoints,
     dailyCheckinPoints,
     watchEpisodePoints,
     watchMinutePoints,

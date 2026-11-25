@@ -10,7 +10,9 @@ import {
   Tag,
 } from 'lucide-react';
 import { DramaCard } from './DramaCard';
+import { SkeletonCard } from './SkeletonCard';
 import { useDramaContext } from '../context/DramaContext';
+import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import { searchAllProviders } from '../services/dramaProviders';
 import {
   CURATED_PROGRAMMATIC_PAGES,
@@ -150,8 +152,9 @@ export const SeoLandingPage: React.FC<SeoLandingPageProps> = ({
           className="flex flex-wrap items-center gap-1.5 text-xs text-[#A1A1AA]"
         >
           <a
-            href="/"
+            href={`${DEFAULT_SITE_ORIGIN}/`}
             onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
               e.preventDefault();
               onBackHome();
             }}
@@ -160,7 +163,21 @@ export const SeoLandingPage: React.FC<SeoLandingPageProps> = ({
             Home
           </a>
           <ChevronRight className="w-3.5 h-3.5 opacity-60" />
-          <span className="text-[#D4AF37] font-medium">{landing.routeKindLabel}</span>
+          <a
+            href={`${DEFAULT_SITE_ORIGIN}/explore`}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+              e.preventDefault();
+              window.dispatchEvent(
+                new CustomEvent('kd:navigate-path', {
+                  detail: { path: '/explore' },
+                })
+              );
+            }}
+            className="text-[#D4AF37] font-medium hover:underline"
+          >
+            {landing.routeKindLabel}
+          </a>
           <ChevronRight className="w-3.5 h-3.5 opacity-60" />
           <span className="text-white font-semibold truncate">{landing.h1}</span>
         </nav>
@@ -261,8 +278,9 @@ export const SeoLandingPage: React.FC<SeoLandingPageProps> = ({
               return (
                 <a
                   key={preset.slug}
-                  href={targetPath}
+                  href={`${DEFAULT_SITE_ORIGIN}${targetPath}`}
                   onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                     e.preventDefault();
                     onNavigateLanding(targetPath);
                   }}
@@ -281,15 +299,45 @@ export const SeoLandingPage: React.FC<SeoLandingPageProps> = ({
 
         {/* Catalog Grid (2.5-Card Slider on Mobile / 5-Column Grid on Desktop) */}
         {loading && combinedItems.length === 0 ? (
-          <div className="py-14 flex flex-col items-center justify-center gap-3 text-xs text-[#A1A1AA]">
-            <Loader2 className="w-7 h-7 cd-accent-text animate-spin" />
-            <span>Loading curated {landing.h1}...</span>
+          <div className="flex flex-nowrap gap-2.5 overflow-x-auto snap-x snap-mandatory scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0 sm:grid sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 sm:gap-5 sm:overflow-visible">
+            {Array.from({ length: 10 }).map((_, idx) => (
+              <SkeletonCard key={idx} responsiveGrid />
+            ))}
           </div>
         ) : combinedItems.length === 0 ? (
-          <div className="my-10 p-10 rounded-2xl bg-[var(--cd-surface)] border border-white/10 text-center max-w-lg mx-auto">
-            <Film className="w-8 h-8 cd-accent-text mx-auto mb-3" />
+          <div className="my-10 p-10 rounded-2xl bg-[var(--cd-surface)] border border-white/10 text-center max-w-lg mx-auto space-y-3">
+            <Film className="w-8 h-8 cd-accent-text mx-auto opacity-75" />
             <h2 className="text-lg font-bold text-white">{t.search.noResults}</h2>
-            <p className="text-sm text-[#A1A1AA] mt-2">{t.search.tryAnother}</p>
+            <p className="text-sm text-[#A1A1AA]">{t.search.tryAnother}</p>
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+              {(statusFilter !== 'all' || sortBy !== 'popular') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter('all');
+                    setSortBy('popular');
+                  }}
+                  className="px-4 py-2 min-h-[40px] rounded-full cd-accent-bg text-xs font-semibold text-white transition-colors"
+                >
+                  {t.exploreFilters.resetFilters}
+                </button>
+              )}
+              <a
+                href={`${DEFAULT_SITE_ORIGIN}/explore`}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                  e.preventDefault();
+                  window.dispatchEvent(
+                    new CustomEvent('kd:navigate-path', {
+                      detail: { path: '/explore' },
+                    })
+                  );
+                }}
+                className="px-4 py-2 min-h-[40px] rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-semibold text-white inline-flex items-center"
+              >
+                {t.nav.explore}
+              </a>
+            </div>
           </div>
         ) : (
           <div className="flex flex-nowrap gap-2.5 overflow-x-auto snap-x snap-mandatory scrollbar-none scroll-smooth overscroll-x-contain -mx-4 px-4 sm:mx-0 sm:px-0 sm:grid sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 sm:gap-5 sm:overflow-visible">

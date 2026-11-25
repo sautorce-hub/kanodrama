@@ -28,6 +28,7 @@ import {
 import { useDramaContext } from '../context/DramaContext';
 import { ProviderBadge } from './ProviderBadge';
 import { ShareDramaModal } from './ShareDramaModal';
+import { DetailPageSkeleton } from './SkeletonCard';
 import { ChevronRight } from 'lucide-react';
 import { getProviderRouteSlug, normalizeMediaProviderName } from '../constants/providerLogos';
 import { buildOgImageEndpointUrl, DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
@@ -557,19 +558,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
     : 'all';
 
   if (loading && !detail) {
-    return (
-      <section className="max-w-[1440px] mx-auto px-4 sm:px-8 py-8 space-y-6">
-        <div className="h-8 w-36 rounded-full skeleton-espresso" />
-        <div className="rounded-3xl bg-[var(--cd-surface)] border border-white/10 p-6 sm:p-10 flex flex-col sm:flex-row gap-8">
-          <div className="w-44 aspect-[9/16] rounded-2xl skeleton-espresso shrink-0" />
-          <div className="flex-1 space-y-4">
-            <div className="h-6 w-32 rounded skeleton-espresso" />
-            <div className="h-10 w-3/4 rounded skeleton-espresso" />
-            <div className="h-20 w-full rounded skeleton-espresso" />
-          </div>
-        </div>
-      </section>
-    );
+    return <DetailPageSkeleton />;
   }
 
   if (!detail) {
@@ -681,7 +670,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
 
           <nav
             aria-label="Breadcrumb"
-            className="hidden sm:flex items-center gap-1.5 text-xs text-[#A1A1AA] min-w-0"
+            className="flex items-center gap-1.5 text-xs text-[#A1A1AA] min-w-0 overflow-hidden"
           >
             <a
               href={`${DEFAULT_SITE_ORIGIN}/`}
@@ -1221,7 +1210,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                 {Array.from({ length: 16 }).map((_, idx) => (
                   <div
                     key={idx}
-                    className="h-14 rounded-xl skeleton-espresso border border-white/5"
+                    className="h-[54px] rounded-xl skeleton-espresso border border-white/5"
                   />
                 ))}
               </div>
@@ -1248,8 +1237,34 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                 </button>
               </div>
             ) : episodes.length === 0 ? (
-              <div className="p-6 rounded-xl bg-[#18181D] border border-white/10 text-center text-sm text-[#A1A1AA]">
-                {t.detail.tapToStartEp1}
+              <div className="p-6 rounded-xl bg-[#18181D] border border-white/10 text-center space-y-3">
+                <p className="text-sm text-[#A1A1AA]">{t.detail.tapToStartEp1}</p>
+                <div className="flex flex-wrap items-center justify-center gap-2.5">
+                  <a
+                    href={`${DEFAULT_SITE_ORIGIN}${ep1WatchHref}`}
+                    onClick={(e) => {
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+                        return;
+                      }
+                      e.preventDefault();
+                      onPlayEpisode(detail, 1, episodes, 0);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-5 py-2 min-h-[40px] rounded-full cd-accent-bg text-xs font-semibold text-white"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>{t.hero.playNow}</span>
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      loadDetailAndEpisodes(detail.bookId, detail.provider, detail)
+                    }
+                    className="inline-flex items-center gap-1.5 px-4 py-2 min-h-[40px] rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-semibold text-white"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>{t.player.retry}</span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-2.5">
@@ -1454,6 +1469,85 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
           </div>
         </section>
       )}
+
+      {/* Crawlable Internal Linking Strip to Active Provider, Genres & Hubs */}
+      <nav
+        aria-label="Explore Related Hubs"
+        className="mt-6 rounded-2xl bg-[#111115] border border-[var(--cd-border)] p-4 sm:p-5 flex flex-wrap items-center gap-2 text-xs"
+      >
+        <a
+          href={`${DEFAULT_SITE_ORIGIN}/provider/${provRouteSlug}`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            window.dispatchEvent(
+              new CustomEvent('kd:navigate-path', {
+                detail: { path: `/provider/${provRouteSlug}` },
+              })
+            );
+          }}
+          className="px-3 py-1.5 rounded-full bg-[#18181D] border border-[#D4AF37]/30 hover:border-[#D4AF37] text-[#FDE68A] font-semibold transition-colors"
+        >
+          {detail.provider}
+        </a>
+        {detail.tags.slice(0, 4).map((tag) => {
+          const tSlug = slugifyDramaTitle(tag);
+          if (!tSlug) return null;
+          return (
+            <a
+              key={tag}
+              href={`${DEFAULT_SITE_ORIGIN}/tag/${encodeURIComponent(tSlug)}`}
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                e.preventDefault();
+                onSelectTag?.(tag);
+              }}
+              className="px-3 py-1.5 rounded-full bg-[#18181D] border border-white/10 hover:border-[var(--cd-accent)] text-[#D4D4D8] hover:text-white transition-colors"
+            >
+              #{tag}
+            </a>
+          );
+        })}
+        <a
+          href={`${DEFAULT_SITE_ORIGIN}/explore`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            window.dispatchEvent(
+              new CustomEvent('kd:navigate-path', { detail: { path: '/explore' } })
+            );
+          }}
+          className="px-3 py-1.5 rounded-full bg-[#18181D] border border-white/10 hover:border-[var(--cd-accent)] text-[#A1A1AA] hover:text-white transition-colors"
+        >
+          {t.nav.explore}
+        </a>
+        <a
+          href={`${DEFAULT_SITE_ORIGIN}/providers`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            window.dispatchEvent(
+              new CustomEvent('kd:navigate-path', { detail: { path: '/providers' } })
+            );
+          }}
+          className="px-3 py-1.5 rounded-full bg-[#18181D] border border-white/10 hover:border-[var(--cd-accent)] text-[#A1A1AA] hover:text-white transition-colors"
+        >
+          {t.nav.providers}
+        </a>
+        <a
+          href={`${DEFAULT_SITE_ORIGIN}/movies`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault();
+            window.dispatchEvent(
+              new CustomEvent('kd:navigate-path', { detail: { path: '/movies' } })
+            );
+          }}
+          className="px-3 py-1.5 rounded-full bg-[#18181D] border border-white/10 hover:border-[var(--cd-accent)] text-[#A1A1AA] hover:text-white transition-colors"
+        >
+          {t.nav.movies}
+        </a>
+      </nav>
 
       <ShareDramaModal
         open={shareModalState.open}

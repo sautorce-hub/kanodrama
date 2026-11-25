@@ -28,7 +28,7 @@ import { useDramaContext } from '../context/DramaContext';
 import { HeroSpotlight } from './HeroSpotlight';
 import { CarouselRow } from './CarouselRow';
 import { DramaCard } from './DramaCard';
-import { CarouselSkeleton } from './SkeletonCard';
+import { CarouselSkeleton, SkeletonCard } from './SkeletonCard';
 import type {
   DramaItem,
   Lk21HomeResponse,
@@ -908,23 +908,36 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
           {searchLoading && searchConverted.length === 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {Array.from({ length: 10 }).map((_, i) => (
-                <div key={i} className="space-y-2">
-                  <div className="w-full aspect-[2/3] rounded-xl skeleton-espresso border border-white/10" />
-                  <div className="h-3.5 w-[85%] rounded skeleton-espresso" />
-                </div>
+                <SkeletonCard key={i} fluid />
               ))}
             </div>
           ) : searchError && searchConverted.length === 0 ? (
-            <div className="p-8 rounded-2xl bg-[var(--cd-surface)] border border-red-500/30 text-center max-w-lg mx-auto my-8">
-              <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-2" />
+            <div className="p-8 rounded-2xl bg-[var(--cd-surface)] border border-red-500/30 text-center max-w-lg mx-auto my-8 space-y-3">
+              <AlertCircle className="w-8 h-8 text-red-400 mx-auto" />
               <p className="text-sm text-white font-semibold">{searchError}</p>
+              <button
+                type="button"
+                onClick={resetAllFilters}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-semibold text-white transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>{t.moviesPage.clearFilters}</span>
+              </button>
             </div>
           ) : searchConverted.length === 0 ? (
-            <div className="p-10 rounded-2xl bg-[var(--cd-surface)] border border-white/10 text-center max-w-lg mx-auto my-8">
-              <Film className="w-8 h-8 cd-accent-text mx-auto mb-3 opacity-70" />
+            <div className="p-10 rounded-2xl bg-[var(--cd-surface)] border border-white/10 text-center max-w-lg mx-auto my-8 space-y-3">
+              <Film className="w-8 h-8 cd-accent-text mx-auto opacity-70" />
               <p className="text-sm font-semibold text-white">
                 {t.moviesPage.noResults}
               </p>
+              <button
+                type="button"
+                onClick={resetAllFilters}
+                className="inline-flex items-center gap-1.5 px-5 py-2 min-h-[40px] rounded-full cd-accent-bg text-xs font-semibold text-white transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>{t.moviesPage.clearFilters}</span>
+              </button>
             </div>
           ) : (
             <>
@@ -981,10 +994,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
           {categoryLoading && categoryConverted.length === 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {Array.from({ length: 10 }).map((_, i) => (
-                <div key={i} className="space-y-2">
-                  <div className="w-full aspect-[2/3] rounded-xl skeleton-espresso border border-white/10" />
-                  <div className="h-3.5 w-[85%] rounded skeleton-espresso" />
-                </div>
+                <SkeletonCard key={i} fluid />
               ))}
             </div>
           ) : categoryError && categoryConverted.length === 0 ? (
@@ -1008,11 +1018,19 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
               </button>
             </div>
           ) : categoryConverted.length === 0 ? (
-            <div className="p-10 rounded-2xl bg-[var(--cd-surface)] border border-white/10 text-center max-w-lg mx-auto my-8">
-              <Film className="w-8 h-8 cd-accent-text mx-auto mb-3 opacity-70" />
+            <div className="p-10 rounded-2xl bg-[var(--cd-surface)] border border-white/10 text-center max-w-lg mx-auto my-8 space-y-3">
+              <Film className="w-8 h-8 cd-accent-text mx-auto opacity-70" />
               <p className="text-sm font-semibold text-white">
                 {t.moviesPage.noResults}
               </p>
+              <button
+                type="button"
+                onClick={resetAllFilters}
+                className="inline-flex items-center gap-1.5 px-5 py-2 min-h-[40px] rounded-full cd-accent-bg text-xs font-semibold text-white transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>{t.moviesPage.clearFilters}</span>
+              </button>
             </div>
           ) : (
             <>

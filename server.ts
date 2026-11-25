@@ -906,6 +906,26 @@ function extractUserTimeZone(req: Request): string | undefined {
   return raw || undefined;
 }
 
+function isIndonesianRequest(req: Request): boolean {
+  const explicitTz = (req.get('x-user-timezone') || '').trim().toLowerCase();
+  if (explicitTz === 'utc' || explicitTz === 'etc/utc' || explicitTz === 'gmt') {
+    return false;
+  }
+  if (
+    explicitTz === 'asia/jakarta' ||
+    explicitTz === 'asia/pontianak' ||
+    explicitTz === 'asia/makassar' ||
+    explicitTz === 'asia/jayapura'
+  ) {
+    return true;
+  }
+  const queryLang = normalizeLanguageCode(
+    typeof req.query.lang === 'string' ? req.query.lang : null
+  );
+  if (queryLang) return queryLang === 'id';
+  return resolveRequestLanguage(req).lang === 'id';
+}
+
 const endpointRateWindows = new Map<string, number[]>();
 function isEndpointRateLimited(
   bucketKey: string,
@@ -2013,7 +2033,7 @@ function injectDramaSeoIntoHtml(
     slug,
     description: seriesDescription,
   };
-  const ogImage = toAbsoluteImageUrl(drama.cover || DEFAULT_OG_IMAGE_PATH, origin);
+  const ogImage = toAbsoluteImageUrl(drama.cover || DEFAULT_OG_IMAGE_PATH, brandOrigin);
   const keywordsList = [
     drama.title,
     isId ? `Nonton Gratis ${drama.title} Sub Indo` : `Watch Free ${drama.title} online`,
@@ -2105,7 +2125,7 @@ function injectDramaSeoIntoHtml(
   };
 
   const primaryImg = meta.openGraph.images[0];
-  const resolvedOgImg = buildOgImageEndpointUrl(drama.cover || DEFAULT_OG_IMAGE_PATH, origin, pageTitle);
+  const resolvedOgImg = buildOgImageEndpointUrl(drama.cover || DEFAULT_OG_IMAGE_PATH, brandOrigin, pageTitle);
   const ogImageUrl = resolvedOgImg || primaryImg?.url || meta.openGraph.image;
   const ogSecureUrl = ogImageUrl.replace(/^http:\/\//i, 'https://');
   const ogImgAlt = primaryImg?.alt || pageTitle;
@@ -2194,6 +2214,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
         <ul>${ssrEpisodeLinks}</ul>
       </section>
       ${ssrRelatedLinksHtml}
+      <nav aria-label="Catalog Navigation"><a href="${brandOrigin}/explore">${isId ? 'Jelajahi Drama' : 'Explore Dramas'}</a> · <a href="${brandOrigin}/providers">${isId ? 'Direktori Provider' : 'All Providers'}</a> · <a href="${brandOrigin}/provider/${provSlug}">${escapeHtmlAttr(drama.provider)}</a> · <a href="${brandOrigin}/movies">${isId ? 'Film HD' : 'HD Movies'}</a></nav>
     </article>
   </main>`;
 
@@ -2333,7 +2354,7 @@ function injectMovieSeoIntoHtml(
     });
   const ogImage = toAbsoluteImageUrl(
     movie.poster || movie.cover || DEFAULT_OG_IMAGE_PATH,
-    origin
+    brandOrigin
   );
   const keywordsList = [
     isId
@@ -2447,7 +2468,7 @@ function injectMovieSeoIntoHtml(
   const primaryImg = meta.openGraph.images[0];
   const resolvedOgImg = buildOgImageEndpointUrl(
     movie.poster || movie.cover || DEFAULT_OG_IMAGE_PATH,
-    origin,
+    brandOrigin,
     pageTitle
   );
   const ogImageUrl = resolvedOgImg || primaryImg?.url || meta.openGraph.image;
@@ -2528,6 +2549,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
       <p><a href="${brandOrigin}${escapeHtmlAttr(watchPath)}">${isId ? 'Nonton Gratis Sekarang' : 'Watch Free Now'}</a></p>
       ${movieEpLinks}
       ${ssrRelatedMovieHtml}
+      <nav aria-label="Catalog Navigation"><a href="${brandOrigin}/movies">${isId ? 'Semua Film HD' : 'All HD Movies'}</a> · <a href="${brandOrigin}/explore">${isId ? 'Jelajahi Drama' : 'Explore Dramas'}</a> · <a href="${brandOrigin}/providers">${isId ? 'Direktori Provider' : 'All Providers'}</a></nav>
     </article>
   </main>`;
 
@@ -2547,7 +2569,7 @@ function injectProgrammaticSeoIntoHtml(
 ): string {
   const brandOrigin = DEFAULT_SITE_ORIGIN;
   const canonicalUrl = `${brandOrigin}${landing.canonicalPath}`;
-  const ogImage = buildOgImageEndpointUrl(DEFAULT_OG_IMAGE_PATH, origin, landing.title);
+  const ogImage = buildOgImageEndpointUrl(DEFAULT_OG_IMAGE_PATH, brandOrigin, landing.title);
   const ogSecureUrl = ogImage.replace(/^http:\/\//i, 'https://');
   const htmlLang = getHtmlLangTag(ssrLang);
   const ogLocale = getOgLocaleTag(ssrLang);
@@ -2758,7 +2780,7 @@ function injectPageMetadataIntoHtml(
   homeFeatured?: HomeSsrFeaturedData
 ): string {
   const brandOrigin = DEFAULT_SITE_ORIGIN;
-  const ogImage = `${origin}${DEFAULT_OG_IMAGE_PATH}`;
+  const ogImage = `${brandOrigin}${DEFAULT_OG_IMAGE_PATH}`;
   const meta = generateMetadata({
     page,
     lang: ssrLang,
@@ -2786,37 +2808,70 @@ function injectPageMetadataIntoHtml(
     page === 'latest' ||
     page === 'vip';
 
+  const isIdSsr = ssrLang === 'id';
   const rewardsFaqGraph =
     page === 'rewards'
       ? [
           {
             '@type': 'FAQPage',
-            mainEntity: [
-              {
-                '@type': 'Question',
-                name: 'Bagaimana cara nonton drama dapat poin di KanoDrama?',
-                acceptedAnswer: {
-                  '@type': 'Answer',
-                  text: 'Daftar atau masuk dengan akun Anda untuk langsung memperoleh bonus login pertama +5.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +20 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), +200 poin episode baru (minimal 15 detik), check-in harian +500 poin, dan bonus milestone 15, 30, dan 60 menit yang dapat diklaim setelah target tercapai (reset otomatis setiap pukul 00.00 WIB / 17.00 UTC).',
-                },
-              },
-              {
-                '@type': 'Question',
-                name: 'Berapa nilai tukar poin dan minimal penarikan saldo DANA, Bank, PayPal, atau USDT?',
-                acceptedAnswer: {
-                  '@type': 'Answer',
-                  text: 'Nilai tukar resmi adalah 100.000 poin = 1 USDT ($1.00 USD) = Rp 18.200. Penarikan lokal IDR (DANA, GoPay, OVO, ShopeePay, LinkAja, Bank Transfer BCA/BRI/BNI/Mandiri/Jago/SeaBank) minimal Rp 50.000, dan penarikan global (PayPal, Wise, USDT Polygon/TRC20/BEP20/ERC20) minimal $5.00 USD.',
-                },
-              },
-              {
-                '@type': 'Question',
-                name: 'Bagaimana cara mendapatkan bonus referral +5.000 poin?',
-                acceptedAnswer: {
-                  '@type': 'Answer',
-                  text: 'Bagikan link referral resmi kano-drama.live Anda. Setelah teman mendaftar dan menyelesaikan total 1 jam (60 menit) waktu tonton aktif terverifikasi, +5.000 poin otomatis masuk ke saldo Anda.',
-                },
-              },
-            ],
+            mainEntity: isIdSsr
+              ? [
+                  {
+                    '@type': 'Question',
+                    name: 'Bagaimana cara nonton drama dapat poin di KanoDrama?',
+                    acceptedAnswer: {
+                      '@type': 'Answer',
+                      text: 'Daftar atau masuk dengan akun Anda untuk langsung memperoleh bonus login pertama +10.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +40 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), +400 poin episode baru (minimal 15 detik), check-in harian +1.000 poin, dan bonus milestone 15, 30, serta 60 menit (+1.000 / +2.400 / +5.600 poin) yang reset otomatis setiap pukul 00.00 WIB.',
+                    },
+                  },
+                  {
+                    '@type': 'Question',
+                    name: 'Berapa nilai tukar poin dan minimal penarikan saldo DANA, Bank, PayPal, atau USDT?',
+                    acceptedAnswer: {
+                      '@type': 'Answer',
+                      text: 'Nilai tukar resmi adalah 100.000 poin = 1 USDT ($1.00 USD) = Rp 18.200. Penarikan lokal IDR (DANA, GoPay, OVO, ShopeePay, LinkAja, Bank Transfer BCA/BRI/BNI/Mandiri/Jago/SeaBank) minimal Rp 50.000, dan penarikan global (PayPal, Wise, USDT Polygon/TRC20/BEP20/ERC20) minimal $5.00 USD.',
+                    },
+                  },
+                  {
+                    '@type': 'Question',
+                    name: 'Bagaimana cara mendapatkan bonus referral +200 poin & +10.000 poin?',
+                    acceptedAnswer: {
+                      '@type': 'Answer',
+                      text: 'Bagikan link referral resmi kano-drama.live Anda. Teman yang mengikat kode referral Anda langsung menerima +200 poin, dan setelah menyelesaikan total 1 jam (3.600 detik) waktu tonton aktif terverifikasi, +10.000 poin otomatis masuk ke saldo Anda.',
+                    },
+                  },
+                ]
+              : [
+                  {
+                    '@type': 'FAQPage',
+                    mainEntity: [
+                      {
+                        '@type': 'Question',
+                        name: 'How do I earn points watching dramas on KanoDrama?',
+                        acceptedAnswer: {
+                          '@type': 'Answer',
+                          text: 'Sign in to claim a +10,000 points first-login welcome bonus (once per account), then actively watch short dramas or movies at normal 1x speed. You earn +40 points/min automatically up to 60 minutes daily (scaled up to 1.6x by your account level), +400 points per new episode (15s minimum), +1,000 points daily check-in, and +1,000 / +2,400 / +5,600 milestone bonuses (all daily missions reset at 17:00 UTC).',
+                        },
+                      },
+                      {
+                        '@type': 'Question',
+                        name: 'What is the points conversion rate and minimum withdrawal?',
+                        acceptedAnswer: {
+                          '@type': 'Answer',
+                          text: 'The official rate is 100,000 points = 1 USDT ($1.00 USD) = Rp 18,200 IDR. Local IDR payouts (DANA, GoPay, OVO, ShopeePay, LinkAja, Indonesian Bank Transfer) start from Rp 50,000, and global payouts (PayPal, Wise, USDT Polygon/TRC20/BEP20/ERC20) start from $5.00 USD.',
+                        },
+                      },
+                      {
+                        '@type': 'Question',
+                        name: 'How do the +200 bind bonus and +10,000 referral bonus work?',
+                        acceptedAnswer: {
+                          '@type': 'Answer',
+                          text: 'Share your official kano-drama.live referral link. Friends who bind your referral code receive +200 bonus points immediately, and once they complete 1 hour (3,600 seconds) of verified active watch time, +10,000 points are automatically credited to your balance.',
+                        },
+                      },
+                    ],
+                  },
+                ],
           },
         ]
       : [];
@@ -2889,7 +2944,7 @@ function injectPageMetadataIntoHtml(
         };
 
   const primaryImg = meta.openGraph.images[0];
-  const resolvedOgImg = buildOgImageEndpointUrl(DEFAULT_OG_IMAGE_PATH, origin, meta.openGraph.title);
+  const resolvedOgImg = buildOgImageEndpointUrl(DEFAULT_OG_IMAGE_PATH, brandOrigin, meta.openGraph.title);
   const ogImgUrl = resolvedOgImg || primaryImg?.url || meta.openGraph.image;
   const ogSecureUrl = ogImgUrl.replace(/^http:\/\//i, 'https://');
   const ogImgAlt = primaryImg?.alt || meta.openGraph.title;
@@ -2935,24 +2990,46 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
     );
   }
   if (page === 'rewards') {
-    const ssrRewardsHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
+    const ssrRewardsHtml = isIdSsr
+      ? `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
       <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <span>${escapeHtmlAttr(sectionLabelMap.rewards)}</span></nav>
       <h1>Nonton Drama China &amp; Short Drama Dapat Poin &amp; Saldo — Reward KanoDrama</h1>
       <p>${escapeHtmlAttr(meta.description)}</p>
       <section>
         <h2>Cara Mengumpulkan Poin KanoDrama</h2>
         <ul>
-          <li>Bonus login pertama akun baru: +5.000 poin otomatis saat pertama kali masuk (1x per akun).</li>
-          <li>Tonton drama pendek &amp; film aktif (kecepatan normal): +20 poin per menit otomatis (maksimal 60 menit/hari) × multiplier level akun (Bronze 1.0x hingga Platinum 1.6x).</li>
-          <li>Bonus episode baru: +200 poin per episode setelah minimal 15 detik menonton terverifikasi.</li>
-          <li>Check-in harian &amp; streak beruntun: +500 poin/hari (reset pukul 00.00 WIB / 17.00 UTC).</li>
-          <li>Bonus milestone harian (klaim manual setelah target tercapai): +500 poin (15 menit), +1.200 poin (30 menit), dan +2.800 poin (60 menit).</li>
-          <li>Program Referral KanoDrama: +5.000 poin setelah teman menyelesaikan 1 jam waktu tonton terverifikasi.</li>
+          <li>Bonus login pertama akun baru: +10.000 poin otomatis saat pertama kali masuk (1x per akun).</li>
+          <li>Tonton drama pendek &amp; film aktif (kecepatan normal): +40 poin per menit otomatis (maksimal 60 menit/hari) × multiplier level akun (Bronze 1.0x hingga Platinum 1.6x).</li>
+          <li>Bonus episode baru: +400 poin per episode setelah minimal 15 detik menonton terverifikasi.</li>
+          <li>Check-in harian &amp; streak beruntun: +1.000 poin/hari (reset pukul 00.00 WIB).</li>
+          <li>Bonus milestone harian (klaim manual setelah target tercapai): +1.000 poin (15 menit), +2.400 poin (30 menit), dan +5.600 poin (60 menit).</li>
+          <li>Program Referral KanoDrama: +200 poin saat teman mengikat kode referral Anda dan +10.000 poin setelah teman menyelesaikan 1 jam waktu tonton terverifikasi.</li>
         </ul>
       </section>
       <section>
         <h2>Konversi Poin &amp; Metode Penarikan Resmi</h2>
         <p>100.000 poin = 1 USDT ($1.00 USD) = Rp 18.200 IDR. Minimal penarikan lokal Rp 50.000 ke DANA, GoPay, OVO, ShopeePay, LinkAja, serta transfer bank BCA, BRI, BNI, Mandiri, BSI, CIMB Niaga, Bank Jago, SeaBank, Permata, dan BTN. Minimal penarikan global $5.00 USD ke PayPal, Wise, dan USDT (Polygon, TRC20, BEP20, ERC20).</p>
+      </section>
+      <nav aria-label="Navigation"><a href="${brandOrigin}/">Home</a> · <a href="${brandOrigin}/explore">Explore Drama</a> · <a href="${brandOrigin}/movies">Movies</a> · <a href="${brandOrigin}/providers">Providers</a> · <a href="${brandOrigin}/trending">Trending</a></nav>
+    </main>`
+      : `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
+      <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <span>${escapeHtmlAttr(sectionLabelMap.rewards)}</span></nav>
+      <h1>Watch Short Dramas &amp; Movies to Earn Points &amp; Cash — KanoDrama Rewards</h1>
+      <p>${escapeHtmlAttr(meta.description)}</p>
+      <section>
+        <h2>How to Earn Points on KanoDrama</h2>
+        <ul>
+          <li>First-login welcome bonus: +10,000 points credited automatically on your first sign-in (once per account).</li>
+          <li>Watch short dramas &amp; movies actively (normal 1x speed): +40 points per minute automatically (up to 60 minutes/day) × account level multiplier (Bronze 1.0x up to Platinum 1.6x).</li>
+          <li>New episode bonus: +400 points per episode after at least 15 seconds of verified active playback.</li>
+          <li>Daily check-in &amp; streak bonus: +1,000 points/day (resets at 17:00 UTC).</li>
+          <li>Daily milestone bonuses (manual claim once reached): +1,000 points (15 min), +2,400 points (30 min), and +5,600 points (60 min).</li>
+          <li>KanoDrama Referral Program: +200 points on valid referral code bind and +10,000 points once your friend completes 1 hour of verified active watch time.</li>
+        </ul>
+      </section>
+      <section>
+        <h2>Points Conversion &amp; Official Payout Methods</h2>
+        <p>100,000 points = 1 USDT ($1.00 USD) = Rp 18,200 IDR. Minimum local IDR withdrawal Rp 50,000 via DANA, GoPay, OVO, ShopeePay, LinkAja, or Indonesian Bank Transfer. Minimum global withdrawal $5.00 USD via PayPal, Wise, and USDT (Polygon, TRC20, BEP20, ERC20).</p>
       </section>
       <nav aria-label="Navigation"><a href="${brandOrigin}/">Home</a> · <a href="${brandOrigin}/explore">Explore Drama</a> · <a href="${brandOrigin}/movies">Movies</a> · <a href="${brandOrigin}/providers">Providers</a> · <a href="${brandOrigin}/trending">Trending</a></nav>
     </main>`;
@@ -2979,7 +3056,7 @@ function injectProviderSeoIntoHtml(
   items: Array<Record<string, unknown>> = []
 ): string {
   const brandOrigin = DEFAULT_SITE_ORIGIN;
-  const ogImage = `${origin}${DEFAULT_OG_IMAGE_PATH}`;
+  const ogImage = `${brandOrigin}${DEFAULT_OG_IMAGE_PATH}`;
   const provSlug = getProviderRouteSlug(provider);
   const canonicalPath = `/provider/${provSlug}`;
   const meta = generateMetadata({
@@ -3046,7 +3123,7 @@ function injectProviderSeoIntoHtml(
   };
 
   const primaryImg = meta.openGraph.images[0];
-  const resolvedOgImg = buildOgImageEndpointUrl(DEFAULT_OG_IMAGE_PATH, origin, meta.openGraph.title);
+  const resolvedOgImg = buildOgImageEndpointUrl(DEFAULT_OG_IMAGE_PATH, brandOrigin, meta.openGraph.title);
   const ogImgUrl = resolvedOgImg || primaryImg?.url || meta.openGraph.image;
   const ogSecureUrl = ogImgUrl.replace(/^http:\/\//i, 'https://');
   const ogImgAlt = primaryImg?.alt || meta.openGraph.title;
@@ -3094,6 +3171,7 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
     <h1>${escapeHtmlAttr(provider)} Short Dramas on KanoDrama</h1>
     <p>${escapeHtmlAttr(meta.description)}</p>
     ${ssrItemsHtml}
+    <nav aria-label="Provider Navigation"><a href="${brandOrigin}/providers">All Providers</a> · <a href="${brandOrigin}/explore">Explore Dramas</a> · <a href="${brandOrigin}/movies">HD Movies</a></nav>
   </main>`;
 
   const withHead = applyHtmlLangTag(stripStaticSeoHeadTags(html), ssrLang).replace(
@@ -5477,6 +5555,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }
 
       const cfg = getPayoutRuntimeConfig();
+      const isId = isIndonesianRequest(req);
       const action = cleanText(
         req.body?.action ?? req.body?.type,
         'daily_checkin'
@@ -5499,9 +5578,15 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               : 400;
           const message =
             result.reason === 'duplicate_claim'
-              ? 'Check-in harian untuk periode berjalan sudah diklaim (reset serentak pukul 00:00 WIB / 17:00 UTC).'
+              ? isId
+                ? 'Check-in harian untuk periode berjalan sudah diklaim (reset serentak pukul 00:00 WIB).'
+                : 'Daily check-in for the current cycle has already been claimed (resets at 17:00 UTC).'
               : result.reason === 'daily_cap_reached'
-              ? `Batas poin harian (${cfg.maxDailyEarnPoints} pts) hari ini sudah tercapai.`
+              ? isId
+                ? `Batas poin harian (${cfg.maxDailyEarnPoints.toLocaleString('id-ID')} poin) hari ini sudah tercapai.`
+                : `Daily earn limit (${cfg.maxDailyEarnPoints.toLocaleString('en-US')} pts) reached for today.`
+              : isId
+              ? 'Gagal menyelesaikan check-in harian.'
               : 'Unable to complete daily check-in';
           res.status(statusCode).json({
             ok: false,
@@ -5570,13 +5655,23 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               : 400;
           const message =
             result.reason === 'duplicate_claim'
-              ? 'Bonus episode ini sudah pernah diklaim untuk akun Anda.'
+              ? isId
+                ? 'Bonus episode ini sudah pernah diklaim untuk akun Anda.'
+                : 'This episode watch bonus has already been claimed on your account.'
               : result.reason === 'watch_duration_insufficient'
-              ? 'Tonton episode minimal 15 detik secara aktif untuk membuka bonus poin.'
+              ? isId
+                ? 'Tonton episode minimal 15 detik secara aktif untuk membuka bonus poin.'
+                : 'Watch at least 15 seconds actively to unlock the episode bonus.'
               : result.reason === 'daily_cap_reached'
-              ? `Daily earn limit (${cfg.maxDailyEarnPoints} pts) reached for today`
+              ? isId
+                ? `Batas poin harian (${cfg.maxDailyEarnPoints.toLocaleString('id-ID')} poin) hari ini sudah tercapai.`
+                : `Daily earn limit (${cfg.maxDailyEarnPoints.toLocaleString('en-US')} pts) reached for today.`
               : result.reason === 'cooldown_active'
-              ? `Please wait ${result.cooldownSecondsRemaining || cfg.claimCooldownSeconds}s before the next claim`
+              ? isId
+                ? `Tunggu ${result.cooldownSecondsRemaining || cfg.claimCooldownSeconds} detik sebelum klaim berikutnya.`
+                : `Please wait ${result.cooldownSecondsRemaining || cfg.claimCooldownSeconds}s before the next claim`
+              : isId
+              ? 'Gagal mengklaim bonus episode.'
               : 'Unable to claim episode watch reward';
           res.status(statusCode).json({
             ok: false,
@@ -5620,14 +5715,24 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               : 400;
           const message =
             result.reason === 'duplicate_claim'
-              ? 'Bonus milestone ini sudah diklaim untuk periode hari ini.'
+              ? isId
+                ? 'Bonus milestone ini sudah diklaim untuk periode hari ini.'
+                : 'This milestone bonus has already been claimed for the current period.'
               : result.reason === 'milestone_not_reached'
-              ? `Target menonton aktif ${milestoneMinutes} menit hari ini belum tercapai.`
+              ? isId
+                ? `Target menonton aktif ${milestoneMinutes} menit hari ini belum tercapai.`
+                : `Active watch target of ${milestoneMinutes} minutes has not been reached yet.`
               : result.reason === 'daily_watch_cap_reached'
-              ? `Batas poin nonton harian (${cfg.maxDailyWatchPoints.toLocaleString()} pts) hari ini sudah tercapai.`
+              ? isId
+                ? `Batas poin nonton harian (${cfg.maxDailyWatchPoints.toLocaleString('id-ID')} poin) hari ini sudah tercapai.`
+                : `Daily watch earn limit (${cfg.maxDailyWatchPoints.toLocaleString('en-US')} pts) reached for today.`
               : result.reason === 'daily_cap_reached'
-              ? `Batas poin harian (${cfg.maxDailyEarnPoints.toLocaleString()} pts) hari ini sudah tercapai.`
-              : 'Milestone menit menonton tidak valid.';
+              ? isId
+                ? `Batas poin harian (${cfg.maxDailyEarnPoints.toLocaleString('id-ID')} poin) hari ini sudah tercapai.`
+                : `Daily earn limit (${cfg.maxDailyEarnPoints.toLocaleString('en-US')} pts) reached for today.`
+              : isId
+              ? 'Milestone menit menonton tidak valid.'
+              : 'Invalid watch milestone.';
           res.status(statusCode).json({
             ok: false,
             reason: result.reason,
@@ -5666,10 +5771,13 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         res.status(403).json({ ok: false, error: 'Untrusted origin' });
         return;
       }
+      const isId = isIndonesianRequest(req);
       if (isEndpointRateLimited(`redeem:${session.uid}`, 8, 60_000)) {
         res.status(429).json({
           ok: false,
-          error: 'Terlalu banyak permintaan penarikan. Silakan tunggu sebentar.',
+          error: isId
+            ? 'Terlalu banyak permintaan penarikan. Silakan tunggu sebentar.'
+            : 'Too many payout requests. Please wait a moment.',
         });
         return;
       }
@@ -5743,12 +5851,18 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         const message =
           result.reason === 'below_minimum'
             ? isIdrMethod
-              ? `Minimum penarikan Rupiah adalah Rp ${cfg.minPayoutIdr.toLocaleString('id-ID')} (${result.minRequiredPoints} poin)`
+              ? isId
+                ? `Minimum penarikan Rupiah adalah Rp ${cfg.minPayoutIdr.toLocaleString('id-ID')} (${result.minRequiredPoints} poin)`
+                : `Minimum IDR withdrawal is Rp ${cfg.minPayoutIdr.toLocaleString('en-US')} (${result.minRequiredPoints} points)`
               : `Minimum Global withdrawal is $${cfg.minPayoutUsd.toFixed(2)} USD (${result.minRequiredPoints} points)`
             : result.reason === 'insufficient_balance'
-            ? 'Saldo poin aktif tidak mencukupi untuk penarikan ini.'
+            ? isId
+              ? 'Saldo poin aktif tidak mencukupi untuk penarikan ini.'
+              : 'Insufficient points balance for this withdrawal.'
             : result.reason === 'invalid_method_details'
-            ? 'Detail metode atau kode bank tujuan tidak valid.'
+            ? isId
+              ? 'Detail metode atau kode bank tujuan tidak valid.'
+              : 'Invalid payout method or bank code details.'
             : 'Unable to submit payout request';
         res.status(400).json({
           ok: false,
@@ -5853,6 +5967,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         ok: result.bound,
         bound: result.bound,
         status: result.status,
+        bindBonusAwarded: result.bindBonusAwarded ?? 0,
         reason: result.reason,
       });
     } catch (err) {
@@ -7880,21 +7995,36 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     excludeSlug: string
   ): Promise<SsrRelatedLink[]> => {
     try {
-      const filtered = await filterCatalogFromDb({
-        genre: tags[0],
-        limit: 8,
-        offset: 0,
-      });
       const out: SsrRelatedLink[] = [];
-      for (const item of filtered.items) {
-        const title = cleanText(item.title ?? item.bookName);
-        const slug = cleanText(item.slug) || slugifyTitle(title);
-        const provider = cleanText(item.provider, 'DramaBoxV2');
-        if (!title || !slug || slug.toLowerCase() === excludeSlug.toLowerCase()) {
-          continue;
+      const seen = new Set<string>([excludeSlug.toLowerCase()]);
+      const pushItems = (items: Array<Record<string, unknown>>) => {
+        for (const item of items) {
+          const title = cleanText(item.title ?? item.bookName);
+          const slug = (cleanText(item.slug) || slugifyTitle(title)).toLowerCase();
+          const provider = cleanText(item.provider, 'DramaBoxV2');
+          if (!title || !slug || seen.has(slug)) {
+            continue;
+          }
+          seen.add(slug);
+          out.push({ title, slug, provider });
+          if (out.length >= 6) break;
         }
-        out.push({ title, slug, provider });
-        if (out.length >= 6) break;
+      };
+
+      if (tags[0]) {
+        const filtered = await filterCatalogFromDb({
+          genre: tags[0],
+          limit: 10,
+          offset: 0,
+        });
+        pushItems(filtered.items);
+      }
+      if (out.length < 6) {
+        const general = await filterCatalogFromDb({
+          limit: 12,
+          offset: 0,
+        });
+        pushItems(general.items);
       }
       return out;
     } catch {

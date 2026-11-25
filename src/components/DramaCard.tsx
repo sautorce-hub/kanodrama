@@ -318,13 +318,16 @@ export const DramaCard: React.FC<DramaCardProps> = ({
           {isContinue ? (
             <div className="flex items-center justify-between gap-1 text-[11px] sm:text-xs font-medium tabular-nums truncate">
               <span className="text-[#D4AF37] truncate">
-                {t.sections.resumeEp} {continueEpisode}
-                {formatShortClock(continueCurrentTime)
-                  ? ` · ${formatShortClock(continueCurrentTime)}`
-                  : ''}
+                {isSingleMovie
+                  ? formatShortClock(continueCurrentTime) || `${Math.round(continueProgress ?? 0)}%`
+                  : `${t.sections.resumeEp} ${continueEpisode}${
+                      formatShortClock(continueCurrentTime)
+                        ? ` · ${formatShortClock(continueCurrentTime)}`
+                        : ''
+                    }`}
               </span>
               <span className="text-[#A1A1AA] shrink-0">
-                Ep: {episodeCount}
+                {isSingleMovie ? drama.quality || 'HD' : `Ep: ${episodeCount}`}
               </span>
             </div>
           ) : (

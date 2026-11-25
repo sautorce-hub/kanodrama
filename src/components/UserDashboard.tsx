@@ -6,6 +6,7 @@ import {
   Clapperboard,
   Clock,
   Coins,
+  Compass,
   Crown,
   Flame,
   FolderOpen,
@@ -20,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useDramaContext } from '../context/DramaContext';
 import { RewardsPayoutSection } from './RewardsPayoutSection';
-import { SUPPORTED_LANGUAGES } from '../i18n/helpers';
+import { DEFAULT_SITE_ORIGIN, SUPPORTED_LANGUAGES } from '../i18n/helpers';
 import { formatPlaybackClock, getDramaPath, getWatchPath } from '../utils/seo';
 import type {
   AccentThemeId,
@@ -411,6 +412,28 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 ? pointsBalance.toLocaleString()
                 : 0}
             </p>
+            {user && accountLevelInfo && (
+              <div className="mt-2 space-y-1">
+                <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#D4AF37] to-[#FBBF24] transition-[width] duration-700 ease-out"
+                    style={{
+                      width: `${Math.max(
+                        accountLevelInfo.progressPercent > 0 ? 6 : 0,
+                        accountLevelInfo.progressPercent
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] text-[#FDE68A]/85 tabular-nums truncate">
+                  {accountLevelInfo.level < 4
+                    ? `${accountLevelInfo.progressPercent}% → ${
+                        ['Silver', 'Gold', 'Platinum'][accountLevelInfo.level - 1]
+                      }`
+                    : `Lv.${accountLevelInfo.level} Max`}
+                </p>
+              </div>
+            )}
           </button>
         </div>
       </section>
@@ -715,6 +738,28 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                       ? t.moviesPage.watchlistEmpty
                       : t.sections.dramaWatchlistEmpty}
                   </p>
+                  <div className="pt-1">
+                    <a
+                      href={`${DEFAULT_SITE_ORIGIN}${watchlistCategory === 'movie' ? '/movies' : '/explore'}`}
+                      onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                        e.preventDefault();
+                        window.dispatchEvent(
+                          new CustomEvent('kd:navigate-path', {
+                            detail: {
+                              path: watchlistCategory === 'movie' ? '/movies' : '/explore',
+                            },
+                          })
+                        );
+                      }}
+                      className="inline-flex items-center gap-1.5 px-5 py-2.5 min-h-[40px] rounded-full cd-accent-bg text-xs font-semibold text-white transition-colors"
+                    >
+                      <Compass className="w-3.5 h-3.5" />
+                      <span>
+                        {watchlistCategory === 'movie' ? t.nav.movies : t.nav.explore}
+                      </span>
+                    </a>
+                  </div>
                 </div>
               ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -744,7 +789,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     className="rounded-2xl bg-[var(--cd-surface)] border border-white/10 p-3.5 flex gap-3.5"
                   >
                     <a
-                      href={detailHref}
+                      href={`${DEFAULT_SITE_ORIGIN}${detailHref}`}
                       onClick={(e) => {
                         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                         e.preventDefault();
@@ -765,7 +810,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     <div className="min-w-0 flex-1 flex flex-col justify-between gap-2">
                       <div>
                         <a
-                          href={detailHref}
+                          href={`${DEFAULT_SITE_ORIGIN}${detailHref}`}
                           onClick={(e) => {
                             if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                             e.preventDefault();
@@ -785,7 +830,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
                       <div className="flex flex-wrap items-center gap-2">
                         <a
-                          href={watchHref}
+                          href={`${DEFAULT_SITE_ORIGIN}${watchHref}`}
                           onClick={(e) => {
                             if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                             e.preventDefault();
@@ -840,9 +885,27 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       {subTab === 'history' && (
         <section>
           {watchHistory.length === 0 ? (
-            <div className="rounded-3xl bg-[var(--cd-surface)] border border-white/10 p-10 text-center space-y-2">
+            <div className="rounded-3xl bg-[var(--cd-surface)] border border-white/10 p-10 text-center space-y-3">
               <Clock className="w-8 h-8 text-[#71717A] mx-auto" />
               <p className="text-sm text-[#A1A1AA]">{t.dashboard.historyEmpty}</p>
+              <div className="pt-1">
+                <a
+                  href={`${DEFAULT_SITE_ORIGIN}/explore`}
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                    e.preventDefault();
+                    window.dispatchEvent(
+                      new CustomEvent('kd:navigate-path', {
+                        detail: { path: '/explore' },
+                      })
+                    );
+                  }}
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 min-h-[40px] rounded-full cd-accent-bg text-xs font-semibold text-white transition-colors"
+                >
+                  <Compass className="w-3.5 h-3.5" />
+                  <span>{t.nav.explore}</span>
+                </a>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -866,7 +929,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   className="rounded-2xl bg-[var(--cd-surface)] border border-white/10 p-3.5 flex gap-3.5"
                 >
                   <a
-                    href={watchHref}
+                    href={`${DEFAULT_SITE_ORIGIN}${watchHref}`}
                     onClick={(e) => {
                       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                       e.preventDefault();
@@ -890,7 +953,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   <div className="min-w-0 flex-1 flex flex-col justify-between gap-2">
                     <div>
                       <a
-                        href={detailHref}
+                        href={`${DEFAULT_SITE_ORIGIN}${detailHref}`}
                         onClick={(e) => {
                           if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                           e.preventDefault();
@@ -920,7 +983,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
                     <div className="flex items-center justify-between gap-2 pt-1">
                       <a
-                        href={watchHref}
+                        href={`${DEFAULT_SITE_ORIGIN}${watchHref}`}
                         onClick={(e) => {
                           if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                           e.preventDefault();
@@ -972,13 +1035,38 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               </button>
             </div>
           ) : commentsLoading ? (
-            <p className="text-sm text-[#A1A1AA] py-8 text-center">
-              {t.sections.loading}
-            </p>
+            <div className="space-y-3" aria-busy="true" aria-label={t.sections.loading}>
+              {Array.from({ length: 3 }).map((_, idx) => (
+                <div
+                  key={idx}
+                  className="p-4 rounded-2xl bg-[#0D0C10] border border-white/10 space-y-2"
+                >
+                  <div className="h-3.5 w-44 rounded skeleton-espresso" />
+                  <div className="h-4 w-full max-w-lg rounded skeleton-espresso" />
+                </div>
+              ))}
+            </div>
           ) : commentHistory.length === 0 ? (
-            <p className="text-sm text-[#A1A1AA] py-8 text-center">
-              {t.dashboard.commentsEmpty}
-            </p>
+            <div className="text-center py-8 space-y-3">
+              <MessageSquare className="w-8 h-8 text-[#71717A] mx-auto" />
+              <p className="text-sm text-[#A1A1AA]">{t.dashboard.commentsEmpty}</p>
+              <a
+                href={`${DEFAULT_SITE_ORIGIN}/explore`}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                  e.preventDefault();
+                  window.dispatchEvent(
+                    new CustomEvent('kd:navigate-path', {
+                      detail: { path: '/explore' },
+                    })
+                  );
+                }}
+                className="inline-flex items-center gap-1.5 px-5 py-2.5 min-h-[40px] rounded-full cd-accent-bg text-xs font-semibold text-white transition-colors"
+              >
+                <Compass className="w-3.5 h-3.5" />
+                <span>{t.nav.explore}</span>
+              </a>
+            </div>
           ) : (
             <div className="space-y-3">
               {commentHistory.map((cmt) => (

@@ -113,7 +113,7 @@ import { HeroSpotlight } from './components/HeroSpotlight';
 import { CarouselRow } from './components/CarouselRow';
 import { DramaCard } from './components/DramaCard';
 import { LazySection } from './components/LazySection';
-import { CarouselSkeleton } from './components/SkeletonCard';
+import { CarouselSkeleton, DetailPageSkeleton } from './components/SkeletonCard';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { ToastContainer } from './components/ToastContainer';
@@ -1932,6 +1932,8 @@ export default function App() {
       }
       if (tab === 'rewards') {
         setDashboardSubTab('rewards');
+      } else if (tab === 'dashboard' && activeTab === 'rewards') {
+        setDashboardSubTab('profile');
       }
       setActiveTab(tab);
       const nextPath = getTabPath(tab);
@@ -2070,6 +2072,7 @@ export default function App() {
         return;
       }
       if (lower === '/account' || lower === '/dashboard') {
+        setDashboardSubTab('profile');
         handleNavigateTab('dashboard');
         return;
       }
@@ -3474,17 +3477,9 @@ export default function App() {
       {activeDramaRoute ? (
         <main className="flex-1">
           {activeDramaRoute.slugHint && !activeDramaRoute.drama ? (
-            <div className="max-w-[1440px] mx-auto px-4 md:px-8 py-20 flex justify-center">
-              <Loader2 className="w-8 h-8 cd-accent-text animate-spin" />
-            </div>
+            <DetailPageSkeleton />
           ) : (
-            <Suspense
-              fallback={
-                <div className="max-w-[1440px] mx-auto px-4 md:px-8 py-16 flex justify-center">
-                  <Loader2 className="w-7 h-7 cd-accent-text animate-spin" />
-                </div>
-              }
-            >
+            <Suspense fallback={<DetailPageSkeleton />}>
               <DramaDetailPage
                 key={`${activeDramaRoute.providerHint ?? 'auto'}:${activeDramaRoute.bookId}`}
                 bookId={activeDramaRoute.bookId}
@@ -3511,8 +3506,8 @@ export default function App() {
         <main className="flex-1 pb-20 md:pb-12">
           <Suspense
             fallback={
-              <div className="max-w-[1440px] mx-auto px-4 md:px-8 py-16 flex justify-center">
-                <Loader2 className="w-7 h-7 cd-accent-text animate-spin" />
+              <div className="max-w-[1440px] mx-auto px-4 md:px-8 py-8">
+                <CarouselSkeleton />
               </div>
             }
           >
@@ -3866,7 +3861,10 @@ export default function App() {
                   continueEpisodesMap={continueWatchingData.map}
                   myListIds={myListIds}
                   onRetry={() => {}}
-                  onSeeAll={() => handleNavigateTab('dashboard')}
+                  onSeeAll={() => {
+                    setDashboardSubTab('history');
+                    handleNavigateTab('dashboard');
+                  }}
                   onSelectDrama={openDramaRoute}
                   onQuickPlay={(d) => {
                     const saved =

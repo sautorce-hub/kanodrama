@@ -484,13 +484,13 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const [todayWatchSeconds, setTodayWatchSeconds] = useState<number>(0);
   const [todayWatchPointsEarned, setTodayWatchPointsEarned] = useState<number>(0);
   const [dailyMissionMaxWatchSeconds, setDailyMissionMaxWatchSeconds] = useState<number>(3600);
-  const [watchMinutePoints, setWatchMinutePoints] = useState<number>(20);
+  const [watchMinutePoints, setWatchMinutePoints] = useState<number>(40);
   const [dailyMissionMilestones, setDailyMissionMilestones] = useState<
     Array<{ minutes: number; bonusPoints: number }>
   >([
-    { minutes: 15, bonusPoints: 500 },
-    { minutes: 30, bonusPoints: 1200 },
-    { minutes: 60, bonusPoints: 2800 },
+    { minutes: 15, bonusPoints: 1000 },
+    { minutes: 30, bonusPoints: 2400 },
+    { minutes: 60, bonusPoints: 5600 },
   ]);
   const [dailyMissionStatuses, setDailyMissionStatuses] = useState<
     Array<{ minutes: number; bonusPoints: number; reached: boolean; claimed: boolean }>
@@ -1422,18 +1422,29 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       if (!res.ok) return;
       const data = (await res.json().catch(() => null)) as {
         bound?: boolean;
+        bindBonusAwarded?: number;
         reason?: string;
       } | null;
       if (data && (data.bound || data.reason)) {
         clearPendingReferralCode();
-        if (data.bound && typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('kd:points-updated', { detail: { referralBound: true } }));
+        if (data.bound) {
+          void refreshPointsBalance();
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('kd:points-updated', {
+                detail: {
+                  referralBound: true,
+                  bindBonusAwarded: Number(data.bindBonusAwarded) || 0,
+                },
+              })
+            );
+          }
         }
       }
     } catch {
       // Retry on next session check
     }
-  }, [getAuthHeaders]);
+  }, [getAuthHeaders, refreshPointsBalance]);
 
   // Capture ?ref= query parameter + hydrate guest watch history & global likes once on mount
   useEffect(() => {

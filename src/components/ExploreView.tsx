@@ -17,6 +17,8 @@ import { LazySection } from './LazySection';
 import { CarouselSkeleton, SkeletonCard } from './SkeletonCard';
 import { ProviderEndpointSection } from './ProviderEndpointSection';
 import { useDramaContext } from '../context/DramaContext';
+import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
+import { slugifyDramaTitle } from '../utils/seo';
 import {
   ALL_PROVIDER_ADAPTERS,
   PROVIDER_FILTERS,
@@ -400,16 +402,25 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
               <Filter className="w-3 h-3" />
               <span>SEO Tag Pages:</span>
             </span>
-            {t.seoTags.genres.map((genre) => (
-              <button
-                key={genre}
-                type="button"
-                onClick={() => onOpenTag(genre)}
-                className="text-[11px] font-medium text-[#A1A1AA] hover:text-white underline-offset-4 hover:underline whitespace-nowrap shrink-0 transition-colors"
-              >
-                #{genre}
-              </button>
-            ))}
+            {t.seoTags.genres.map((genre) => {
+              const tagSlug = slugifyDramaTitle(genre);
+              return (
+                <a
+                  key={genre}
+                  href={`${DEFAULT_SITE_ORIGIN}/tag/${encodeURIComponent(tagSlug)}`}
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+                      return;
+                    }
+                    e.preventDefault();
+                    onOpenTag(genre);
+                  }}
+                  className="text-[11px] font-medium text-[#A1A1AA] hover:text-white underline-offset-4 hover:underline whitespace-nowrap shrink-0 transition-colors"
+                >
+                  #{genre}
+                </a>
+              );
+            })}
           </nav>
         </div>
       </section>
@@ -429,7 +440,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
           {filterLoading ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
               {Array.from({ length: 12 }).map((_, i) => (
-                <SkeletonCard key={i} />
+                <SkeletonCard key={i} fluid />
               ))}
             </div>
           ) : filteredItems.length === 0 ? (
