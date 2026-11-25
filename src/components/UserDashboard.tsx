@@ -62,6 +62,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
     t,
     language,
     user,
+    authLoading,
     streak,
     pointsBalance,
     accountLevelInfo,
@@ -331,13 +332,17 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
 
           <div className="flex flex-wrap items-center gap-2.5">
             {!user && (
-              <button
-                type="button"
-                onClick={() => openAuthModal()}
-                className="px-5 py-2.5 min-h-[44px] rounded-full cd-accent-bg text-xs sm:text-sm font-semibold text-white shadow-lg"
-              >
-                {language === 'id' ? 'Masuk / Daftar Akun' : 'Sign In / Register'}
-              </button>
+              authLoading ? (
+                <div className="h-[44px] w-36 rounded-full skeleton-espresso" aria-hidden="true" />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openAuthModal()}
+                  className="px-5 py-2.5 min-h-[44px] rounded-full cd-accent-bg text-xs sm:text-sm font-semibold text-white shadow-lg"
+                >
+                  {language === 'id' ? 'Masuk / Daftar Akun' : 'Sign In / Register'}
+                </button>
+              )
             )}
             <button
               type="button"
@@ -387,7 +392,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               <span>{t.dashboard.streakLabel}</span>
             </div>
             <p className="text-2xl font-extrabold text-white mt-1 tabular-nums">
-              {user ? Math.max(1, streak.count) : 0}d
+              {authLoading && !user ? (
+                <span className="inline-block w-12 h-7 rounded-lg skeleton-espresso align-middle" />
+              ) : (
+                <>{user ? Math.max(1, streak.count) : 0}d</>
+              )}
             </p>
           </div>
 
@@ -408,9 +417,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               )}
             </div>
             <p className="text-2xl font-extrabold text-white mt-1 tabular-nums">
-              {user && typeof pointsBalance === 'number'
-                ? pointsBalance.toLocaleString()
-                : 0}
+              {authLoading && !user ? (
+                <span className="inline-block w-24 h-7 rounded-lg skeleton-espresso align-middle" />
+              ) : user && typeof pointsBalance === 'number' ? (
+                pointsBalance.toLocaleString()
+              ) : (
+                0
+              )}
             </p>
             {user && accountLevelInfo && (
               <div className="mt-2 space-y-1">
@@ -473,23 +486,33 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           className="rounded-3xl bg-[var(--cd-surface)] border border-white/10 p-5 sm:p-6 space-y-6"
         >
           {!user && (
-            <div className="p-4 rounded-2xl bg-[var(--cd-accent-soft)] border border-[var(--cd-accent)]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold text-white">
-                  {t.dashboard.signInRequiredTitle}
-                </p>
-                <p className="text-xs text-[#D4D4D8] mt-0.5">
-                  {t.dashboard.signInRequiredDesc}
-                </p>
+            authLoading ? (
+              <div className="p-4 rounded-2xl bg-[#111015] border border-white/10 flex items-center justify-between gap-3">
+                <div className="space-y-2 flex-1">
+                  <div className="h-3.5 w-44 rounded skeleton-espresso" />
+                  <div className="h-3 w-72 max-w-full rounded skeleton-espresso" />
+                </div>
+                <div className="h-9 w-28 rounded-full skeleton-espresso shrink-0" />
               </div>
-              <button
-                type="button"
-                onClick={() => openAuthModal()}
-                className="px-4 py-2 min-h-[40px] rounded-full bg-white text-[#09090B] text-xs font-bold shrink-0"
-              >
-                {language === 'id' ? 'Masuk / Daftar' : 'Sign In / Register'}
-              </button>
-            </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-[var(--cd-accent-soft)] border border-[var(--cd-accent)]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold text-white">
+                    {t.dashboard.signInRequiredTitle}
+                  </p>
+                  <p className="text-xs text-[#D4D4D8] mt-0.5">
+                    {t.dashboard.signInRequiredDesc}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openAuthModal()}
+                  className="px-4 py-2 min-h-[40px] rounded-full bg-white text-[#09090B] text-xs font-bold shrink-0"
+                >
+                  {language === 'id' ? 'Masuk / Daftar' : 'Sign In / Register'}
+                </button>
+              </div>
+            )
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -683,6 +706,13 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           </div>
 
           {watchlistCategory === 'movie' && !user ? (
+            authLoading ? (
+              <div className="rounded-3xl bg-[var(--cd-surface)] border border-white/10 p-8 sm:p-10 space-y-4 max-w-lg mx-auto">
+                <div className="w-12 h-12 rounded-2xl skeleton-espresso mx-auto" />
+                <div className="h-5 w-48 rounded skeleton-espresso mx-auto" />
+                <div className="h-10 w-full rounded-xl skeleton-espresso" />
+              </div>
+            ) : (
             <div className="rounded-3xl bg-[var(--cd-surface)] border border-white/10 p-8 sm:p-10 text-center space-y-4 max-w-lg mx-auto">
               <div className="w-12 h-12 rounded-2xl bg-[var(--cd-accent-soft)] border border-[var(--cd-accent)]/40 flex items-center justify-center mx-auto cd-accent-text">
                 <Lock className="w-5 h-5" />
@@ -703,6 +733,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 {t.auth.continueBtn}
               </button>
             </div>
+            )
           ) : (
             <>
               <div className="flex flex-nowrap items-center gap-2 overflow-x-auto scrollbar-none pb-1">
@@ -1020,7 +1051,19 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
       {/* Sub-Tab 4: User Comment History */}
       {subTab === 'comments' && (
         <section className="rounded-3xl bg-[var(--cd-surface)] border border-white/10 p-5 sm:p-6">
-          {!user ? (
+          {!user && authLoading ? (
+            <div className="space-y-3" aria-busy="true">
+              {Array.from({ length: 3 }).map((_, idx) => (
+                <div
+                  key={idx}
+                  className="p-4 rounded-2xl bg-[#0D0C10] border border-white/10 space-y-2"
+                >
+                  <div className="h-3.5 w-44 rounded skeleton-espresso" />
+                  <div className="h-4 w-full max-w-lg rounded skeleton-espresso" />
+                </div>
+              ))}
+            </div>
+          ) : !user ? (
             <div className="text-center py-8 space-y-3">
               <MessageSquare className="w-8 h-8 text-[#71717A] mx-auto" />
               <p className="text-sm text-[#A1A1AA]">

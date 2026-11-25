@@ -1423,6 +1423,30 @@ export async function getCachedHomeData(
   return refreshAndPersistHome(token, lang, provider);
 }
 
+export async function peekCachedHomeDataForSsr(
+  rawLang?: string,
+  rawProvider?: string
+): Promise<HomeCatalogPayload | null> {
+  const lang = normalizeLang(rawLang);
+  const provider = normalizeProviderFilter(rawProvider);
+  const cacheKey = makeHomeCacheKey(lang, provider);
+
+  const cached = await readHomeFromDb(cacheKey);
+  if (!cached || !hasAnyItems(cached.payload)) {
+    return null;
+  }
+
+  return {
+    ...cached.payload,
+    updatedAt: cached.updatedAt,
+    expiresAt: cached.expiresAt,
+    cached: true,
+    stale: Date.now() > cached.expiresAt,
+    source: 'database-cache',
+    storage: getStorageMode(),
+  };
+}
+
 export function triggerAsyncHomeRevalidate(
   token: string,
   rawLang?: string,

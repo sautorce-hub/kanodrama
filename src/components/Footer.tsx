@@ -84,15 +84,45 @@ const COLLECTION_PATHS = [
   { path: '/genre/best-vertical-short-dramas', key: 'topShortDramas' as const },
 ];
 
-export const Footer: React.FC = () => {
-  const { t, language, pushToast, setHelpModalOpen } = useDramaContext();
-  const [activeModal, setActiveModal] = useState<LegalModalTopic | null>(null);
-  const [stats, setStats] = useState<VisitorStats>({
+const VISITOR_STATS_SNAPSHOT_KEY = 'kd_visitor_stats_snapshot_v1';
+
+function readCachedVisitorStats(): VisitorStats {
+  try {
+    const raw = sessionStorage.getItem(VISITOR_STATS_SNAPSHOT_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<VisitorStats>;
+      if (parsed && typeof parsed === 'object') {
+        return {
+          onlineNow: toSafeStatNumber(parsed.onlineNow),
+          todayVisitors: toSafeStatNumber(parsed.todayVisitors),
+          totalVisitors: toSafeStatNumber(parsed.totalVisitors),
+          totalViews: toSafeStatNumber(parsed.totalViews),
+        };
+      }
+    }
+  } catch {
+    // Ignore storage read errors
+  }
+  return {
     onlineNow: 0,
     todayVisitors: 0,
     totalVisitors: 0,
     totalViews: 0,
-  });
+  };
+}
+
+function writeCachedVisitorStats(next: VisitorStats): void {
+  try {
+    sessionStorage.setItem(VISITOR_STATS_SNAPSHOT_KEY, JSON.stringify(next));
+  } catch {
+    // Ignore quota errors
+  }
+}
+
+export const Footer: React.FC = () => {
+  const { t, language, pushToast, setHelpModalOpen } = useDramaContext();
+  const [activeModal, setActiveModal] = useState<LegalModalTopic | null>(null);
+  const [stats, setStats] = useState<VisitorStats>(() => readCachedVisitorStats());
 
   // Contact form state
   const [contactName, setContactName] = useState('');
@@ -119,12 +149,14 @@ export const Footer: React.FC = () => {
         });
         if (res.ok && mounted) {
           const data = (await res.json()) as Partial<VisitorStats>;
-          setStats({
+          const nextStats: VisitorStats = {
             onlineNow: toSafeStatNumber(data.onlineNow ?? data.online),
             todayVisitors: toSafeStatNumber(data.todayVisitors ?? data.daily),
             totalVisitors: toSafeStatNumber(data.totalVisitors ?? data.total),
             totalViews: toSafeStatNumber(data.totalViews),
-          });
+          };
+          setStats(nextStats);
+          writeCachedVisitorStats(nextStats);
         }
       } catch {
         // Keep current DB-backed counts if temporarily offline
@@ -154,10 +186,14 @@ export const Footer: React.FC = () => {
       const detail = (evt as CustomEvent<{ siteTotalViews?: number }>).detail;
       if (detail && typeof detail.siteTotalViews === 'number' && mounted) {
         const safeViews = toSafeStatNumber(detail.siteTotalViews);
-        setStats((prev) => ({
-          ...prev,
-          totalViews: Math.max(prev.totalViews, safeViews),
-        }));
+        setStats((prev) => {
+          const nextStats: VisitorStats = {
+            ...prev,
+            totalViews: Math.max(prev.totalViews, safeViews),
+          };
+          writeCachedVisitorStats(nextStats);
+          return nextStats;
+        });
       }
     };
 

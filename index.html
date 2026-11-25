@@ -124,6 +124,159 @@
         rel="stylesheet"
       />
     </noscript>
+    <style id="kd-critical-css">
+      html,
+      body {
+        margin: 0;
+        background-color: #090706;
+        color: #fafafa;
+        font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      }
+      .kd-boot-root {
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        background: #090706;
+        color: #fafafa;
+      }
+      .kd-boot-nav {
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        height: 56px;
+        background: rgba(9, 9, 11, 0.92);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 16px;
+        box-sizing: border-box;
+      }
+      .kd-boot-body {
+        flex: 1;
+        display: flex;
+        width: 100%;
+      }
+      .kd-boot-sidebar {
+        display: none;
+      }
+      .kd-boot-main {
+        flex: 1;
+        min-width: 0;
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 12px 12px 48px;
+        box-sizing: border-box;
+      }
+      .kd-sk {
+        background: linear-gradient(90deg, #16161b 25%, #222229 50%, #16161b 75%);
+        background-size: 200% 100%;
+        animation: kdBootShimmer 1.4s ease-in-out infinite;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+      }
+      .kd-boot-hero {
+        width: 100%;
+        aspect-ratio: 3 / 4;
+        max-height: 540px;
+        border-radius: 16px;
+        margin-bottom: 20px;
+      }
+      .kd-boot-chips {
+        display: flex;
+        gap: 8px;
+        overflow: hidden;
+        margin-bottom: 24px;
+      }
+      .kd-boot-chip {
+        height: 36px;
+        width: 92px;
+        border-radius: 9999px;
+        flex: 0 0 auto;
+      }
+      .kd-boot-row-head {
+        height: 24px;
+        width: 190px;
+        border-radius: 8px;
+        margin-bottom: 14px;
+      }
+      .kd-boot-cards {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 28px;
+      }
+      .kd-boot-card-poster {
+        width: 100%;
+        aspect-ratio: 2 / 3;
+        border-radius: 12px;
+      }
+      .kd-boot-card-line {
+        height: 13px;
+        width: 82%;
+        border-radius: 6px;
+        margin-top: 8px;
+      }
+      .kd-boot-panel {
+        border-radius: 24px;
+        padding: 20px;
+        margin-bottom: 18px;
+      }
+      @media (min-width: 640px) {
+        .kd-boot-nav {
+          height: 64px;
+          padding: 0 24px;
+        }
+        .kd-boot-main {
+          padding: 16px 32px 56px;
+        }
+        .kd-boot-hero {
+          aspect-ratio: auto;
+          height: 460px;
+          border-radius: 24px;
+        }
+        .kd-boot-cards {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 18px;
+        }
+      }
+      @media (min-width: 768px) {
+        .kd-boot-sidebar {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          width: 72px;
+          flex-shrink: 0;
+          padding: 16px 12px;
+          border-right: 1px solid rgba(255, 255, 255, 0.08);
+          box-sizing: border-box;
+        }
+        .kd-boot-cards {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+        .kd-boot-hero {
+          height: 500px;
+        }
+      }
+      @media (min-width: 1024px) {
+        .kd-boot-sidebar {
+          width: 216px;
+        }
+        .kd-boot-cards {
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+        }
+        .kd-boot-hero {
+          height: 540px;
+        }
+      }
+      @keyframes kdBootShimmer {
+        0% {
+          background-position: 200% 0;
+        }
+        100% {
+          background-position: -200% 0;
+        }
+      }
+    </style>
   </head>
   <body class="bg-[#090706] text-[#FAFAFA] antialiased selection:bg-[#EF4444]/30 selection:text-white">
     <div id="root"></div>

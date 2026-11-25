@@ -79,6 +79,7 @@ import {
   indexMolaPayloadToCatalog,
   isCacheableMolaListPath,
   markApiRevalidating,
+  peekCachedHomeDataForSsr,
   searchUpstreamDramaBySlug,
   seedCatalogFromExistingCacheIfEmpty,
   setCachedMolaApiResponse,
@@ -1964,12 +1965,108 @@ function isValidSsrMovie(
   return Array.isArray(movie.providers) && movie.providers.length > 0;
 }
 
+const ROOT_CONTAINER_RE =
+  /<div\s+id=["']root["']\s*>[\s\S]*?<\/div>(?=\s*(?:<script\b|<\/body>|<!--))/i;
+
 function injectRootSsrMarkup(html: string, innerHtml: string): string {
   if (!innerHtml) return html;
+  if (ROOT_CONTAINER_RE.test(html)) {
+    return html.replace(ROOT_CONTAINER_RE, `<div id="root">${innerHtml}</div>`);
+  }
   return html.replace(
-    /<div\s+id=["']root["']\s*><\/div>/i,
+    /<div\s+id=["']root["']\s*>\s*<\/div>/i,
     `<div id="root">${innerHtml}</div>`
   );
+}
+
+type BrowserBootVariant =
+  | 'home'
+  | 'grid'
+  | 'detail'
+  | 'rewards'
+  | 'account'
+  | 'notfound';
+
+function buildBrowserBootShellHtml(variant: BrowserBootVariant): string {
+  const sidebarItems = Array.from({ length: 7 })
+    .map(
+      () =>
+        '<div class="kd-sk" style="height:38px;border-radius:12px;"></div>'
+    )
+    .join('');
+
+  const cardsHtml = (count: number) =>
+    `<div class="kd-boot-cards">${Array.from({ length: count })
+      .map(
+        () =>
+          '<div><div class="kd-sk kd-boot-card-poster"></div><div class="kd-sk kd-boot-card-line"></div></div>'
+      )
+      .join('')}</div>`;
+
+  let bodyInner = '';
+  if (variant === 'home') {
+    const chips = Array.from({ length: 7 })
+      .map(() => '<div class="kd-sk kd-boot-chip"></div>')
+      .join('');
+    bodyInner = `
+      <div class="kd-sk kd-boot-hero"></div>
+      <div class="kd-boot-chips">${chips}</div>
+      <div class="kd-sk kd-boot-row-head"></div>
+      ${cardsHtml(5)}
+      <div class="kd-sk kd-boot-row-head"></div>
+      ${cardsHtml(5)}
+    `;
+  } else if (variant === 'detail') {
+    bodyInner = `
+      <div class="kd-sk kd-boot-panel" style="min-height:260px;display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;">
+        <div class="kd-sk" style="width:160px;aspect-ratio:2/3;border-radius:14px;flex:0 0 auto;"></div>
+        <div style="flex:1;min-width:220px;display:flex;flex-direction:column;gap:12px;">
+          <div class="kd-sk" style="height:28px;width:68%;border-radius:8px;"></div>
+          <div class="kd-sk" style="height:16px;width:45%;border-radius:6px;"></div>
+          <div class="kd-sk" style="height:72px;width:100%;border-radius:10px;"></div>
+          <div class="kd-sk" style="height:42px;width:180px;border-radius:9999px;"></div>
+        </div>
+      </div>
+      <div class="kd-sk kd-boot-row-head"></div>
+      ${cardsHtml(5)}
+    `;
+  } else if (variant === 'rewards' || variant === 'account') {
+    bodyInner = `
+      <div class="kd-sk kd-boot-panel" style="height:180px;"></div>
+      <div class="kd-sk kd-boot-panel" style="height:150px;"></div>
+      <div class="kd-sk kd-boot-panel" style="height:220px;"></div>
+    `;
+  } else if (variant === 'notfound') {
+    bodyInner = `
+      <div class="kd-sk kd-boot-panel" style="max-width:560px;margin:40px auto;height:220px;"></div>
+    `;
+  } else {
+    bodyInner = `
+      <div class="kd-sk kd-boot-row-head" style="width:240px;height:30px;margin-bottom:20px;"></div>
+      ${cardsHtml(10)}
+    `;
+  }
+
+  return `<div class="kd-boot-root" aria-hidden="true">
+    <header class="kd-boot-nav">
+      <div class="kd-sk" style="width:136px;height:28px;border-radius:8px;"></div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <div class="kd-sk" style="width:36px;height:36px;border-radius:9999px;"></div>
+        <div class="kd-sk" style="width:88px;height:34px;border-radius:9999px;"></div>
+      </div>
+    </header>
+    <div class="kd-boot-body">
+      <aside class="kd-boot-sidebar">${sidebarItems}</aside>
+      <main class="kd-boot-main">${bodyInner}</main>
+    </div>
+  </div>`;
+}
+
+function replaceRootWithBrowserShell(
+  html: string,
+  variant: BrowserBootVariant
+): string {
+  return injectRootSsrMarkup(html, buildBrowserBootShellHtml(variant));
 }
 
 interface SsrRelatedLink {
@@ -2815,13 +2912,13 @@ function injectPageMetadataIntoHtml(
           {
             '@type': 'FAQPage',
             mainEntity: isIdSsr
-              ? [
+                ? [
                   {
                     '@type': 'Question',
                     name: 'Bagaimana cara nonton drama dapat poin di KanoDrama?',
                     acceptedAnswer: {
                       '@type': 'Answer',
-                      text: 'Daftar atau masuk dengan akun Anda untuk langsung memperoleh bonus login pertama +10.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +40 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), +400 poin episode baru (minimal 15 detik), check-in harian +1.000 poin, dan bonus milestone 15, 30, serta 60 menit (+1.000 / +2.400 / +5.600 poin) yang reset otomatis setiap pukul 00.00 WIB.',
+                      text: 'Daftar atau masuk dengan akun Anda untuk langsung memperoleh bonus login pertama +10.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +20 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), +50 poin episode baru (minimal 15 detik), check-in harian +500 poin dan Hari ke-7 +2.000 poin (total 5.000 poin/minggu), serta bonus milestone 15, 30, dan 60 menit (+150 / +300 / +600 poin) hingga batas 2.500 poin nonton harian yang reset otomatis setiap pukul 00.00 WIB.',
                     },
                   },
                   {
@@ -2834,10 +2931,10 @@ function injectPageMetadataIntoHtml(
                   },
                   {
                     '@type': 'Question',
-                    name: 'Bagaimana cara mendapatkan bonus referral +200 poin & +10.000 poin?',
+                    name: 'Bagaimana cara mendapatkan bonus referral +200 poin & +2.000 poin?',
                     acceptedAnswer: {
                       '@type': 'Answer',
-                      text: 'Bagikan link referral resmi kano-drama.live Anda. Teman yang mengikat kode referral Anda langsung menerima +200 poin, dan setelah menyelesaikan total 1 jam (3.600 detik) waktu tonton aktif terverifikasi, +10.000 poin otomatis masuk ke saldo Anda.',
+                      text: 'Bagikan link referral resmi kano-drama.live Anda. Teman yang mengikat kode referral Anda langsung menerima +200 poin, dan setelah menyelesaikan total 1 jam (3.600 detik) waktu tonton aktif terverifikasi, +2.000 poin otomatis masuk ke saldo Anda.',
                     },
                   },
                 ]
@@ -2850,7 +2947,7 @@ function injectPageMetadataIntoHtml(
                         name: 'How do I earn points watching dramas on KanoDrama?',
                         acceptedAnswer: {
                           '@type': 'Answer',
-                          text: 'Sign in to claim a +10,000 points first-login welcome bonus (once per account), then actively watch short dramas or movies at normal 1x speed. You earn +40 points/min automatically up to 60 minutes daily (scaled up to 1.6x by your account level), +400 points per new episode (15s minimum), +1,000 points daily check-in, and +1,000 / +2,400 / +5,600 milestone bonuses (all daily missions reset at 17:00 UTC).',
+                          text: 'Sign in to claim a +10,000 points first-login welcome bonus (once per account), then actively watch short dramas or movies at normal 1x speed. You earn +20 points/min automatically up to 60 minutes daily (scaled up to 1.6x by your account level), +50 points per new episode (15s minimum), +500 points daily check-in and +2,000 points on Day 7 (5,000 points/week), plus +150 / +300 / +600 milestone bonuses up to 2,500 daily watch points (all daily missions reset at 17:00 UTC).',
                         },
                       },
                       {
@@ -2858,15 +2955,15 @@ function injectPageMetadataIntoHtml(
                         name: 'What is the points conversion rate and minimum withdrawal?',
                         acceptedAnswer: {
                           '@type': 'Answer',
-                          text: 'The official rate is 100,000 points = 1 USDT ($1.00 USD) = Rp 18,200 IDR. Local IDR payouts (DANA, GoPay, OVO, ShopeePay, LinkAja, Indonesian Bank Transfer) start from Rp 50,000, and global payouts (PayPal, Wise, USDT Polygon/TRC20/BEP20/ERC20) start from $5.00 USD.',
+                          text: 'The official rate is 100,000 points = 1 USDT ($1.00 USD). Global payouts (PayPal, Wise, USDT Polygon/TRC20/BEP20/ERC20) start from 5.00 USDT ($5.00 USD).',
                         },
                       },
                       {
                         '@type': 'Question',
-                        name: 'How do the +200 bind bonus and +10,000 referral bonus work?',
+                        name: 'How do the +200 bind bonus and +2,000 referral bonus work?',
                         acceptedAnswer: {
                           '@type': 'Answer',
-                          text: 'Share your official kano-drama.live referral link. Friends who bind your referral code receive +200 bonus points immediately, and once they complete 1 hour (3,600 seconds) of verified active watch time, +10,000 points are automatically credited to your balance.',
+                          text: 'Share your official kano-drama.live referral link. Friends who bind your referral code receive +200 bonus points immediately, and once they complete 1 hour (3,600 seconds) of verified active watch time, +2,000 points are automatically credited to your balance.',
                         },
                       },
                     ],
@@ -2999,11 +3096,11 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
         <h2>Cara Mengumpulkan Poin KanoDrama</h2>
         <ul>
           <li>Bonus login pertama akun baru: +10.000 poin otomatis saat pertama kali masuk (1x per akun).</li>
-          <li>Tonton drama pendek &amp; film aktif (kecepatan normal): +40 poin per menit otomatis (maksimal 60 menit/hari) × multiplier level akun (Bronze 1.0x hingga Platinum 1.6x).</li>
-          <li>Bonus episode baru: +400 poin per episode setelah minimal 15 detik menonton terverifikasi.</li>
-          <li>Check-in harian &amp; streak beruntun: +1.000 poin/hari (reset pukul 00.00 WIB).</li>
-          <li>Bonus milestone harian (klaim manual setelah target tercapai): +1.000 poin (15 menit), +2.400 poin (30 menit), dan +5.600 poin (60 menit).</li>
-          <li>Program Referral KanoDrama: +200 poin saat teman mengikat kode referral Anda dan +10.000 poin setelah teman menyelesaikan 1 jam waktu tonton terverifikasi.</li>
+          <li>Tonton drama pendek &amp; film aktif (kecepatan normal): +20 poin per menit otomatis (maksimal 60 menit/hari) × multiplier level akun (Bronze 1.0x hingga Platinum 1.6x).</li>
+          <li>Bonus episode baru: +50 poin per episode setelah minimal 15 detik menonton terverifikasi.</li>
+          <li>Check-in harian &amp; streak 7 hari: +500 poin/hari (H-1 s.d. H-6) dan +2.000 poin di H-7 (total 5.000 poin/minggu, reset pukul 00.00 WIB).</li>
+          <li>Bonus milestone harian (klaim manual setelah target tercapai): +150 poin (15 menit), +300 poin (30 menit), dan +600 poin (60 menit), dengan batas poin nonton harian 2.500 poin.</li>
+          <li>Program Referral KanoDrama: +200 poin saat teman mengikat kode referral Anda dan +2.000 poin setelah teman menyelesaikan 1 jam waktu tonton terverifikasi.</li>
         </ul>
       </section>
       <section>
@@ -3020,16 +3117,16 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
         <h2>How to Earn Points on KanoDrama</h2>
         <ul>
           <li>First-login welcome bonus: +10,000 points credited automatically on your first sign-in (once per account).</li>
-          <li>Watch short dramas &amp; movies actively (normal 1x speed): +40 points per minute automatically (up to 60 minutes/day) × account level multiplier (Bronze 1.0x up to Platinum 1.6x).</li>
-          <li>New episode bonus: +400 points per episode after at least 15 seconds of verified active playback.</li>
-          <li>Daily check-in &amp; streak bonus: +1,000 points/day (resets at 17:00 UTC).</li>
-          <li>Daily milestone bonuses (manual claim once reached): +1,000 points (15 min), +2,400 points (30 min), and +5,600 points (60 min).</li>
-          <li>KanoDrama Referral Program: +200 points on valid referral code bind and +10,000 points once your friend completes 1 hour of verified active watch time.</li>
+          <li>Watch short dramas &amp; movies actively (normal 1x speed): +20 points per minute automatically (up to 60 minutes/day) × account level multiplier (Bronze 1.0x up to Platinum 1.6x).</li>
+          <li>New episode bonus: +50 points per episode after at least 15 seconds of verified active playback.</li>
+          <li>Daily check-in &amp; 7-day streak bonus: +500 points/day (Days 1–6) and +2,000 points on Day 7 (5,000 points/week total, resets at 17:00 UTC).</li>
+          <li>Daily milestone bonuses (manual claim once reached): +150 points (15 min), +300 points (30 min), and +600 points (60 min), within a 2,500 daily watch points cap.</li>
+          <li>KanoDrama Referral Program: +200 points on valid referral code bind and +2,000 points once your friend completes 1 hour of verified active watch time.</li>
         </ul>
       </section>
       <section>
         <h2>Points Conversion &amp; Official Payout Methods</h2>
-        <p>100,000 points = 1 USDT ($1.00 USD) = Rp 18,200 IDR. Minimum local IDR withdrawal Rp 50,000 via DANA, GoPay, OVO, ShopeePay, LinkAja, or Indonesian Bank Transfer. Minimum global withdrawal $5.00 USD via PayPal, Wise, and USDT (Polygon, TRC20, BEP20, ERC20).</p>
+        <p>100,000 points = 1 USDT ($1.00 USD). Minimum global withdrawal 5.00 USDT ($5.00 USD) via PayPal, Wise, and USDT (Polygon, TRC20, BEP20, ERC20).</p>
       </section>
       <nav aria-label="Navigation"><a href="${brandOrigin}/">Home</a> · <a href="${brandOrigin}/explore">Explore Drama</a> · <a href="${brandOrigin}/movies">Movies</a> · <a href="${brandOrigin}/providers">Providers</a> · <a href="${brandOrigin}/trending">Trending</a></nav>
     </main>`;
@@ -4578,17 +4675,22 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     try {
       res.setHeader('Cache-Control', 'no-store');
       const { session } = extractAuthSessionFromRequest(req);
-      if (!session) {
-        res.json({ ok: true, authenticated: false, user: null });
-        return;
-      }
-
-      const dbUser = await getUserFromDb(session.uid).catch(() => null);
       const dbCount = await getUniqueGmailLoginCountFromDb().catch(() => null);
       const gmailLoginCount =
         dbCount !== null
           ? Math.max(dbCount, memoryGmailTotalLogins)
           : memoryGmailTotalLogins;
+      if (!session) {
+        res.json({
+          ok: true,
+          authenticated: false,
+          gmailLoginCount,
+          user: null,
+        });
+        return;
+      }
+
+      const dbUser = await getUserFromDb(session.uid).catch(() => null);
 
       res.json({
         ok: true,
@@ -8908,16 +9010,19 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         );
       } else if (cleanPath === '/' || cleanPath === '') {
         let homeFeatured: HomeSsrFeaturedData | undefined;
+        let initialHomeSsr: Awaited<ReturnType<typeof peekCachedHomeDataForSsr>> = null;
         try {
-          const [cachedDramasRes, cachedMoviesRes] = await Promise.race([
+          const [cachedDramasRes, cachedMoviesRes, peekHome] = await Promise.race([
             Promise.all([
               getCachedDramasForSitemap(12).catch(() => ({ dramas: [], tags: [] })),
               listMoviesForSitemapFromDb(6).catch(() => []),
+              peekCachedHomeDataForSsr(ssrLang, 'All').catch(() => null),
             ]),
-            new Promise<[{ dramas: Array<{ title: string; slug: string; provider: string }>; tags: string[] }, Array<{ title: string; slug: string }>]>(
-              (resolve) => setTimeout(() => resolve([{ dramas: [], tags: [] }, []]), 400)
+            new Promise<[{ dramas: Array<{ title: string; slug: string; provider: string }>; tags: string[] }, Array<{ title: string; slug: string }>, null]>(
+              (resolve) => setTimeout(() => resolve([{ dramas: [], tags: [] }, [], null]), 350)
             ),
           ]);
+          initialHomeSsr = peekHome;
           const dramaLinks: SsrRelatedLink[] = cachedDramasRes.dramas
             .filter((d) => cleanText(d.title) && isValidSitemapSlug(d.slug))
             .slice(0, 12)
@@ -8949,6 +9054,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           ssrLang,
           homeFeatured
         );
+        if (initialHomeSsr) {
+          const homeBootstrapScript = `<script>window.__INITIAL_HOME__=${JSON.stringify(
+            initialHomeSsr
+          ).replace(/<\/script>/gi, '<\\/script>')};</script>`;
+          html = html.replace('</head>', `${homeBootstrapScript}\n  </head>`);
+        }
       } else {
         ssrHttpStatus = 404;
         isNotFoundResponse = true;
@@ -8959,6 +9070,25 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           'drama',
           ssrLang
         );
+      }
+
+      if (!isBotOrAutomatedRequest(req)) {
+        const bootVariant: BrowserBootVariant = isNotFoundResponse
+          ? 'notfound'
+          : sectionPage === 'rewards'
+          ? 'rewards'
+          : sectionPage === 'dashboard'
+          ? 'account'
+          : scopedMatch ||
+            legacyMovieSlugMatch ||
+            legacyProvMatch ||
+            legacySlugOrIdMatch ||
+            queryBookId
+          ? 'detail'
+          : sectionPage || tagMatch || genreMatch || providerHubMatch
+          ? 'grid'
+          : 'home';
+        html = replaceRootWithBrowserShell(html, bootVariant);
       }
 
       if (isNotFoundResponse || isPrivateResponse) {

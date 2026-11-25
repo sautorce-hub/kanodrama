@@ -225,6 +225,7 @@ interface AccountLevelTierSummary {
   bonusPercent: number;
   watchMinutePoints: number;
   dailyCheckinPoints: number;
+  dailyCheckinDay7Points?: number;
   watchEpisodePoints: number;
   dailyMissionMilestones: DailyMissionMilestoneConfig[];
 }
@@ -249,6 +250,7 @@ interface AccountLevelStatus {
   bonusPercent: number;
   watchMinutePoints: number;
   dailyCheckinPoints: number;
+  dailyCheckinDay7Points?: number;
   watchEpisodePoints: number;
   dailyMissionMilestones: DailyMissionMilestoneConfig[];
   totalEarned: number;
@@ -270,6 +272,7 @@ interface PayoutConfig {
   firstLoginBonusPoints?: number;
   bindReferralBonusPoints?: number;
   dailyCheckinPoints: number;
+  dailyCheckinDay7Points?: number;
   watchEpisodePoints: number;
   watchMinutePoints: number;
   dailyMissionMaxWatchSeconds: number;
@@ -421,22 +424,23 @@ const DEFAULT_CONFIG: PayoutConfig = {
   minPayoutUsd: 5,
   minPayoutPointsIdr: 274726,
   minPayoutPointsUsd: 500000,
-  maxDailyEarnPoints: 50000,
-  maxDailyWatchPoints: 20000,
+  maxDailyEarnPoints: 10000,
+  maxDailyWatchPoints: 2500,
   claimCooldownSeconds: 45,
   firstLoginBonusPoints: 10000,
   bindReferralBonusPoints: 200,
-  dailyCheckinPoints: 1000,
-  watchEpisodePoints: 400,
-  watchMinutePoints: 40,
+  dailyCheckinPoints: 500,
+  dailyCheckinDay7Points: 2000,
+  watchEpisodePoints: 50,
+  watchMinutePoints: 20,
   dailyMissionMaxWatchSeconds: 3600,
   dailyMissionMilestones: [
-    { minutes: 15, bonusPoints: 1000 },
-    { minutes: 30, bonusPoints: 2400 },
-    { minutes: 60, bonusPoints: 5600 },
+    { minutes: 15, bonusPoints: 150 },
+    { minutes: 30, bonusPoints: 300 },
+    { minutes: 60, bonusPoints: 600 },
   ],
   referralQualifySeconds: 3600,
-  referralBonusPoints: 10000,
+  referralBonusPoints: 2000,
   maxDailyReferrals: 5,
   maxWeeklyReferrals: 15,
   maxDailyVerifiedWatchSeconds: 28800,
@@ -449,64 +453,68 @@ const DEFAULT_CONFIG: PayoutConfig = {
       minVerifiedWatchSeconds: 0,
       multiplier: 1.0,
       bonusPercent: 0,
-      watchMinutePoints: 40,
-      dailyCheckinPoints: 1000,
-      watchEpisodePoints: 400,
+      watchMinutePoints: 20,
+      dailyCheckinPoints: 500,
+      dailyCheckinDay7Points: 2000,
+      watchEpisodePoints: 50,
       dailyMissionMilestones: [
-        { minutes: 15, bonusPoints: 1000 },
-        { minutes: 30, bonusPoints: 2400 },
-        { minutes: 60, bonusPoints: 5600 },
+        { minutes: 15, bonusPoints: 150 },
+        { minutes: 30, bonusPoints: 300 },
+        { minutes: 60, bonusPoints: 600 },
       ],
     },
     {
       level: 2,
       tierId: 'silver',
       tierName: 'Silver',
-      minTotalEarned: 20000,
+      minTotalEarned: 15000,
       minVerifiedWatchSeconds: 7200,
       multiplier: 1.2,
       bonusPercent: 20,
-      watchMinutePoints: 48,
-      dailyCheckinPoints: 1200,
-      watchEpisodePoints: 480,
+      watchMinutePoints: 24,
+      dailyCheckinPoints: 600,
+      dailyCheckinDay7Points: 2400,
+      watchEpisodePoints: 60,
       dailyMissionMilestones: [
-        { minutes: 15, bonusPoints: 1200 },
-        { minutes: 30, bonusPoints: 2880 },
-        { minutes: 60, bonusPoints: 6720 },
+        { minutes: 15, bonusPoints: 180 },
+        { minutes: 30, bonusPoints: 360 },
+        { minutes: 60, bonusPoints: 720 },
       ],
     },
     {
       level: 3,
       tierId: 'gold',
       tierName: 'Gold',
-      minTotalEarned: 100000,
+      minTotalEarned: 40000,
       minVerifiedWatchSeconds: 36000,
       multiplier: 1.4,
       bonusPercent: 40,
-      watchMinutePoints: 56,
-      dailyCheckinPoints: 1400,
-      watchEpisodePoints: 560,
+      watchMinutePoints: 28,
+      dailyCheckinPoints: 700,
+      dailyCheckinDay7Points: 2800,
+      watchEpisodePoints: 70,
       dailyMissionMilestones: [
-        { minutes: 15, bonusPoints: 1400 },
-        { minutes: 30, bonusPoints: 3360 },
-        { minutes: 60, bonusPoints: 7840 },
+        { minutes: 15, bonusPoints: 210 },
+        { minutes: 30, bonusPoints: 420 },
+        { minutes: 60, bonusPoints: 840 },
       ],
     },
     {
       level: 4,
       tierId: 'platinum',
       tierName: 'Platinum',
-      minTotalEarned: 300000,
+      minTotalEarned: 100000,
       minVerifiedWatchSeconds: 108000,
       multiplier: 1.6,
       bonusPercent: 60,
-      watchMinutePoints: 64,
-      dailyCheckinPoints: 1600,
-      watchEpisodePoints: 640,
+      watchMinutePoints: 32,
+      dailyCheckinPoints: 800,
+      dailyCheckinDay7Points: 3200,
+      watchEpisodePoints: 80,
       dailyMissionMilestones: [
-        { minutes: 15, bonusPoints: 1600 },
-        { minutes: 30, bonusPoints: 3840 },
-        { minutes: 60, bonusPoints: 8960 },
+        { minutes: 15, bonusPoints: 240 },
+        { minutes: 30, bonusPoints: 480 },
+        { minutes: 60, bonusPoints: 960 },
       ],
     },
   ],
@@ -904,6 +912,7 @@ export const RewardsPayoutSection: React.FC = () => {
     t,
     language,
     user,
+    authLoading,
     pointsDbConnected,
     pointsDbError,
     openAuthModal,
@@ -961,6 +970,10 @@ export const RewardsPayoutSection: React.FC = () => {
   const [pointsInput, setPointsInput] = useState<string>(() =>
     language === 'id' ? '274726' : '500000'
   );
+  useEffect(() => {
+    setCurrencyTab(isId ? 'IDR' : 'USD');
+    setBankDropdownOpen(false);
+  }, [isId]);
   const [destinationInput, setDestinationInput] = useState<string>('');
   const [holderNameInput, setHolderNameInput] = useState<string>(user?.displayName || '');
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -1875,9 +1888,10 @@ export const RewardsPayoutSection: React.FC = () => {
       minVerifiedWatchSeconds: 0,
       multiplier: 1.0,
       bonusPercent: 0,
-      watchMinutePoints: config.watchMinutePoints || 40,
-      dailyCheckinPoints: config.dailyCheckinPoints || 1000,
-      watchEpisodePoints: config.watchEpisodePoints || 400,
+      watchMinutePoints: config.watchMinutePoints || 20,
+      dailyCheckinPoints: config.dailyCheckinPoints || 500,
+      dailyCheckinDay7Points: config.dailyCheckinDay7Points || 2000,
+      watchEpisodePoints: config.watchEpisodePoints || 50,
       dailyMissionMilestones: config.dailyMissionMilestones || [],
     };
     const secondTier = levelTiers[1] || null;
@@ -1889,6 +1903,7 @@ export const RewardsPayoutSection: React.FC = () => {
       bonusPercent: baseTier.bonusPercent,
       watchMinutePoints: baseTier.watchMinutePoints,
       dailyCheckinPoints: baseTier.dailyCheckinPoints,
+      dailyCheckinDay7Points: baseTier.dailyCheckinDay7Points,
       watchEpisodePoints: baseTier.watchEpisodePoints,
       dailyMissionMilestones: baseTier.dailyMissionMilestones,
       totalEarned: 0,
@@ -1911,9 +1926,13 @@ export const RewardsPayoutSection: React.FC = () => {
   }, [summary?.levelInfo, levelTiers, config]);
 
   const effectiveFirstLoginBonusPoints = Math.max(0, config.firstLoginBonusPoints ?? 10000);
-  const effectiveWatchMinutePoints = activeLevelInfo.watchMinutePoints || config.watchMinutePoints || 40;
-  const effectiveDailyCheckinPoints = activeLevelInfo.dailyCheckinPoints || config.dailyCheckinPoints || 1000;
-  const effectiveWatchEpisodePoints = activeLevelInfo.watchEpisodePoints || config.watchEpisodePoints || 400;
+  const effectiveWatchMinutePoints = activeLevelInfo.watchMinutePoints || config.watchMinutePoints || 20;
+  const effectiveDailyCheckinPoints = activeLevelInfo.dailyCheckinPoints || config.dailyCheckinPoints || 500;
+  const effectiveDailyCheckinDay7Points =
+    activeLevelInfo.dailyCheckinDay7Points ||
+    config.dailyCheckinDay7Points ||
+    Math.round(effectiveDailyCheckinPoints * 4);
+  const effectiveWatchEpisodePoints = activeLevelInfo.watchEpisodePoints || config.watchEpisodePoints || 50;
 
   const todayWatchPointsEarned = Math.max(0, summary?.todayWatchPointsEarned ?? 0);
   const effectiveMilestoneConfigs =
@@ -1925,7 +1944,7 @@ export const RewardsPayoutSection: React.FC = () => {
     effectiveMilestoneConfigs.reduce((acc, m) => acc + m.bonusPoints, 0);
   const dailyWatchCap = Math.max(
     effectiveWatchMinutePoints,
-    config.maxDailyWatchPoints || 20000
+    config.maxDailyWatchPoints || 2500
   );
   const maxWatchMissionPoints = Math.min(dailyWatchCap, rawLevelWatchMax);
   const oneUsdtPoints = Math.max(1000, config.pointsPerUsd || 100000);
@@ -1936,8 +1955,12 @@ export const RewardsPayoutSection: React.FC = () => {
   const activeCheckinDay = summary?.dailyCheckinClaimedToday
     ? Math.max(1, cycleDayProgress)
     : Math.min(7, cycleDayProgress + 1);
+  const todayCheckinRewardPoints =
+    activeCheckinDay === 7
+      ? effectiveDailyCheckinDay7Points
+      : effectiveDailyCheckinPoints;
   const weeklyCheckinMaxPoints =
-    effectiveDailyCheckinPoints * 7 + 100;
+    effectiveDailyCheckinPoints * 6 + effectiveDailyCheckinDay7Points;
 
   const tierMeta = useMemo(() => {
     const id = activeLevelInfo.tierId;
@@ -2062,37 +2085,58 @@ export const RewardsPayoutSection: React.FC = () => {
             <div className="space-y-1">
               <div className="flex items-center gap-2.5">
                 <GoldCoinIcon className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 drop-shadow-[0_4px_12px_rgba(245,158,11,0.45)]" />
-                <span className="text-4xl sm:text-5xl font-extrabold text-white tabular-nums tracking-tight leading-none">
-                  {user ? (summary?.balance ?? 0).toLocaleString() : '0'}
-                </span>
+                {authLoading && !user ? (
+                  <span className="inline-block w-32 h-10 sm:h-12 rounded-xl skeleton-espresso" />
+                ) : (
+                  <span className="text-4xl sm:text-5xl font-extrabold text-white tabular-nums tracking-tight leading-none">
+                    {user ? (summary?.balance ?? 0).toLocaleString() : '0'}
+                  </span>
+                )}
                 <span className="text-sm sm:text-base font-semibold text-[#D4D4D8] self-end pb-1">
                   {t.rewards.pointsUnit}
                 </span>
               </div>
 
               <p className="text-xs text-[#D4D4D8]/85 tabular-nums pl-0.5">
-                {user ? (
-                  <>
-                    {t.rewards.estimatedValue}:{' '}
-                    <strong className="text-white">
-                      {formatUsd(summary?.estimatedUsd ?? 0)}
-                    </strong>{' '}
-                    ·{' '}
-                    <strong className="text-emerald-300">
-                      {formatIdr(summary?.estimatedIdr ?? 0)}
-                    </strong>
-                  </>
-                ) : (
+                {authLoading && !user ? (
+                  <span className="inline-block w-52 h-3.5 rounded skeleton-espresso align-middle" />
+                ) : user ? (
+                  isId ? (
+                    <>
+                      {t.rewards.estimatedValue}:{' '}
+                      <strong className="text-white">
+                        {formatUsd(summary?.estimatedUsd ?? 0)}
+                      </strong>{' '}
+                      ·{' '}
+                      <strong className="text-emerald-300">
+                        {formatIdr(summary?.estimatedIdr ?? 0)}
+                      </strong>
+                    </>
+                  ) : (
+                    <>
+                      {t.rewards.estimatedValue}:{' '}
+                      <strong className="text-emerald-300">
+                        {(summary?.estimatedUsd ?? 0).toFixed(2)} USDT
+                      </strong>
+                    </>
+                  )
+                ) : isId ? (
                   <>
                     {oneUsdtPoints.toLocaleString()} {t.rewards.pointsUnit} = 1 USDT ({formatIdr(config.usdToIdrRate)}) ·{' '}
                     {config.minPayoutPointsIdr.toLocaleString()} {t.rewards.pointsUnit} ={' '}
                     {formatIdr(config.minPayoutIdr)}
                   </>
+                ) : (
+                  <>
+                    {oneUsdtPoints.toLocaleString()} {t.rewards.pointsUnit} = 1 USDT ·{' '}
+                    {config.minPayoutPointsUsd.toLocaleString()} {t.rewards.pointsUnit} ={' '}
+                    {config.minPayoutUsd.toFixed(2)} USDT
+                  </>
                 )}
               </p>
             </div>
 
-            {!user && (
+            {!user && !authLoading && (
               <div className="pt-0.5 space-y-2">
                 <p className="text-xs font-bold text-[#FDE68A] tabular-nums">
                   {isId
@@ -2320,7 +2364,7 @@ export const RewardsPayoutSection: React.FC = () => {
                 : dayNum <= cycleDayProgress;
             const dayPoints =
               dayNum === 7
-                ? effectiveDailyCheckinPoints + 100
+                ? effectiveDailyCheckinDay7Points
                 : effectiveDailyCheckinPoints;
             const coinLevel: 1 | 2 | 3 | 4 =
               dayNum <= 2 ? 1 : dayNum <= 4 ? 2 : dayNum <= 6 ? 3 : 4;
@@ -2331,9 +2375,9 @@ export const RewardsPayoutSection: React.FC = () => {
                 title={
                   dayNum === 7
                     ? isId
-                      ? `Hari ke-7: +${dayPoints} poin (termasuk bonus +100)`
-                      : `Day 7: +${dayPoints} pts (incl. +100 bonus)`
-                    : `${isId ? 'Hari' : 'Day'} ${dayNum}: +${dayPoints}`
+                      ? `Hari ke-7: +${dayPoints.toLocaleString()} poin (hadiah puncak streak 7 hari)`
+                      : `Day 7: +${dayPoints.toLocaleString()} pts (7-day streak milestone)`
+                    : `${isId ? 'Hari' : 'Day'} ${dayNum}: +${dayPoints.toLocaleString()}`
                 }
                 className={`relative rounded-2xl py-2.5 px-1 sm:px-2 flex flex-col items-center justify-between gap-1.5 border transition-all ${
                   isActiveDay
@@ -2404,13 +2448,15 @@ export const RewardsPayoutSection: React.FC = () => {
                 {t.rewards.cooldownWait} {summary?.cooldownSecondsRemaining}s
               </span>
             </>
+          ) : authLoading && !user ? (
+            <span className="inline-block w-36 h-4 rounded skeleton-espresso" />
           ) : !user ? (
             <>
               <Play className="w-4 h-4 fill-current shrink-0" />
               <span>
                 {isId
-                  ? `Masuk & Klaim Check-in (+${effectiveDailyCheckinPoints} Poin)`
-                  : `Sign in to Check In (+${effectiveDailyCheckinPoints} pts)`}
+                  ? `Masuk & Klaim Check-in (+${todayCheckinRewardPoints.toLocaleString()} Poin)`
+                  : `Sign in to Check In (+${todayCheckinRewardPoints.toLocaleString()} pts)`}
               </span>
             </>
           ) : (
@@ -2419,7 +2465,7 @@ export const RewardsPayoutSection: React.FC = () => {
               <span>
                 {claimingCheckin
                   ? '...'
-                  : `${t.rewards.dailyCheckinBtn.replace(/\(\+[^)]+\)/, '').trim()} (+${effectiveDailyCheckinPoints} ${t.rewards.pointsUnit})`}
+                  : `${t.rewards.dailyCheckinBtn.replace(/\(\+[^)]+\)/, '').trim()} (+${todayCheckinRewardPoints.toLocaleString()} ${t.rewards.pointsUnit})`}
               </span>
             </>
           )}
@@ -2431,21 +2477,21 @@ export const RewardsPayoutSection: React.FC = () => {
             {isId ? (
               <>
                 Kumpulkan hingga{' '}
-                <span className="text-[#FB7185]">{weeklyCheckinMaxPoints}</span>{' '}
+                <span className="text-[#FB7185]">{weeklyCheckinMaxPoints.toLocaleString()}</span>{' '}
                 poin minggu ini
               </>
             ) : (
               <>
                 Collect up to{' '}
-                <span className="text-[#FB7185]">{weeklyCheckinMaxPoints}</span>{' '}
+                <span className="text-[#FB7185]">{weeklyCheckinMaxPoints.toLocaleString()}</span>{' '}
                 points this week
               </>
             )}
           </p>
           <p className="text-xs text-[#A1A1AA] max-w-lg mx-auto leading-relaxed">
             {isId
-              ? 'Check-in, milestone, dan batas harian direset serentak setiap hari pukul 00:00 WIB. Hadiah bertambah dengan bonus +100 poin pada hari ke-7 beruntun.'
-              : 'Daily check-ins, milestones, and daily caps reset together once per day at 17:00 UTC. Keep a 7-day consecutive streak to unlock a +100 pts bonus.'}
+              ? `Check-in, milestone, dan batas harian direset serentak setiap hari pukul 00:00 WIB. Hari ke-1 s.d. ke-6 memberi +${effectiveDailyCheckinPoints.toLocaleString()} poin/hari dan Hari ke-7 memberi +${effectiveDailyCheckinDay7Points.toLocaleString()} poin.`
+              : `Daily check-ins, milestones, and daily caps reset together once per day at 17:00 UTC. Days 1–6 award +${effectiveDailyCheckinPoints.toLocaleString()} pts/day and Day 7 awards +${effectiveDailyCheckinDay7Points.toLocaleString()} pts.`}
           </p>
         </div>
 
@@ -2759,7 +2805,18 @@ export const RewardsPayoutSection: React.FC = () => {
           </div>
         </div>
 
-        {!user ? (
+        {authLoading && !user ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4" aria-busy="true">
+            <div className="lg:col-span-6 p-4 rounded-xl bg-[#0B0B0F] border border-white/10 space-y-3">
+              <div className="h-3.5 w-40 rounded skeleton-espresso" />
+              <div className="h-10 w-full rounded-lg skeleton-espresso" />
+            </div>
+            <div className="lg:col-span-6 p-4 rounded-xl bg-[#0B0B0F] border border-white/10 space-y-3">
+              <div className="h-3.5 w-36 rounded skeleton-espresso" />
+              <div className="h-10 w-full rounded-lg skeleton-espresso" />
+            </div>
+          </div>
+        ) : !user ? (
           <div className="p-4 rounded-xl bg-[#0B0B0F] border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
               <p className="text-xs sm:text-sm font-bold text-white">
@@ -3386,17 +3443,26 @@ export const RewardsPayoutSection: React.FC = () => {
                   <span className="text-base font-extrabold text-[#D4AF37] tabular-nums truncate">
                     {currencyTab === 'IDR'
                       ? formatIdr(estimatedReceiveIdr)
-                      : formatUsd(estimatedReceiveUsd)}
+                      : isId
+                      ? formatUsd(estimatedReceiveUsd)
+                      : `${estimatedReceiveUsd.toFixed(2)} USDT`}
                   </span>
                 </div>
                 <span className="text-[11px] text-[#A1A1AA] tabular-nums shrink-0">
                   {currencyTab === 'IDR'
-                    ? formatUsd(estimatedReceiveUsd)
-                    : formatIdr(estimatedReceiveIdr)}
+                    ? isId
+                      ? formatUsd(estimatedReceiveUsd)
+                      : `${estimatedReceiveUsd.toFixed(2)} USDT`
+                    : isId
+                    ? formatIdr(estimatedReceiveIdr)
+                    : `~$${estimatedReceiveUsd.toFixed(2)} USD`}
                 </span>
               </div>
               <p className="text-[11px] text-[#71717A] tabular-nums">
-                1 USD = {formatIdr(config.usdToIdrRate)} ·{' '}
+                {isId || currencyTab === 'IDR'
+                  ? `1 USD = ${formatIdr(config.usdToIdrRate)}`
+                  : `${oneUsdtPoints.toLocaleString()} ${t.rewards.pointsUnit} = 1 USDT`}{' '}
+                ·{' '}
                 {getMethodDisplayLabel(
                   effectiveMethod,
                   selectedBankCode,
@@ -3463,7 +3529,9 @@ export const RewardsPayoutSection: React.FC = () => {
           )}
 
           <div className="flex justify-end">
-            {user ? (
+            {authLoading && !user ? (
+              <div className="w-40 min-h-[44px] rounded-xl skeleton-espresso" aria-hidden="true" />
+            ) : user ? (
               <button
                 type="submit"
                 disabled={submittingPayout || !dbAvailable}
@@ -3784,6 +3852,7 @@ export const RewardsPayoutSection: React.FC = () => {
         firstLoginBonusPoints={effectiveFirstLoginBonusPoints}
         bindReferralBonusPoints={config.bindReferralBonusPoints ?? 200}
         dailyCheckinPoints={effectiveDailyCheckinPoints}
+        dailyCheckinDay7Points={effectiveDailyCheckinDay7Points}
         watchEpisodePoints={effectiveWatchEpisodePoints}
         watchMinutePoints={effectiveWatchMinutePoints}
         dailyMissionMilestones={effectiveMilestoneConfigs}
@@ -3861,8 +3930,14 @@ export const RewardsPayoutSection: React.FC = () => {
                 </span>
                 <span className="font-extrabold text-[#D4AF37] tabular-nums">
                   {currencyTab === 'IDR'
-                    ? `${formatIdr(estimatedReceiveIdr)} (${formatUsd(estimatedReceiveUsd)})`
-                    : `${formatUsd(estimatedReceiveUsd)} (${formatIdr(estimatedReceiveIdr)})`}
+                    ? `${formatIdr(estimatedReceiveIdr)} (${
+                        isId
+                          ? formatUsd(estimatedReceiveUsd)
+                          : `${estimatedReceiveUsd.toFixed(2)} USDT`
+                      })`
+                    : isId
+                    ? `${formatUsd(estimatedReceiveUsd)} (${formatIdr(estimatedReceiveIdr)})`
+                    : `${estimatedReceiveUsd.toFixed(2)} USDT`}
                 </span>
               </div>
               <div className="px-3.5 py-2.5 flex items-center justify-between gap-2">

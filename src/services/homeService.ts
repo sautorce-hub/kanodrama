@@ -36,6 +36,33 @@ export function getPeekCachedHomeCatalog(
   } catch {
     // Ignore storage read errors
   }
+  try {
+    if (typeof window !== 'undefined') {
+      const ssrHome = (window as Window & { __INITIAL_HOME__?: HomeCatalogResponse })
+        .__INITIAL_HOME__;
+      if (
+        ssrHome &&
+        (ssrHome.lang === lang || !ssrHome.lang) &&
+        (ssrHome.provider || 'All') === provider
+      ) {
+        const hasItems =
+          (Array.isArray(ssrHome.heroSpotlights) && ssrHome.heroSpotlights.length > 0) ||
+          (Array.isArray(ssrHome.trendingTop) && ssrHome.trendingTop.length > 0) ||
+          (Array.isArray(ssrHome.hotReleases) && ssrHome.hotReleases.length > 0) ||
+          (Array.isArray(ssrHome.catalogGrid) && ssrHome.catalogGrid.length > 0);
+        if (hasItems) {
+          const entry = {
+            expiresAt: Number(ssrHome.expiresAt) || Date.now() + HOME_CLIENT_TTL_MS,
+            data: ssrHome,
+          };
+          memoryHomeCache.set(key, entry);
+          return ssrHome;
+        }
+      }
+    }
+  } catch {
+    // Ignore SSR bootstrap read errors
+  }
   return null;
 }
 

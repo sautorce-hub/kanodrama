@@ -260,6 +260,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     language,
     t,
     user,
+    authLoading,
     streak,
     pointsBalance,
     openAuthModal,
@@ -477,6 +478,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                     {language === 'id' ? 'Poin' : 'Pts'}
                   </span>
                 </>
+              ) : authLoading && !user ? (
+                <span className="inline-block w-14 sm:w-20 h-3 rounded skeleton-espresso align-middle" />
               ) : (
                 <>
                   <span className="sm:hidden">
@@ -504,41 +507,51 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
 
           {/* Desktop Account / Google Sign-In Button */}
-          <button
-            type="button"
-            onClick={() => openAuthModal()}
-            aria-label={user ? t.nav.account : t.nav.login}
-            className="hidden md:inline-flex items-center gap-2 px-2.5 py-1.5 rounded-full bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-xs font-semibold text-white transition-colors whitespace-nowrap shrink-0"
-          >
-            {user ? (
-              <>
-                {user.photoURL && !avatarBroken ? (
-                  <img
-                    src={user.photoURL}
-                    alt={user.displayName}
-                    referrerPolicy="no-referrer"
-                    onError={() => setAvatarBroken(true)}
-                    className="w-5 h-5 rounded-full object-cover shrink-0 border border-white/25"
-                  />
-                ) : (
-                  <span
-                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-                    style={{ backgroundColor: user.avatarColor }}
-                  >
-                    {user.avatarInitials}
+          {authLoading && !user ? (
+            <div
+              className="hidden md:inline-flex items-center gap-2 px-3 py-1.5 min-h-[34px] rounded-full bg-[var(--cd-surface)] border border-[var(--cd-border)] shrink-0"
+              aria-hidden="true"
+            >
+              <span className="w-5 h-5 rounded-full skeleton-espresso shrink-0" />
+              <span className="w-14 h-3 rounded skeleton-espresso" />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => openAuthModal()}
+              aria-label={user ? t.nav.account : t.nav.login}
+              className="hidden md:inline-flex items-center gap-2 px-2.5 py-1.5 rounded-full bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-xs font-semibold text-white transition-colors whitespace-nowrap shrink-0"
+            >
+              {user ? (
+                <>
+                  {user.photoURL && !avatarBroken ? (
+                    <img
+                      src={user.photoURL}
+                      alt={user.displayName}
+                      referrerPolicy="no-referrer"
+                      onError={() => setAvatarBroken(true)}
+                      className="w-5 h-5 rounded-full object-cover shrink-0 border border-white/25"
+                    />
+                  ) : (
+                    <span
+                      className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+                      style={{ backgroundColor: user.avatarColor }}
+                    >
+                      {user.avatarInitials}
+                    </span>
+                  )}
+                  <span className="max-w-[90px] truncate">
+                    {user.displayName.split(' ')[0]}
                   </span>
-                )}
-                <span className="max-w-[90px] truncate">
-                  {user.displayName.split(' ')[0]}
-                </span>
-              </>
-            ) : (
-              <>
-                <User className="w-3.5 h-3.5 cd-accent-text" />
-                <span>{t.nav.login}</span>
-              </>
-            )}
-          </button>
+                </>
+              ) : (
+                <>
+                  <User className="w-3.5 h-3.5 cd-accent-text" />
+                  <span>{t.nav.login}</span>
+                </>
+              )}
+            </button>
+          )}
 
           {/* Mobile Drawer Trigger */}
           <button

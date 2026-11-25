@@ -1482,9 +1482,9 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(first.status, 200);
     const firstBody = await first.json();
     assert.equal(firstBody.ok, true);
-    assert.equal(firstBody.awardedPoints, 1000);
+    assert.equal(firstBody.awardedPoints, 2000);
     assert.equal(firstBody.streakDay, 7);
-    assert.equal(firstBody.summary.balance, 1000);
+    assert.equal(firstBody.summary.balance, 2000);
 
     // Duplicate same WIB day must fail cleanly with 409
     const dup = await fetch(`${baseUrl}/api/points/claim`, {
@@ -1708,7 +1708,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(valid20.reason, 'counted');
     assert.equal(valid20.addedSeconds, 20);
 
-    // Episode bonus now succeeds once (+400 pts), second claim blocked (409)
+    // Episode bonus now succeeds once (+50 pts), second claim blocked (409)
     const epClaim1 = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
@@ -1724,7 +1724,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       }),
     });
     assert.equal(epClaim1.status, 200);
-    assert.equal((await epClaim1.json()).awardedPoints, 400);
+    assert.equal((await epClaim1.json()).awardedPoints, 50);
 
     const epClaimDup = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
@@ -1888,18 +1888,18 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.equal(qualHb.referralQualified, true);
 
-    // Verify Alice received +10,000 referral bonus AND Bob received +200 bind + auto 40 pts/min (2,400 pts) with milestones ready to claim
+    // Verify Alice received +2,000 referral bonus AND Bob received +200 bind + auto 20 pts/min (1,200 pts) with milestones ready to claim
     const aliceMe = await fetch(`${baseUrl}/api/points/me`, {
       headers: { Authorization: `Bearer ${aliceToken}` },
     }).then((r) => r.json());
-    assert.equal(aliceMe.summary.balance, 10000);
+    assert.equal(aliceMe.summary.balance, 2000);
     assert.equal(aliceMe.summary.ledger[0].eventCode, 'referral_qualify');
 
     const bobMe = await fetch(`${baseUrl}/api/points/me`, {
       headers: { Authorization: `Bearer ${bobToken}` },
     }).then((r) => r.json());
-    assert.equal(bobMe.summary.todayWatchPointsEarned, 2400);
-    assert.equal(bobMe.summary.balance, 2600);
+    assert.equal(bobMe.summary.todayWatchPointsEarned, 1200);
+    assert.equal(bobMe.summary.balance, 1400);
     assert.ok(bobMe.summary.ledgerTotal >= 61);
     assert.ok(bobMe.summary.milestones.every((m: any) => m.reached === true && m.claimed === false));
   });
@@ -2105,16 +2105,17 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(cfg.minPayoutUsd, 5);
     assert.equal(cfg.firstLoginBonusPoints, 10000);
     assert.equal(cfg.bindReferralBonusPoints, 200);
-    assert.equal(cfg.dailyCheckinPoints, 1000);
-    assert.equal(cfg.watchEpisodePoints, 400);
-    assert.equal(cfg.watchMinutePoints, 40);
-    assert.equal(cfg.referralBonusPoints, 10000);
-    assert.equal(cfg.maxDailyWatchPoints, 20000);
-    assert.equal(cfg.maxDailyEarnPoints, 50000);
+    assert.equal(cfg.dailyCheckinPoints, 500);
+    assert.equal(cfg.dailyCheckinDay7Points, 2000);
+    assert.equal(cfg.watchEpisodePoints, 50);
+    assert.equal(cfg.watchMinutePoints, 20);
+    assert.equal(cfg.referralBonusPoints, 2000);
+    assert.equal(cfg.maxDailyWatchPoints, 2500);
+    assert.equal(cfg.maxDailyEarnPoints, 10000);
     assert.deepEqual(cfg.dailyMissionMilestones, [
-      { minutes: 15, bonusPoints: 1000 },
-      { minutes: 30, bonusPoints: 2400 },
-      { minutes: 60, bonusPoints: 5600 },
+      { minutes: 15, bonusPoints: 150 },
+      { minutes: 30, bonusPoints: 300 },
+      { minutes: 60, bonusPoints: 600 },
     ]);
     assert.equal(cfg.levelTiers.length, 4);
   });
@@ -2140,16 +2141,16 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       last_visit_date: '',
       is_vip: false,
     });
-    // Seed 20,000 lifetime points yesterday -> qualifies for Lv.2 Silver (1.2x)
+    // Seed 15,000 lifetime points yesterday -> qualifies for Lv.2 Silver (1.2x)
     const twoDaysAgo = new Date(Date.now() - 86_400_000 * 2);
     state.ledger.push({
       id: 'seed-silver-1',
       user_id: silverUid,
       type: 'earn',
-      points: 20000,
+      points: 15000,
       description: 'Seed Silver Level',
       reference_id: 'seed:silver:1',
-      balance_after: 20000,
+      balance_after: 15000,
       created_at: twoDaysAgo,
     });
 
@@ -2159,11 +2160,12 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(silverMe.ok, true);
     assert.equal(silverMe.summary.levelInfo.tierId, 'silver');
     assert.equal(silverMe.summary.levelInfo.multiplier, 1.2);
-    assert.equal(silverMe.summary.levelInfo.dailyCheckinPoints, 1200);
-    assert.equal(silverMe.summary.levelInfo.watchMinutePoints, 48);
-    assert.equal(silverMe.summary.levelInfo.watchEpisodePoints, 480);
+    assert.equal(silverMe.summary.levelInfo.dailyCheckinPoints, 600);
+    assert.equal(silverMe.summary.levelInfo.dailyCheckinDay7Points, 2400);
+    assert.equal(silverMe.summary.levelInfo.watchMinutePoints, 24);
+    assert.equal(silverMe.summary.levelInfo.watchEpisodePoints, 60);
 
-    // Claim daily check-in at Silver -> server grants +1,200 pts (ignores any client input)
+    // Claim daily check-in at Silver -> server grants +600 pts (ignores any client input)
     const silverCheckin = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
@@ -2173,9 +2175,9 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       body: JSON.stringify({ action: 'daily_checkin', multiplier: 99, points: 9999 }),
     }).then((r) => r.json());
     assert.equal(silverCheckin.ok, true);
-    assert.equal(silverCheckin.awardedPoints, 1200);
+    assert.equal(silverCheckin.awardedPoints, 600);
 
-    // Seed Platinum account (300,000 lifetime points) -> Lv.4 Platinum (1.6x)
+    // Seed Platinum account (100,000 lifetime points) -> Lv.4 Platinum (1.6x)
     const platUid = 'u-plat-1';
     const platToken = signAuthSessionToken({
       uid: platUid,
@@ -2197,10 +2199,10 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       id: 'seed-plat-1',
       user_id: platUid,
       type: 'earn',
-      points: 300000,
+      points: 100000,
       description: 'Seed Platinum Level',
       reference_id: 'seed:plat:1',
-      balance_after: 300000,
+      balance_after: 100000,
       created_at: twoDaysAgo,
     });
 
@@ -2213,9 +2215,10 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       body: JSON.stringify({ action: 'daily_checkin' }),
     }).then((r) => r.json());
     assert.equal(platCheckin.ok, true);
-    assert.equal(platCheckin.awardedPoints, 1600);
+    assert.equal(platCheckin.awardedPoints, 800);
     assert.equal(platCheckin.summary.levelInfo.tierId, 'platinum');
-    assert.equal(platCheckin.summary.levelInfo.watchMinutePoints, 64);
+    assert.equal(platCheckin.summary.levelInfo.watchMinutePoints, 32);
+    assert.equal(platCheckin.summary.levelInfo.dailyCheckinDay7Points, 3200);
   });
 
   await t.test('8. Hybrid Daily Watching Bonus: Auto Per-Minute Points, Claimable Milestones, Double-Claim Guard & Daily Watch Cap', async () => {
@@ -2273,8 +2276,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       uaHash: 'ua-a',
       deviceHash: 'dev-a',
     });
-    assert.equal(hb15.awardedWatchPoints, 600);
-    assert.equal(hb15.todayWatchPointsEarned, 600);
+    assert.equal(hb15.awardedWatchPoints, 300);
+    assert.equal(hb15.todayWatchPointsEarned, 300);
 
     // 2. Premature 30m milestone claim fails (400 milestone_not_reached)
     const premature30 = await fetch(`${baseUrl}/api/points/claim`, {
@@ -2288,7 +2291,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(premature30.status, 400);
     assert.equal((await premature30.json()).reason, 'milestone_not_reached');
 
-    // 3. Valid 15m milestone claim succeeds (+1,000 pts)
+    // 3. Valid 15m milestone claim succeeds (+150 pts)
     const claim15 = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
@@ -2300,8 +2303,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(claim15.status, 200);
     const claim15Json = await claim15.json();
     assert.equal(claim15Json.ok, true);
-    assert.equal(claim15Json.awardedPoints, 1000);
-    assert.equal(claim15Json.summary.todayWatchPointsEarned, 1600);
+    assert.equal(claim15Json.awardedPoints, 150);
+    assert.equal(claim15Json.summary.todayWatchPointsEarned, 450);
     assert.equal(claim15Json.summary.milestones[0].claimed, true);
     assert.equal(claim15Json.summary.milestones[1].reached, false);
 
@@ -2317,7 +2320,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(dup15.status, 409);
     assert.equal((await dup15.json()).reason, 'duplicate_claim');
 
-    // 5. Advance watch time to 60m -> auto awards remaining 45m (1,800 pts), 30m & 60m ready to claim back-to-back
+    // 5. Advance watch time to 60m -> auto awards remaining 45m (900 pts), 30m & 60m ready to claim back-to-back
     const aliceTel = state.telemetry.get('user-alice')!;
     aliceTel.verified_watch_seconds = 3580;
     aliceTel.today_watch_seconds = 3580;
@@ -2337,7 +2340,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       uaHash: 'ua-a',
       deviceHash: 'dev-a',
     });
-    assert.equal(hb60.awardedWatchPoints, 1800);
+    assert.equal(hb60.awardedWatchPoints, 900);
 
     const claim30 = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
@@ -2348,7 +2351,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       body: JSON.stringify({ action: 'watch_milestone', milestoneMinutes: 30 }),
     });
     assert.equal(claim30.status, 200);
-    assert.equal((await claim30.json()).awardedPoints, 2400);
+    assert.equal((await claim30.json()).awardedPoints, 300);
 
     const claim60 = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
@@ -2360,11 +2363,11 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.equal(claim60.status, 200);
     const claim60Json = await claim60.json();
-    assert.equal(claim60Json.awardedPoints, 5600);
-    assert.equal(claim60Json.summary.todayWatchPointsEarned, 11400);
+    assert.equal(claim60Json.awardedPoints, 600);
+    assert.equal(claim60Json.summary.todayWatchPointsEarned, 2250);
     assert.ok(claim60Json.summary.milestones.every((m: any) => m.reached && m.claimed));
 
-    // 6. Enforce MAX_DAILY_WATCH_POINTS (20000) cap cleanly with 429
+    // 6. Enforce MAX_DAILY_WATCH_POINTS (2500) cap cleanly with 429
     state.users.set('user-bob', {
       uid: 'user-bob',
       email: 'bob@example.com',
@@ -2394,10 +2397,10 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       id: 'seed-bob-watch-cap',
       user_id: 'user-bob',
       type: 'earn',
-      points: 19600,
+      points: 2400,
       description: 'Seed near daily watch cap',
       reference_id: `watch_min:user-bob:${todayKey}:m99`,
-      balance_after: 19600,
+      balance_after: 2400,
       created_at: new Date(),
     });
     const capRes = await fetch(`${baseUrl}/api/points/claim`, {
@@ -2439,7 +2442,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.equal(utcCheckin.status, 200);
     const utcCheckinJson = await utcCheckin.json();
-    assert.equal(utcCheckinJson.awardedPoints, 1000);
+    assert.equal(utcCheckinJson.awardedPoints, 500);
     assert.ok(utcCheckinJson.summary.resetPeriodKey);
     assert.ok(utcCheckinJson.summary.nextResetAt);
 
@@ -2483,7 +2486,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       deviceHash: 'dev-tz',
       timeZone: 'UTC',
     });
-    assert.equal(hbUtc.awardedWatchPoints, 600);
+    assert.equal(hbUtc.awardedWatchPoints, 300);
 
     const claim15Utc = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
@@ -2495,7 +2498,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       body: JSON.stringify({ action: 'watch_milestone', milestoneMinutes: 15 }),
     });
     assert.equal(claim15Utc.status, 200);
-    assert.equal((await claim15Utc.json()).awardedPoints, 1000);
+    assert.equal((await claim15Utc.json()).awardedPoints, 150);
 
     // 3. Switch display timezone header to WIB (Asia/Jakarta): UI status MUST stay locked & claims MUST return 409
     const meWib = await fetch(`${baseUrl}/api/points/me`, {
@@ -2507,9 +2510,9 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(meWib.summary.resetPeriodKey, canonicalKey);
     assert.equal(meWib.summary.dailyCheckinClaimedToday, true);
     assert.equal(meWib.summary.milestones[0].claimed, true);
-    assert.equal(meWib.summary.todayWatchPointsEarned, 1600);
-    assert.equal(meWib.summary.todayEarned, 2600);
-    assert.equal(meWib.summary.balance, 2600);
+    assert.equal(meWib.summary.todayWatchPointsEarned, 450);
+    assert.equal(meWib.summary.todayEarned, 950);
+    assert.equal(meWib.summary.balance, 950);
 
     const wibReCheckin = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
@@ -2683,11 +2686,11 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       { videoSec: 15.25, elapsedMs: 14_700, expectedTotalSec: 15, expectedAward: 0, expectedBal: 0 },
       { videoSec: 30.25, elapsedMs: 15_000, expectedTotalSec: 30, expectedAward: 0, expectedBal: 0 },
       { videoSec: 45.25, elapsedMs: 15_000, expectedTotalSec: 45, expectedAward: 0, expectedBal: 0 },
-      { videoSec: 60.25, elapsedMs: 15_000, expectedTotalSec: 60, expectedAward: 40, expectedBal: 40 },
-      { videoSec: 75.25, elapsedMs: 15_000, expectedTotalSec: 75, expectedAward: 0, expectedBal: 40 },
-      { videoSec: 90.25, elapsedMs: 15_000, expectedTotalSec: 90, expectedAward: 0, expectedBal: 40 },
-      { videoSec: 105.25, elapsedMs: 15_000, expectedTotalSec: 105, expectedAward: 0, expectedBal: 40 },
-      { videoSec: 120.25, elapsedMs: 15_000, expectedTotalSec: 120, expectedAward: 40, expectedBal: 80 },
+      { videoSec: 60.25, elapsedMs: 15_000, expectedTotalSec: 60, expectedAward: 20, expectedBal: 20 },
+      { videoSec: 75.25, elapsedMs: 15_000, expectedTotalSec: 75, expectedAward: 0, expectedBal: 20 },
+      { videoSec: 90.25, elapsedMs: 15_000, expectedTotalSec: 90, expectedAward: 0, expectedBal: 20 },
+      { videoSec: 105.25, elapsedMs: 15_000, expectedTotalSec: 105, expectedAward: 0, expectedBal: 20 },
+      { videoSec: 120.25, elapsedMs: 15_000, expectedTotalSec: 120, expectedAward: 20, expectedBal: 40 },
     ];
 
     let seq = 1;
@@ -2799,13 +2802,14 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       sitemapRes,
       /\/provider\/(?:dramabox|melolo|storyreel|vibeshort|shortmax|idrama|reelshort)<\/loc>/i
     );
-    // Default EN /rewards must strictly use UTC (no WIB) and updated 10k / 200 / 2x rates
-    assert.match(rewardsResEn, /\+1,000 points \(15 min\), \+2,400 points \(30 min\), and \+5,600 points \(60 min\)/);
+    // Default EN /rewards must strictly use UTC (no WIB), updated proportional rates, and USDT-only estimation (no IDR)
+    assert.match(rewardsResEn, /\+150 points \(15 min\), \+300 points \(30 min\), and \+600 points \(60 min\)/);
     assert.match(rewardsResEn, /17:00 UTC/);
     assert.doesNotMatch(rewardsResEn, /\bWIB\b/);
+    assert.doesNotMatch(rewardsResEn, /Rp\s*18[.,]200|Rp\s*50[.,]000/i);
     assert.doesNotMatch(rewardsResEn, /kano-drama\.xyz|HouseDrama|house-drama\.xyz|house-drama\.web\.id|CoffeeDrama/i);
-    // Indonesian /rewards?lang=id uses WIB and updated 10k / 200 / 2x rates
-    assert.match(rewardsResId, /\+1\.000 poin \(15 menit\), \+2\.400 poin \(30 menit\), dan \+5\.600 poin \(60 menit\)/);
+    // Indonesian /rewards?lang=id uses WIB and updated proportional rates
+    assert.match(rewardsResId, /\+150 poin \(15 menit\), \+300 poin \(30 menit\), dan \+600 poin \(60 menit\)/);
     assert.match(rewardsResId, /00\.00 WIB/);
     assert.doesNotMatch(homeHtmlRes, /kano-drama\.xyz|HouseDrama|house-drama\.xyz|house-drama\.web\.id/i);
     assert.match(homeHtmlRes, /rel="canonical" href="https:\/\/kano-drama\.live\/"/);
@@ -2888,7 +2892,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const cfgRes = await fetch(`${baseUrl}/api/points/config`).then((r) => r.json());
     assert.equal(cfgRes.config.firstLoginBonusPoints, 10000);
     assert.equal(cfgRes.config.bindReferralBonusPoints, 200);
-    assert.equal(cfgRes.config.dailyCheckinPoints, 1000);
+    assert.equal(cfgRes.config.dailyCheckinPoints, 500);
+    assert.equal(cfgRes.config.dailyCheckinDay7Points, 2000);
 
     // 1. First registration via email grants +10,000 first-login bonus
     const regRes = await fetch(`${baseUrl}/api/auth/email/register`, {
@@ -2931,7 +2936,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(meBefore.summary.todayEarned, 0);
     assert.equal(meBefore.summary.ledger[0].eventCode, 'welcome_login');
 
-    // 4. Daily check-in still awards +1,000 points cleanly -> total balance 11,000
+    // 4. Daily check-in awards +500 points cleanly -> total balance 10,500
     const checkinRes = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
@@ -2941,9 +2946,9 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       body: JSON.stringify({ action: 'daily_checkin' }),
     }).then((r) => r.json());
     assert.equal(checkinRes.ok, true);
-    assert.equal(checkinRes.awardedPoints, 1000);
-    assert.equal(checkinRes.summary.balance, 11000);
-    assert.equal(checkinRes.summary.todayEarned, 1000);
+    assert.equal(checkinRes.awardedPoints, 500);
+    assert.equal(checkinRes.summary.balance, 10500);
+    assert.equal(checkinRes.summary.todayEarned, 500);
 
     // 5. /api/users/sync with isLoginEvent=true grants +10,000 once for first-time OAuth sync and 0 on repeat
     const syncFirst = await fetch(`${baseUrl}/api/users/sync`, {

@@ -635,7 +635,7 @@ const SCHEMA_STATEMENTS: string[] = [
     referee_uid TEXT UNIQUE NOT NULL,
     referral_code TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending_watch' CHECK (status IN ('pending_watch', 'qualified', 'rejected_fraud')),
-    bonus_points INTEGER NOT NULL DEFAULT 10000,
+    bonus_points INTEGER NOT NULL DEFAULT 2000,
     referee_ip_hash TEXT NOT NULL DEFAULT '',
     referee_subnet_hash TEXT NOT NULL DEFAULT '',
     referee_ua_hash TEXT NOT NULL DEFAULT '',
@@ -646,7 +646,7 @@ const SCHEMA_STATEMENTS: string[] = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
-  `ALTER TABLE referrals ALTER COLUMN bonus_points SET DEFAULT 10000`,
+  `ALTER TABLE referrals ALTER COLUMN bonus_points SET DEFAULT 2000`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_referrer_created ON referrals (referrer_uid, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_referrer_status ON referrals (referrer_uid, status, qualified_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_code ON referrals (referral_code)`,
@@ -671,7 +671,7 @@ const SCHEMA_STATEMENTS: string[] = [
     user_id TEXT NOT NULL,
     checkin_date DATE NOT NULL,
     streak_day INTEGER NOT NULL DEFAULT 1,
-    points_awarded INTEGER NOT NULL DEFAULT 1000,
+    points_awarded INTEGER NOT NULL DEFAULT 500,
     ledger_id TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, checkin_date)
@@ -683,7 +683,7 @@ const SCHEMA_STATEMENTS: string[] = [
     provider TEXT NOT NULL,
     drama_id TEXT NOT NULL,
     episode_number INTEGER NOT NULL,
-    points_awarded INTEGER NOT NULL DEFAULT 400,
+    points_awarded INTEGER NOT NULL DEFAULT 50,
     session_token TEXT NOT NULL DEFAULT '',
     ledger_id TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -3890,6 +3890,7 @@ export interface PayoutRuntimeConfig {
   firstLoginBonusPoints: number;
   bindReferralBonusPoints: number;
   dailyCheckinPoints: number;
+  dailyCheckinDay7Points: number;
   watchEpisodePoints: number;
   watchMinutePoints: number;
   dailyMissionMaxWatchSeconds: number;
@@ -5189,7 +5190,17 @@ export async function claimDailyCheckinInDb(input: {
       verifiedWatchSec,
       cfg
     );
-    const checkinAmount = levelInfo.dailyCheckinPoints;
+    const yestRes = await client.query<{ streak_day: number }>(
+      `SELECT streak_day FROM daily_checkins WHERE user_id = $1 AND checkin_date = $2::date LIMIT 1`,
+      [input.userId, yesterdayKey]
+    );
+    const streakDay =
+      yestRes.rows[0] && Number(yestRes.rows[0].streak_day) > 0
+        ? Number(yestRes.rows[0].streak_day) + 1
+        : 1;
+    const cycleDay = ((streakDay - 1) % 7) + 1;
+    const checkinAmount =
+      cycleDay === 7 ? levelInfo.dailyCheckinDay7Points : levelInfo.dailyCheckinPoints;
     const todayEarned = Math.max(0, Number(statsRes.rows[0]?.today_earned) || 0);
     const lastClaimAt =
       statsRes.rows[0]?.last_claim_at instanceof Date ? statsRes.rows[0].last_claim_at : null;
@@ -5214,15 +5225,6 @@ export async function claimDailyCheckinInDb(input: {
       await client.query('COMMIT');
       return { ok: false, reason: 'daily_cap_reached', summary };
     }
-
-    const yestRes = await client.query<{ streak_day: number }>(
-      `SELECT streak_day FROM daily_checkins WHERE user_id = $1 AND checkin_date = $2::date LIMIT 1`,
-      [input.userId, yesterdayKey]
-    );
-    const streakDay =
-      yestRes.rows[0] && Number(yestRes.rows[0].streak_day) > 0
-        ? Number(yestRes.rows[0].streak_day) + 1
-        : 1;
 
     const ledgerId = crypto.randomUUID();
     const balanceAfter = currentBalance + checkinAmount;

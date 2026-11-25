@@ -750,8 +750,8 @@ export function syncSectionDocumentSeo(
             '@type': 'Answer',
             text:
               lang === 'id'
-                ? 'Masuk ke akun KanoDrama untuk langsung mendapatkan bonus login pertama +10.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan normal (1x). Anda mendapatkan +40 poin/menit otomatis hingga 60 menit/hari (dikalikan multiplier level akun hingga 1,6x), +400 poin episode baru (minimal 15 detik), check-in harian +1.000 poin (reset pukul 00.00 WIB), serta bonus milestone 15, 30, dan 60 menit (+1.000 / +2.400 / +5.600 poin) yang dapat diklaim setelah target tercapai.'
-                : 'Sign in to claim a +10,000 pts first-login bonus (once per account) and actively watch short dramas or movies at normal playback speed. You earn +40 pts/min automatically up to 60 min/day (scaled by account level multiplier up to 1.6x), +400 pts per new episode (min 15s watch), daily check-in +1,000 pts (resets at 17:00 UTC), and claimable 15/30/60 minute milestone bonuses (+1,000 / +2,400 / +5,600 pts).',
+                ? 'Masuk ke akun KanoDrama untuk langsung mendapatkan bonus login pertama +10.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan normal (1x). Anda mendapatkan +20 poin/menit otomatis hingga 60 menit/hari (dikalikan multiplier level akun hingga 1,6x), +50 poin episode baru (minimal 15 detik), check-in harian +500 poin dan Hari ke-7 +2.000 poin (total 5.000 poin/minggu, reset pukul 00.00 WIB), serta bonus milestone 15, 30, dan 60 menit (+150 / +300 / +600 poin) hingga batas 2.500 poin nonton harian.'
+                : 'Sign in to claim a +10,000 pts first-login bonus (once per account) and actively watch short dramas or movies at normal playback speed. You earn +20 pts/min automatically up to 60 min/day (scaled by account level multiplier up to 1.6x), +50 pts per new episode (min 15s watch), daily check-in +500 pts and Day 7 +2,000 pts (5,000 pts/week, resets at 17:00 UTC), and claimable 15/30/60 minute milestone bonuses (+150 / +300 / +600 pts) within a 2,500 daily watch points cap.',
           },
         },
         {
@@ -759,13 +759,13 @@ export function syncSectionDocumentSeo(
           name:
             lang === 'id'
               ? 'Berapa minimal penarikan poin ke saldo DANA, Bank Indonesia, PayPal, atau USDT?'
-              : 'What is the minimum withdrawal for IDR wallets, Banks, PayPal, Wise, and USDT?',
+              : 'What is the points conversion rate and minimum withdrawal?',
           acceptedAnswer: {
             '@type': 'Answer',
             text:
               lang === 'id'
                 ? 'Nilai tukar resmi adalah 100.000 poin = 1 USDT ($1.00 USD) = Rp 18.200. Minimal penarikan lokal IDR (DANA, GoPay, OVO, ShopeePay, LinkAja, atau Transfer Bank Indonesia) adalah Rp 50.000, sedangkan metode global (PayPal, Wise, USDT) minimal $5.00 USD.'
-                : '100,000 points equal 1 USDT ($1.00 USD) or Rp 18,200 IDR. Indonesian local withdrawals (DANA, GoPay, OVO, ShopeePay, LinkAja, Bank Transfer) start at Rp 50,000, and global payouts (PayPal, Wise, USDT) start at $5.00 USD.',
+                : '100,000 points equal 1 USDT ($1.00 USD). Global payouts (PayPal, Wise, USDT) start at 5.00 USDT ($5.00 USD).',
           },
         },
         {
@@ -778,8 +778,8 @@ export function syncSectionDocumentSeo(
             '@type': 'Answer',
             text:
               lang === 'id'
-                ? 'Bagikan tautan undangan resmi kano-drama.live Anda. Teman yang mengikat kode referral Anda langsung menerima +200 poin, dan setelah menyelesaikan total 1 jam (3.600 detik) durasi menonton terverifikasi, +10.000 poin otomatis masuk ke saldo Anda.'
-                : 'Share your kano-drama.live referral link. Friends who bind your referral code receive +200 bonus points immediately, and once they complete 1 hour (3,600 seconds) of verified active watch time, +10,000 bonus points are credited automatically.',
+                ? 'Bagikan tautan undangan resmi kano-drama.live Anda. Teman yang mengikat kode referral Anda langsung menerima +200 poin, dan setelah menyelesaikan total 1 jam (3.600 detik) durasi menonton terverifikasi, +2.000 poin otomatis masuk ke saldo Anda.'
+                : 'Share your kano-drama.live referral link. Friends who bind your referral code receive +200 bonus points immediately, and once they complete 1 hour (3,600 seconds) of verified active watch time, +2,000 bonus points are credited automatically.',
           },
         },
       ],

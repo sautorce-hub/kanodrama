@@ -13,6 +13,7 @@ interface RewardsSeoContentProps {
   firstLoginBonusPoints?: number;
   bindReferralBonusPoints?: number;
   dailyCheckinPoints?: number;
+  dailyCheckinDay7Points?: number;
   watchEpisodePoints?: number;
   watchMinutePoints?: number;
   dailyMissionMilestones?: Array<{ minutes: number; bonusPoints: number }>;
@@ -70,17 +71,18 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
   minPayoutPointsUsd = 500000,
   firstLoginBonusPoints = 10000,
   bindReferralBonusPoints = 200,
-  dailyCheckinPoints = 1000,
-  watchEpisodePoints = 400,
-  watchMinutePoints = 40,
+  dailyCheckinPoints = 500,
+  dailyCheckinDay7Points = 2000,
+  watchEpisodePoints = 50,
+  watchMinutePoints = 20,
   dailyMissionMilestones = [
-    { minutes: 15, bonusPoints: 1000 },
-    { minutes: 30, bonusPoints: 2400 },
-    { minutes: 60, bonusPoints: 5600 },
+    { minutes: 15, bonusPoints: 150 },
+    { minutes: 30, bonusPoints: 300 },
+    { minutes: 60, bonusPoints: 600 },
   ],
   levelTiers = [],
-  referralBonusPoints = 10000,
-  maxDailyEarnPoints = 50000,
+  referralBonusPoints = 2000,
+  maxDailyEarnPoints = 10000,
   isSignedIn = false,
   onActionSignIn,
 }) => {
@@ -105,7 +107,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
     ? [
         {
           q: 'Bagaimana cara mendapatkan poin dari nonton drama di KanoDrama?',
-          a: `Login ke akun KanoDrama untuk langsung memperoleh bonus login pertama +${firstLoginBonusPoints.toLocaleString()} poin (1x per akun), lalu tonton drama Asia, short drama China, atau film secara aktif pada kecepatan 1x dengan tab browser tetap terlihat. Server memverifikasi durasi menonton setiap 15 detik dan memberikan +${watchMinutePoints} poin/menit otomatis (maksimal 60 menit/hari), bonus episode baru +${watchEpisodePoints} poin sekali per episode, check-in harian +${dailyCheckinPoints} poin, serta bonus milestone 15m/30m/60m yang dapat diklaim setelah target tercapai hingga batas ${maxDailyEarnPoints.toLocaleString()} poin/hari.`,
+          a: `Login ke akun KanoDrama untuk langsung memperoleh bonus login pertama +${firstLoginBonusPoints.toLocaleString()} poin (1x per akun), lalu tonton drama Asia, short drama China, atau film secara aktif pada kecepatan 1x dengan tab browser tetap terlihat. Server memverifikasi durasi menonton setiap 15 detik dan memberikan +${watchMinutePoints} poin/menit otomatis (maksimal 60 menit/hari), bonus episode baru +${watchEpisodePoints} poin sekali per episode, check-in harian +${dailyCheckinPoints.toLocaleString()} poin (Hari ke-7 +${dailyCheckinDay7Points.toLocaleString()} poin, total ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} poin/minggu), serta bonus milestone 15m/30m/60m yang dapat diklaim setelah target tercapai hingga batas ${maxDailyEarnPoints.toLocaleString()} poin/hari.`,
         },
         {
           q: 'Berapa nilai tukar poin KanoDrama ke saldo DANA, bank lokal, atau USD?',
@@ -123,11 +125,11 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
     : [
         {
           q: 'How do I earn watch points on KanoDrama?',
-          a: `Sign in to receive a +${firstLoginBonusPoints.toLocaleString()} pts first-login bonus (once per account) and stream dramas or movies actively at 1x speed with the browser tab visible. Our backend watch session verifies active playback and awards +${watchMinutePoints} pts/min automatically (up to 60 min/day), +${watchEpisodePoints} pts per new episode, +${dailyCheckinPoints} pts daily check-in, and claimable 15m/30m/60m mission milestones up to ${maxDailyEarnPoints.toLocaleString()} pts/day.`,
+          a: `Sign in to receive a +${firstLoginBonusPoints.toLocaleString()} pts first-login bonus (once per account) and stream dramas or movies actively at 1x speed with the browser tab visible. Our backend watch session verifies active playback and awards +${watchMinutePoints} pts/min automatically (up to 60 min/day), +${watchEpisodePoints} pts per new episode, +${dailyCheckinPoints.toLocaleString()} pts daily check-in (+${dailyCheckinDay7Points.toLocaleString()} pts on Day 7, ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} pts/week), and claimable 15m/30m/60m mission milestones up to ${maxDailyEarnPoints.toLocaleString()} pts/day.`,
         },
         {
           q: 'What is the points conversion rate and minimum withdrawal?',
-          a: `Official rate: ${pointsPerUsd.toLocaleString()} points = 1 USDT ($1.00 USD / ${formattedRateIdr}), or ${usd5Points.toLocaleString()} points = $5.00 USD. Minimum Indonesian e-wallet/bank payout is ${formattedMinIdr} (${minPayoutPointsIdr.toLocaleString()} pts); minimum PayPal, Wise, or USDT payout is $${minPayoutUsd.toFixed(2)} USD (${minPayoutPointsUsd.toLocaleString()} pts).`,
+          a: `Official rate: ${pointsPerUsd.toLocaleString()} points = 1 USDT ($1.00 USD), or ${usd5Points.toLocaleString()} points = ${minPayoutUsd.toFixed(2)} USDT. Minimum PayPal, Wise, or USDT payout is ${minPayoutUsd.toFixed(2)} USDT ($${minPayoutUsd.toFixed(2)} USD · ${minPayoutPointsUsd.toLocaleString()} pts).`,
         },
         {
           q: `When is the +${referralBonusPoints.toLocaleString()} pts referral bonus unlocked?`,
@@ -273,10 +275,15 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
                   {isId ? 'Check-In Harian & Streak' : 'Daily Check-In & Streak'}
                 </td>
                 <td className="py-2.5 pr-4 font-bold text-[#D4AF37] tabular-nums">
-                  +{dailyCheckinPoints} {isId ? 'poin / hari (+bonus streak 7h)' : 'pts / day (+7d streak bonus)'}
+                  +{dailyCheckinPoints.toLocaleString()}{' '}
+                  {isId
+                    ? `poin / hari (H-7 +${dailyCheckinDay7Points.toLocaleString()})`
+                    : `pts / day (Day 7 +${dailyCheckinDay7Points.toLocaleString()})`}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
-                  {isId ? 'Satu kali per periode reset (00.00 WIB)' : 'Once per server reset period (17:00 UTC)'}
+                  {isId
+                    ? `Total ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} poin/minggu · Reset 00.00 WIB`
+                    : `Total ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} pts/week · Resets 17:00 UTC`}
                 </td>
               </tr>
               <tr>
@@ -295,15 +302,17 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
               </tr>
               <tr>
                 <td className="py-2.5 pr-4 font-medium">
-                  {isId ? 'Kurs Konversi & Minimum Withdraw' : 'FX Rate & Withdrawal Minimums'}
+                  {isId ? 'Kurs Konversi & Minimum Withdraw' : 'Conversion Rate & Minimum Withdrawal'}
                 </td>
                 <td className="py-2.5 pr-4 font-bold text-white tabular-nums">
-                  {pointsPerUsd.toLocaleString()} pts = $1 ({formattedRateIdr})
+                  {isId
+                    ? `${pointsPerUsd.toLocaleString()} pts = 1 USDT (${formattedRateIdr})`
+                    : `${pointsPerUsd.toLocaleString()} pts = 1 USDT ($1.00 USD)`}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA] tabular-nums">
                   {isId
                     ? `Min IDR ${formattedMinIdr} (${minPayoutPointsIdr.toLocaleString()} pts) · Min USD $${minPayoutUsd.toFixed(2)} (${minPayoutPointsUsd.toLocaleString()} pts)`
-                    : `Min IDR ${formattedMinIdr} (${minPayoutPointsIdr.toLocaleString()} pts) · Min USD $${minPayoutUsd.toFixed(2)} (${minPayoutPointsUsd.toLocaleString()} pts)`}
+                    : `Min ${minPayoutUsd.toFixed(2)} USDT ($${minPayoutUsd.toFixed(2)} USD · ${minPayoutPointsUsd.toLocaleString()} pts)`}
                 </td>
               </tr>
             </tbody>

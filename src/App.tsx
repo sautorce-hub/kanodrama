@@ -206,6 +206,7 @@ interface InitialNotFoundPayload {
 
 declare global {
   interface Window {
+    __INITIAL_HOME__?: HomeCatalogResponse;
     __INITIAL_DRAMA__?: InitialSsrPayload;
     __INITIAL_MOVIE__?: InitialMovieSsrPayload;
     __INITIAL_NOT_FOUND__?: InitialNotFoundPayload;
@@ -395,6 +396,19 @@ function parseProviderRouteFromLocation(): {
     return { provider: matched };
   }
   return { invalidSlug: rawSlug };
+}
+
+const SELECTED_PROVIDER_STORAGE_KEY = 'kano_drama_selected_provider_v1';
+
+function readPersistedProviderFilter(): ProviderId {
+  if (typeof window === 'undefined') return 'All';
+  try {
+    const raw = sessionStorage.getItem(SELECTED_PROVIDER_STORAGE_KEY);
+    if (!raw || raw === 'All') return 'All';
+    return parseProviderName(raw) ?? 'All';
+  } catch {
+    return 'All';
+  }
 }
 
 function parseTabFromLocation(): NavTab {
@@ -906,6 +920,7 @@ export default function App() {
     language,
     t,
     user,
+    authLoading,
     authModalOpen,
     openAuthModal,
     closeAuthModal,
@@ -934,9 +949,27 @@ export default function App() {
   } = useDramaContext();
 
   const [activeTab, setActiveTab] = useState<NavTab>(() => parseTabFromLocation());
-  const [selectedProvider, setSelectedProvider] = useState<ProviderId>(
-    () => parseProviderRouteFromLocation()?.provider ?? 'All'
-  );
+  const [selectedProvider, setSelectedProvider] = useState<ProviderId>(() => {
+    const routeProv = parseProviderRouteFromLocation()?.provider;
+    if (routeProv) return routeProv;
+    const initialTab = parseTabFromLocation();
+    if (initialTab === 'home' || initialTab === 'explore') {
+      return readPersistedProviderFilter();
+    }
+    return 'All';
+  });
+  useEffect(() => {
+    if (activeTab !== 'home' && activeTab !== 'explore') return;
+    try {
+      if (selectedProvider === 'All') {
+        sessionStorage.removeItem(SELECTED_PROVIDER_STORAGE_KEY);
+      } else {
+        sessionStorage.setItem(SELECTED_PROVIDER_STORAGE_KEY, selectedProvider);
+      }
+    } catch {
+      // Ignore storage write errors
+    }
+  }, [activeTab, selectedProvider]);
   const [invalidProviderSlug, setInvalidProviderSlug] = useState<string | null>(
     () => parseProviderRouteFromLocation()?.invalidSlug ?? null
   );
@@ -996,12 +1029,12 @@ export default function App() {
   } | null>(() => parseDramaRouteFromLocation());
   const [moviesPool, setMoviesPool] = useState<DramaItem[]>([]);
 
-  // Database-cached Home Catalog (Zero-latency SQLite backend cache)
+  // Database-cached Home Catalog (Zero-latency SSR/PostgreSQL cache)
   const [homeCatalog, setHomeCatalog] = useState<HomeCatalogResponse | null>(
-    () => getPeekCachedHomeCatalog(language, 'All')
+    () => getPeekCachedHomeCatalog(language, selectedProvider)
   );
   const [homeLoading, setHomeLoading] = useState<boolean>(
-    () => !getPeekCachedHomeCatalog(language, 'All')
+    () => !getPeekCachedHomeCatalog(language, selectedProvider)
   );
   const [homeError, setHomeError] = useState<string | null>(null);
   const exploreHydratedKeyRef = useRef<string | null>(null);
@@ -1806,11 +1839,6 @@ export default function App() {
     activeDramaRoute?.drama,
     activeDramaRoute?.episodes,
   ]);
-
-  const languageRef = useRef<LanguageCode>(language);
-  useEffect(() => {
-    languageRef.current = language;
-  }, [language]);
 
   // Initial & Section SEO Sync + Browser Back/Forward sync
   useEffect(() => {
@@ -4129,6 +4157,13 @@ export default function App() {
 
               {/* Login Required Gate for Movie Watchlist */}
               {activeTab === 'mylist' && watchlistCategory === 'movie' && !user ? (
+                authLoading ? (
+                  <div className="my-10 p-8 sm:p-10 rounded-3xl bg-[var(--cd-surface)] border border-white/10 max-w-lg mx-auto space-y-4">
+                    <div className="w-12 h-12 rounded-2xl skeleton-espresso mx-auto" />
+                    <div className="h-5 w-48 rounded skeleton-espresso mx-auto" />
+                    <div className="h-10 w-full rounded-xl skeleton-espresso" />
+                  </div>
+                ) : (
                 <div className="my-10 p-8 sm:p-10 rounded-3xl bg-[var(--cd-surface)] border border-white/10 text-center max-w-lg mx-auto space-y-4">
                   <div className="w-12 h-12 rounded-2xl bg-[var(--cd-accent-soft)] border border-[var(--cd-accent)]/40 flex items-center justify-center mx-auto cd-accent-text">
                     <Lock className="w-5 h-5" />
@@ -4159,6 +4194,7 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+                )
               ) : (
                 <>
               {/* Custom Watchlist Folders Toolbar */}

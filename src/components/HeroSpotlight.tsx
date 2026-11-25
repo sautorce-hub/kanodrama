@@ -97,7 +97,57 @@ export const HeroSpotlight: React.FC<HeroSpotlightProps> = ({
     return <HeroSkeleton />;
   }
 
-  if (slides.length === 0) return null;
+  if (slides.length === 0) {
+    return (
+      <section
+        className="max-w-[1440px] mx-auto px-3 sm:px-8 pt-2 pb-3"
+        aria-label={t.hero.featured}
+      >
+        <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden bg-gradient-to-br from-[#191216] via-[#111015] to-[#0B0A0E] border border-white/10 min-h-[220px] sm:min-h-[280px] flex items-center px-6 sm:px-10 py-8">
+          <div className="max-w-2xl space-y-3">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-bold text-[#FDE68A]">
+              KanoDrama HD
+            </span>
+            <h1 className="text-xl sm:text-3xl font-extrabold text-white tracking-tight">
+              {t.hero.featured}
+            </h1>
+            <p className="text-xs sm:text-sm text-[#A1A1AA] leading-relaxed">
+              {t.sections.homeCatalogGrid}
+            </p>
+            <div className="flex flex-wrap items-center gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent('kd:navigate-path', {
+                      detail: { path: '/explore' },
+                    })
+                  )
+                }
+                className="inline-flex items-center gap-2 px-5 py-2.5 min-h-[42px] rounded-full cd-accent-bg text-xs font-bold text-white shadow-lg"
+              >
+                <Play className="w-3.5 h-3.5 fill-white" />
+                <span>{t.nav.explore}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new CustomEvent('kd:navigate-path', {
+                      detail: { path: '/movies' },
+                    })
+                  )
+                }
+                className="inline-flex items-center gap-2 px-5 py-2.5 min-h-[42px] rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white"
+              >
+                <span>{t.nav.movies}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section

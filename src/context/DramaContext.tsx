@@ -182,6 +182,7 @@ interface DramaContextValue {
     bonusPercent: number;
     watchMinutePoints: number;
     dailyCheckinPoints: number;
+    dailyCheckinDay7Points?: number;
     watchEpisodePoints: number;
     dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
     progressPercent: number;
@@ -473,6 +474,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     gmailLoginCountRef.current = gmailLoginCount;
   }, [gmailLoginCount]);
   const sessionTokenRef = useRef<string | null>(null);
+  const activeActorUidRef = useRef<string | null>(null);
   const languageRef = useRef<LanguageCode>(language);
   useEffect(() => {
     languageRef.current = language;
@@ -484,13 +486,13 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const [todayWatchSeconds, setTodayWatchSeconds] = useState<number>(0);
   const [todayWatchPointsEarned, setTodayWatchPointsEarned] = useState<number>(0);
   const [dailyMissionMaxWatchSeconds, setDailyMissionMaxWatchSeconds] = useState<number>(3600);
-  const [watchMinutePoints, setWatchMinutePoints] = useState<number>(40);
+  const [watchMinutePoints, setWatchMinutePoints] = useState<number>(20);
   const [dailyMissionMilestones, setDailyMissionMilestones] = useState<
     Array<{ minutes: number; bonusPoints: number }>
   >([
-    { minutes: 15, bonusPoints: 1000 },
-    { minutes: 30, bonusPoints: 2400 },
-    { minutes: 60, bonusPoints: 5600 },
+    { minutes: 15, bonusPoints: 150 },
+    { minutes: 30, bonusPoints: 300 },
+    { minutes: 60, bonusPoints: 600 },
   ]);
   const [dailyMissionStatuses, setDailyMissionStatuses] = useState<
     Array<{ minutes: number; bonusPoints: number; reached: boolean; claimed: boolean }>
@@ -503,6 +505,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     bonusPercent: number;
     watchMinutePoints: number;
     dailyCheckinPoints: number;
+    dailyCheckinDay7Points?: number;
     watchEpisodePoints: number;
     dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
     progressPercent: number;
@@ -574,6 +577,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
             bonusPercent: number;
             watchMinutePoints: number;
             dailyCheckinPoints: number;
+            dailyCheckinDay7Points?: number;
             watchEpisodePoints: number;
             dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
             progressPercent: number;
@@ -1140,7 +1144,10 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   // Hydrate Watch History from PostgreSQL (for both signed-in users and guest visitorId)
-  const hydrateWatchHistoryFromPostgres = useCallback(async (actorId: string) => {
+  const hydrateWatchHistoryFromPostgres = useCallback(async (
+    actorId: string,
+    expectedUid?: string | null
+  ) => {
     if (!actorId) return;
     try {
       const res = await fetch(
@@ -1223,6 +1230,10 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           };
         });
 
+      if (expectedUid !== undefined && activeActorUidRef.current !== expectedUid) {
+        return;
+      }
+
       setWatchHistory((prev) => {
         const merged = new Map<string, WatchHistoryEntry>();
         for (const item of [...remoteEntries, ...prev]) {
@@ -1239,7 +1250,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch {
       // Non-blocking fallback to localStorage watch history
     }
-  }, []);
+  }, [getAuthHeaders]);
 
   // Hydrate authenticated user's Movie & Drama Watchlist, Likes & Watch History from PostgreSQL
   const hydrateUserLibraryFromPostgres = useCallback(
@@ -1259,8 +1270,10 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
             credentials: 'include',
             headers: getAuthHeaders(),
           }),
-          hydrateWatchHistoryFromPostgres(uid),
+          hydrateWatchHistoryFromPostgres(uid, uid),
         ]);
+
+        if (activeActorUidRef.current !== uid) return;
 
         if (favRes.status === 'fulfilled' && favRes.value.ok) {
           const favJson = (await favRes.value.json()) as {
@@ -1377,7 +1390,10 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   // Hydrate likes from PostgreSQL for guest visitorId or signed-in actor
-  const hydrateLikesFromPostgres = useCallback(async (actorId: string) => {
+  const hydrateLikesFromPostgres = useCallback(async (
+    actorId: string,
+    expectedUid?: string | null
+  ) => {
     if (!actorId) return;
     try {
       const res = await fetch(
@@ -1392,6 +1408,9 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         ok?: boolean;
         items?: Array<{ dramaId: string; provider: MediaProviderName }>;
       };
+      if (expectedUid !== undefined && activeActorUidRef.current !== expectedUid) {
+        return;
+      }
       if (likeJson.ok && Array.isArray(likeJson.items)) {
         const remoteKeys = likeJson.items.map((l) =>
           makeItemKey(
@@ -1446,14 +1465,12 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [getAuthHeaders, refreshPointsBalance]);
 
-  // Capture ?ref= query parameter + hydrate guest watch history & global likes once on mount
+  // Capture ?ref= query parameter once on mount
   useEffect(() => {
     captureReferralCodeFromUrl();
-    void hydrateWatchHistoryFromPostgres(visitorId);
-    void hydrateLikesFromPostgres(visitorId);
-  }, [visitorId, hydrateWatchHistoryFromPostgres, hydrateLikesFromPostgres]);
+  }, []);
 
-  // Preload Google Identity Services config & hydrate Express session from backend
+  // Preload Google Identity Services config & hydrate Express session sequentially before guest fallback
   useEffect(() => {
     let cancelled = false;
     void preloadGoogleAuth();
@@ -1461,14 +1478,15 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     void fetchCurrentAuthSession(sessionTokenRef.current)
       .then((sessionState) => {
         if (cancelled) return;
+        if (typeof sessionState.gmailLoginCount === 'number') {
+          setGmailLoginCount(Math.max(0, Math.floor(sessionState.gmailLoginCount)));
+        }
         if (sessionState.authenticated && sessionState.user) {
           const srvUser = sessionState.user;
           const mapped = mapServerUser(srvUser);
+          activeActorUidRef.current = mapped.uid;
           setUser(mapped);
           setAuthError(null);
-          if (typeof sessionState.gmailLoginCount === 'number') {
-            setGmailLoginCount(Math.max(0, Math.floor(sessionState.gmailLoginCount)));
-          }
           const prefs = srvUser.preferences;
           if (prefs) {
             if (
@@ -1498,19 +1516,24 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           void hydrateUserLibraryFromPostgres(mapped.uid);
           void refreshPointsBalance();
         } else {
+          activeActorUidRef.current = null;
           setUser(null);
           setPointsBalance(null);
           setDailyMissionStatuses([]);
           setAccountLevelInfo(null);
           setStreak(EMPTY_STREAK);
           setMovieListItemsRaw([]);
-          void hydrateLikesFromPostgres(visitorId);
+          void hydrateWatchHistoryFromPostgres(visitorId, null);
+          void hydrateLikesFromPostgres(visitorId, null);
         }
       })
       .catch(() => {
         if (!cancelled) {
+          activeActorUidRef.current = null;
           setUser(null);
           setStreak(EMPTY_STREAK);
+          void hydrateWatchHistoryFromPostgres(visitorId, null);
+          void hydrateLikesFromPostgres(visitorId, null);
         }
       })
       .finally(() => {
@@ -1522,7 +1545,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => {
       cancelled = true;
     };
-  }, [visitorId, syncUserStreak, bindPendingReferralIfAny, hydrateUserLibraryFromPostgres, hydrateLikesFromPostgres, refreshPointsBalance]);
+  }, [visitorId, syncUserStreak, bindPendingReferralIfAny, hydrateUserLibraryFromPostgres, hydrateWatchHistoryFromPostgres, hydrateLikesFromPostgres, refreshPointsBalance]);
 
   useEffect(() => {
     if (user?.uid) {
@@ -1781,6 +1804,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       const explicitApi = normalizeLanguageCode(apiLang);
       const detected = explicitApi ?? detectLanguageFromContent(input, language);
       if (detected !== language) {
+        languageRef.current = detected;
         setActiveAppLanguage(detected);
         setLanguageRaw(detected);
         writeLanguageCookies(detected, 'auto');
@@ -1819,6 +1843,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         sessionTokenRef.current = result.sessionToken;
       }
       const mapped = mapServerUser(result.user);
+      activeActorUidRef.current = mapped.uid;
       setUser(mapped);
       setAuthError(null);
       setAuthModalOpen(false);
@@ -1961,6 +1986,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const signOut = useCallback(async () => {
     const activeToken = sessionTokenRef.current;
     sessionTokenRef.current = null;
+    activeActorUidRef.current = null;
     try {
       await signOutRealGoogle(activeToken);
     } catch {
@@ -2805,6 +2831,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
                 bonusPercent: number;
                 watchMinutePoints: number;
                 dailyCheckinPoints: number;
+                dailyCheckinDay7Points?: number;
                 watchEpisodePoints: number;
                 dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
                 progressPercent: number;

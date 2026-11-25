@@ -234,3 +234,54 @@ test('5. Authenticated user isolation, comments param symmetry, favorite default
     assert.equal(refBindBody.code, 'DATABASE_NOT_CONFIGURED');
   });
 });
+
+test('6. SSR serves dark boot shell to browsers (zero plain-text flash), semantic SSR to bots, and gmailLoginCount on session', async () => {
+  await withTestServer(async (base) => {
+    const browserHeaders = {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    };
+    const botHeaders = {
+      'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)',
+    };
+
+    const browserHomeRes = await fetch(`${base}/`, { headers: browserHeaders });
+    assert.equal(browserHomeRes.status, 200);
+    const browserHomeHtml = await browserHomeRes.text();
+    assert.match(browserHomeHtml, /id="kd-critical-css"/);
+    assert.match(browserHomeHtml, /class="kd-boot-root"/);
+    assert.doesNotMatch(
+      browserHomeHtml.slice(browserHomeHtml.indexOf('<div id="root">')),
+      /<h1\b|<nav\b/i,
+      'Browser HTML should not expose raw plain-text SSR headings/nav before Tailwind CSS loads'
+    );
+
+    const botHomeRes = await fetch(`${base}/`, { headers: botHeaders });
+    assert.equal(botHomeRes.status, 200);
+    const botHomeHtml = await botHomeRes.text();
+    assert.match(botHomeHtml, /<h1\b/i);
+    assert.match(botHomeHtml, /<nav\b/i);
+    assert.doesNotMatch(botHomeHtml, /class="kd-boot-root"/);
+
+    const browserAccountRes = await fetch(`${base}/account`, {
+      headers: browserHeaders,
+    });
+    assert.equal(browserAccountRes.status, 200);
+    assert.match(
+      browserAccountRes.headers.get('x-robots-tag') || '',
+      /noindex,\s*nofollow/i
+    );
+    const browserAccountHtml = await browserAccountRes.text();
+    assert.match(browserAccountHtml, /class="kd-boot-root"/);
+
+    const sessionRes = await fetch(`${base}/api/auth/session`);
+    assert.equal(sessionRes.status, 200);
+    const sessionBody = (await sessionRes.json()) as {
+      authenticated?: boolean;
+      gmailLoginCount?: unknown;
+    };
+    assert.equal(sessionBody.authenticated, false);
+    assert.equal(typeof sessionBody.gmailLoginCount, 'number');
+  });
+});
+
