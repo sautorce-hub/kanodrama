@@ -17,7 +17,8 @@ declare global {
 
 export type PwaInstallOutcome = 'accepted' | 'dismissed' | 'unavailable';
 
-const BANNER_DISMISSED_KEY = 'hd_pwa_banner_dismissed';
+const BANNER_DISMISSED_KEY = 'kd_pwa_banner_dismissed';
+const LEGACY_BANNER_DISMISSED_KEY = 'hd_pwa_banner_dismissed';
 
 let deferredPrompt: BeforeInstallPromptEvent | null =
   typeof window !== 'undefined' ? window.__deferredPwaPrompt ?? null : null;
@@ -25,7 +26,10 @@ let deferredPrompt: BeforeInstallPromptEvent | null =
 function readBannerDismissed(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    return window.localStorage.getItem(BANNER_DISMISSED_KEY) === '1';
+    return (
+      window.localStorage.getItem(BANNER_DISMISSED_KEY) === '1' ||
+      window.localStorage.getItem(LEGACY_BANNER_DISMISSED_KEY) === '1'
+    );
   } catch {
     return false;
   }
@@ -48,6 +52,7 @@ function setBannerDismissedPersist(dismissed: boolean) {
       } else {
         window.localStorage.removeItem(BANNER_DISMISSED_KEY);
       }
+      window.localStorage.removeItem(LEGACY_BANNER_DISMISSED_KEY);
     } catch {
       // Ignore storage quota/privacy mode errors
     }

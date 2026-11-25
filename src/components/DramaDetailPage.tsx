@@ -29,7 +29,7 @@ import { useDramaContext } from '../context/DramaContext';
 import { ProviderBadge } from './ProviderBadge';
 import { ShareDramaModal } from './ShareDramaModal';
 import { ChevronRight } from 'lucide-react';
-import { getProviderRouteSlug } from '../constants/providerLogos';
+import { getProviderRouteSlug, normalizeMediaProviderName } from '../constants/providerLogos';
 import { buildOgImageEndpointUrl, DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import {
   buildDramaFallbackDescription,
@@ -109,8 +109,9 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
     isEpisodeUnlocked,
   } = useDramaContext();
 
-  const resolvedProvider: MediaProviderName =
-    initialDrama?.provider ?? providerHint ?? 'DramaBox';
+  const resolvedProvider: MediaProviderName = normalizeMediaProviderName(
+    initialDrama?.provider ?? providerHint ?? 'DramaBoxV2'
+  );
 
   const [detail, setDetail] = useState<DramaItem | null>(initialDrama);
   const [episodes, setEpisodes] = useState<EpisodeItem[]>(initialEpisodes);
@@ -483,7 +484,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
               chapterCount: Number(item.chapterCount) || 1,
               tags: Array.isArray(item.tags) ? (item.tags as string[]) : [],
               isVip: Boolean(item.isVip),
-              provider: (String(item.provider || 'DramaBox') as MediaProviderName),
+              provider: normalizeMediaProviderName(String(item.provider || 'DramaBoxV2')),
             });
           }
         }
@@ -704,7 +705,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                 }
                 e.preventDefault();
                 window.dispatchEvent(
-                  new CustomEvent('hd:navigate-path', {
+                  new CustomEvent('kd:navigate-path', {
                     detail: { path: sectionCrumbHref },
                   })
                 );
@@ -842,7 +843,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                   }
                   e.preventDefault();
                   window.dispatchEvent(
-                    new CustomEvent('hd:navigate-path', {
+                    new CustomEvent('kd:navigate-path', {
                       detail: { path: sectionCrumbHref },
                     })
                   );

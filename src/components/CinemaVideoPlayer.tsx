@@ -790,12 +790,10 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     }
 
     if (
-      (drama.provider === 'Melolo' || drama.provider === 'MeloLoV2') &&
+      drama.provider === 'MeloLoV2' &&
       !failedUrl.includes('/decrypt')
     ) {
-      const decryptBase =
-        drama.provider === 'MeloLoV2' ? '/api/mola/melolov2' : '/api/mola/melolo';
-      const decrypted = ensureMeloloDecryptedUrl(failedUrl, decryptBase);
+      const decrypted = ensureMeloloDecryptedUrl(failedUrl, '/api/mola/melolov2');
       if (decrypted && !triedStreamUrlsRef.current.has(decrypted)) {
         triedStreamUrlsRef.current.add(decrypted);
         setSelectedUrl(decrypted);
@@ -818,10 +816,8 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
       ),
       ...(streamData?.qualities ?? []),
     ];
-    const decryptBaseForProvider =
-      drama.provider === 'MeloLoV2' ? '/api/mola/melolov2' : '/api/mola/melolo';
-    const isMeloloVariant =
-      drama.provider === 'Melolo' || drama.provider === 'MeloLoV2';
+    const decryptBaseForProvider = '/api/mola/melolov2';
+    const isMeloloVariant = drama.provider === 'MeloLoV2';
     const fallback = candidates.find((q) => {
       const candidateUrl = isMeloloVariant
         ? ensureMeloloDecryptedUrl(q.url, decryptBaseForProvider)
@@ -910,9 +906,8 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
         data.qualities.find((q) => q.quality.includes('1080')) ??
         data.qualities.find((q) => q.quality.includes('720')) ??
         data.qualities[0];
-      const isMeloloProv = provider === 'Melolo' || provider === 'MeloLoV2';
-      const decryptBase =
-        provider === 'MeloLoV2' ? '/api/mola/melolov2' : '/api/mola/melolo';
+      const isMeloloProv = provider === 'MeloLoV2';
+      const decryptBase = '/api/mola/melolov2';
       const rawChosenUrl = isMeloloProv
         ? ensureMeloloDecryptedUrl(data.streamUrl || preferred?.url || '', decryptBase)
         : (preferred?.url ?? data.streamUrl);

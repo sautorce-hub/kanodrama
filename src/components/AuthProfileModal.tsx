@@ -178,7 +178,7 @@ export const AuthProfileModal: React.FC = () => {
   const openDashboardWatchlist = (category: 'movie' | 'drama') => {
     closeAuthModal();
     window.dispatchEvent(
-      new CustomEvent('hd:navigate', {
+      new CustomEvent('kd:navigate', {
         detail: {
           tab: 'dashboard',
           subTab: 'watchlist',
@@ -441,7 +441,7 @@ export const AuthProfileModal: React.FC = () => {
                 onClick={() => {
                   closeAuthModal();
                   window.dispatchEvent(
-                    new CustomEvent('hd:navigate', {
+                    new CustomEvent('kd:navigate', {
                       detail: { tab: 'rewards', subTab: 'rewards' },
                     })
                   );
@@ -619,7 +619,7 @@ export const AuthProfileModal: React.FC = () => {
                 onClick={() => {
                   closeAuthModal();
                   window.dispatchEvent(
-                    new CustomEvent('hd:navigate', {
+                    new CustomEvent('kd:navigate', {
                       detail: { tab: 'rewards', subTab: 'rewards' },
                     })
                   );
@@ -643,7 +643,7 @@ export const AuthProfileModal: React.FC = () => {
                 onClick={() => {
                   closeAuthModal();
                   window.dispatchEvent(
-                    new CustomEvent('hd:navigate', {
+                    new CustomEvent('kd:navigate', {
                       detail: { tab: 'dashboard', subTab: 'profile' },
                     })
                   );

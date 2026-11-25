@@ -156,11 +156,9 @@ import type {
 const PORT = resolveServerPort();
 const IS_PROD = process.env.NODE_ENV === 'production';
 const MOLATV_API_BASE = 'https://api.molatv.id/api';
-const DRAMABOX_BASE_URL = `${MOLATV_API_BASE}/dramabox`;
 const DRAMABOX_V2_BASE_URL = `${MOLATV_API_BASE}/dramaboxv2`;
 const NETSHORT_BASE_URL = `${MOLATV_API_BASE}/netshort`;
 const ANYREEL_BASE_URL = `${MOLATV_API_BASE}/anyreel`;
-const MELOLO_BASE_URL = `${MOLATV_API_BASE}/melolo`;
 const MELOLO_V2_BASE_URL = `${MOLATV_API_BASE}/melolov2`;
 const DEFAULT_OG_IMAGE_PATH =
   '/assets/aistudio/file_00000000f37c8211a740b95cbbe03886_b90a3ae0.png';
@@ -1362,12 +1360,12 @@ async function convertImageBufferToOgJpeg(input: Buffer): Promise<Buffer> {
 function parseSsrProviderName(raw: string | undefined | null): SsrProviderName {
   const norm = (raw || '').trim().toLowerCase();
   const map: Record<string, SsrProviderName> = {
-    dramabox: 'DramaBox',
+    dramabox: 'DramaBoxV2',
     dramaboxv2: 'DramaBoxV2',
     dramabox_v2: 'DramaBoxV2',
     netshort: 'NetShort',
     anyreel: 'AnyReel',
-    melolo: 'Melolo',
+    melolo: 'MeloLoV2',
     melolov2: 'MeloLoV2',
     melolo_v2: 'MeloLoV2',
     dramaora: 'DramaOra',
@@ -1394,27 +1392,27 @@ function parseSsrProviderName(raw: string | undefined | null): SsrProviderName {
     toonshort: 'ToonShort',
     happyshort: 'HappyShort',
     dramadash: 'DramaDash',
-    storyreel: 'StoryReel',
+    storyreel: 'StoryReelV2',
     storyreelv2: 'StoryReelV2',
     storyreel_v2: 'StoryReelV2',
-    vibeshort: 'VibeShort',
+    vibeshort: 'VibeShortV2',
     vibeshortv2: 'VibeShortV2',
     vibeshort_v2: 'VibeShortV2',
     flickreels: 'FlickReels',
     dramawave: 'DramaWave',
     freereels: 'FreeReels',
     pinedrama: 'PineDrama',
-    shortmax: 'ShortMax',
+    shortmax: 'ShortMaxV2',
     shortmaxv2: 'ShortMaxV2',
     shortmax_v2: 'ShortMaxV2',
     flextv: 'FlexTV',
     vigloo: 'Vigloo',
     dotdrama: 'DotDrama',
-    idrama: 'iDrama',
+    idrama: 'iDramaV2',
     idramav2: 'iDramaV2',
     idrama_v2: 'iDramaV2',
     goodshort: 'GoodShort',
-    reelshort: 'ReelShort',
+    reelshort: 'ReelShortV2',
     reelshortv2: 'ReelShortV2',
     reelshort_v2: 'ReelShortV2',
     joyreels: 'JoyReels',
@@ -1462,7 +1460,7 @@ function parseSsrProviderName(raw: string | undefined | null): SsrProviderName {
     animex: 'AnimeX',
     winknovel: 'WinkNovel',
   };
-  return map[norm] ?? 'DramaBox';
+  return map[norm] ?? 'DramaBoxV2';
 }
 
 function getProviderConfigForSsr(providerHint: SsrProviderName): {
@@ -1471,13 +1469,12 @@ function getProviderConfigForSsr(providerHint: SsrProviderName): {
   idParam: string;
   epPath?: string;
 } {
-  switch (providerHint) {
+  const canonicalHint = parseSsrProviderName(providerHint);
+  switch (canonicalHint) {
     case 'NetShort':
       return { baseUrl: NETSHORT_BASE_URL, langParam: 'en_US', idParam: 'book_id' };
     case 'AnyReel':
       return { baseUrl: ANYREEL_BASE_URL, langParam: 'en', idParam: 'book_id' };
-    case 'Melolo':
-      return { baseUrl: MELOLO_BASE_URL, langParam: 'en', idParam: 'book_id' };
     case 'DramaOra':
       return { baseUrl: `${MOLATV_API_BASE}/dramaora`, langParam: 'en-us', idParam: 'vid' };
     case 'MeloShort':
@@ -1524,12 +1521,8 @@ function getProviderConfigForSsr(providerHint: SsrProviderName): {
       return { baseUrl: `${MOLATV_API_BASE}/happyshort`, langParam: 'en', idParam: 'book_id' };
     case 'DramaDash':
       return { baseUrl: `${MOLATV_API_BASE}/dramadash`, langParam: 'en', idParam: 'bookId' };
-    case 'StoryReel':
-      return { baseUrl: `${MOLATV_API_BASE}/storyreel`, langParam: 'en', idParam: 'book_id' };
     case 'StoryReelV2':
       return { baseUrl: `${MOLATV_API_BASE}/storyreel_v2`, langParam: 'en', idParam: 'book_id' };
-    case 'VibeShort':
-      return { baseUrl: `${MOLATV_API_BASE}/vibeshort`, langParam: 'en', idParam: 'book_id' };
     case 'VibeShortV2':
       return { baseUrl: `${MOLATV_API_BASE}/vibeshort_v2`, langParam: 'en', idParam: 'book_id' };
     case 'FlickReels':
@@ -1540,8 +1533,6 @@ function getProviderConfigForSsr(providerHint: SsrProviderName): {
       return { baseUrl: `${MOLATV_API_BASE}/freereels`, langParam: 'en-US', idParam: 'book_id' };
     case 'PineDrama':
       return { baseUrl: `${MOLATV_API_BASE}/pinedrama`, langParam: 'en', idParam: 'book_id' };
-    case 'ShortMax':
-      return { baseUrl: `${MOLATV_API_BASE}/shortmax`, langParam: 'en', idParam: 'book_id' };
     case 'ShortMaxV2':
       return { baseUrl: `${MOLATV_API_BASE}/shortmax_v2`, langParam: 'en', idParam: 'book_id' };
     case 'FlexTV':
@@ -1550,14 +1541,10 @@ function getProviderConfigForSsr(providerHint: SsrProviderName): {
       return { baseUrl: `${MOLATV_API_BASE}/vigloo`, langParam: 'en', idParam: 'book_id' };
     case 'DotDrama':
       return { baseUrl: `${MOLATV_API_BASE}/dotdrama`, langParam: 'en', idParam: 'book_id' };
-    case 'iDrama':
-      return { baseUrl: `${MOLATV_API_BASE}/idrama`, langParam: 'en', idParam: 'book_id' };
     case 'iDramaV2':
       return { baseUrl: `${MOLATV_API_BASE}/idrama_v2`, langParam: 'en', idParam: 'book_id' };
     case 'GoodShort':
       return { baseUrl: `${MOLATV_API_BASE}/goodshort`, langParam: 'en', idParam: 'book_id' };
-    case 'ReelShort':
-      return { baseUrl: `${MOLATV_API_BASE}/reelshort`, langParam: 'en', idParam: 'book_id' };
     case 'ReelShortV2':
       return { baseUrl: `${MOLATV_API_BASE}/reelshort_v2`, langParam: 'en', idParam: 'book_id' };
     case 'JoyReels':
@@ -1568,8 +1555,6 @@ function getProviderConfigForSsr(providerHint: SsrProviderName): {
       return { baseUrl: `${MOLATV_API_BASE}/bonustv`, langParam: 'en', idParam: 'book_id' };
     case 'iQIYI':
       return { baseUrl: `${MOLATV_API_BASE}/iqiyi`, langParam: 'en', idParam: 'album_id' };
-    case 'DramaBox':
-      return { baseUrl: DRAMABOX_BASE_URL, langParam: 'en', idParam: 'book_id' };
     case 'DramaBoxV2':
       return { baseUrl: DRAMABOX_V2_BASE_URL, langParam: 'en', idParam: 'book_id' };
     case 'MeloLoV2':
@@ -1578,7 +1563,7 @@ function getProviderConfigForSsr(providerHint: SsrProviderName): {
       return { baseUrl: `${MOLATV_API_BASE}/stareel`, langParam: 'en', idParam: 'book_id' };
     default:
       return {
-        baseUrl: `${MOLATV_API_BASE}/${getProviderRouteSlug(providerHint)}`,
+        baseUrl: `${MOLATV_API_BASE}/${getProviderRouteSlug(canonicalHint)}`,
         langParam: 'en',
         idParam: 'book_id',
       };
@@ -1587,7 +1572,7 @@ function getProviderConfigForSsr(providerHint: SsrProviderName): {
 
 async function fetchDramaForSsr(
   bookId: string,
-  providerHint: SsrProviderName = 'DramaBox'
+  providerHint: SsrProviderName = 'DramaBoxV2'
 ): Promise<{
   drama: SsrDrama | null;
   episodes: SsrEpisode[];
@@ -1597,7 +1582,8 @@ async function fetchDramaForSsr(
     return { drama: null, episodes: [] };
   }
 
-  const cacheKey = `${providerHint}:${bookId}`;
+  const canonicalProvider = parseSsrProviderName(providerHint);
+  const cacheKey = `${canonicalProvider}:${bookId}`;
   const cached = ssrCache.get(cacheKey);
   if (cached && Date.now() < cached.expiresAt) {
     return { drama: cached.drama, episodes: cached.episodes };
@@ -1606,11 +1592,11 @@ async function fetchDramaForSsr(
   let drama: SsrDrama | null = null;
   let episodes: SsrEpisode[] = [];
 
-  const { baseUrl, langParam, idParam, epPath } = getProviderConfigForSsr(providerHint);
+  const { baseUrl, langParam, idParam, epPath } = getProviderConfigForSsr(canonicalProvider);
   const langSuffix = langParam ? `&lang=${encodeURIComponent(langParam)}` : '';
 
   try {
-    const detailUrl = `${baseUrl}${providerHint === 'iQIYI' ? '/allepisode' : '/detail'}?${idParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`;
+    const detailUrl = `${baseUrl}${canonicalProvider === 'iQIYI' ? '/allepisode' : '/detail'}?${idParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`;
     const epUrl = `${baseUrl}${epPath || '/allepisode'}?${idParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`;
     const [detailRes, epRes] = await Promise.allSettled([
       fetch(detailUrl, { signal: AbortSignal.timeout(7000) }),
@@ -1638,7 +1624,7 @@ async function fetchDramaForSsr(
         const normalizedCover =
           rawCover &&
           (rawCover.startsWith('http://') ||
-            ((providerHint === 'Melolo' || providerHint === 'MeloLoV2') &&
+            (canonicalProvider === 'MeloLoV2' &&
               (rawCover.toLowerCase().includes('.heic') ||
                 rawCover.toLowerCase().includes('fizzopic.org'))))
             ? `/api/proxy?url=${encodeURIComponent(rawCover)}`
@@ -1659,7 +1645,7 @@ async function fetchDramaForSsr(
           playCount: cleanText(raw.playCount) || undefined,
           protagonist: cleanText(raw.protagonist) || undefined,
           isVip: Boolean(raw.isVip),
-          provider: providerHint,
+          provider: canonicalProvider,
           updatedAt:
             typeof rawUpdatedAt === 'number' || typeof rawUpdatedAt === 'string'
               ? rawUpdatedAt
@@ -2476,7 +2462,7 @@ function injectProgrammaticSeoIntoHtml(
   const itemListElements = items.slice(0, 12).map((item, idx) => {
     const title = cleanText(item.title, 'Short Drama');
     const slug = cleanText(item.slug) || slugifyTitle(title);
-    const provSlug = getProviderRouteSlug(cleanText(item.provider, 'DramaBox'));
+    const provSlug = getProviderRouteSlug(cleanText(item.provider, 'DramaBoxV2'));
     return {
       '@type': 'ListItem',
       position: idx + 1,
@@ -2596,11 +2582,11 @@ function buildSsrHomeRootHtml(
   const brandOrigin = DEFAULT_SITE_ORIGIN;
   const isId = ssrLang === 'id';
   const topProviders = [
-    { name: 'DramaBox', slug: 'dramabox' },
+    { name: 'DramaBox V2', slug: 'dramaboxv2' },
     { name: 'NetShort', slug: 'netshort' },
-    { name: 'Melolo', slug: 'melolo' },
+    { name: 'MeloLo V2', slug: 'melolov2' },
     { name: 'AnyReel', slug: 'anyreel' },
-    { name: 'ReelShort', slug: 'reelshort' },
+    { name: 'ReelShort V2', slug: 'reelshortv2' },
     { name: 'GoodShort', slug: 'goodshort' },
     { name: 'DramaWave', slug: 'dramawave' },
     { name: 'FreeReels', slug: 'freereels' },
@@ -2718,7 +2704,7 @@ function injectPageMetadataIntoHtml(
                 name: 'Bagaimana cara nonton drama dapat poin di KanoDrama?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'Daftar atau masuk dengan akun Anda, lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +20 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), +200 poin episode baru (minimal 15 detik), check-in harian +500 poin, dan bonus milestone 15, 30, dan 60 menit yang dapat diklaim setelah target tercapai (reset pukul 00.00 waktu lokal Anda).',
+                  text: 'Daftar atau masuk dengan akun Anda, lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +20 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), +200 poin episode baru (minimal 15 detik), check-in harian +500 poin, dan bonus milestone 15, 30, dan 60 menit yang dapat diklaim setelah target tercapai (reset otomatis setiap pukul 00.00 WIB / 17.00 UTC).',
                 },
               },
               {
@@ -2865,8 +2851,8 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
         <ul>
           <li>Tonton drama pendek &amp; film aktif (kecepatan normal): +20 poin per menit otomatis (maksimal 60 menit/hari) × multiplier level akun (Bronze 1.0x hingga Platinum 1.6x).</li>
           <li>Bonus episode baru: +200 poin per episode setelah minimal 15 detik menonton terverifikasi.</li>
-          <li>Check-in harian &amp; streak beruntun: +500 poin/hari (reset pukul 00.00 waktu lokal Anda).</li>
-          <li>Bonus milestone harian (klaim manual setelah target tercapai): +100 poin (15 menit), +200 poin (30 menit), dan +400 poin (60 menit).</li>
+          <li>Check-in harian &amp; streak beruntun: +500 poin/hari (reset pukul 00.00 WIB / 17.00 UTC).</li>
+          <li>Bonus milestone harian (klaim manual setelah target tercapai): +500 poin (15 menit), +1.200 poin (30 menit), dan +2.800 poin (60 menit).</li>
           <li>Program Referral KanoDrama: +5.000 poin setelah teman menyelesaikan 1 jam waktu tonton terverifikasi.</li>
         </ul>
       </section>
@@ -3302,18 +3288,30 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   // Injects MOLA_API_TOKEN exclusively on the server and strips embedded tokens from responses.
   app.use('/api/mola', async (req: Request, res: Response) => {
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    const rawPath = req.url || '/';
+    if (rawPath.includes('..') || rawPath.includes('@') || !rawPath.startsWith('/')) {
+      res.status(400).json({ success: false, error: 'Invalid API gateway path' });
+      return;
+    }
+    if (
+      /^\/(dramabox|melolo|storyreel|vibeshort|shortmax|idrama|reelshort)(?:\/|$|\?)/i.test(
+        rawPath
+      )
+    ) {
+      res.status(410).json({
+        ok: false,
+        success: false,
+        error: 'Legacy v1 provider endpoint is disabled; use canonical v2.',
+      });
+      return;
+    }
+
     const token = getMolaToken();
     if (!token) {
       res.status(503).json({
         success: false,
         error: 'Server MOLA_API_TOKEN is not configured.',
       });
-      return;
-    }
-
-    const rawPath = req.url || '/';
-    if (rawPath.includes('..') || rawPath.includes('@') || !rawPath.startsWith('/')) {
-      res.status(400).json({ success: false, error: 'Invalid API gateway path' });
       return;
     }
 
@@ -5174,7 +5172,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
       if (action === 'watch_episode') {
         const dramaId = cleanText(req.body?.dramaId).slice(0, 80);
-        const provider = cleanText(req.body?.provider, 'DramaBox').slice(0, 40);
+        const provider = cleanText(req.body?.provider, 'DramaBoxV2').slice(0, 40);
         const episodeNumber = Math.floor(Number(req.body?.episodeNumber) || 0);
         const sessionToken = cleanText(
           req.body?.sessionToken ?? req.body?.watchSessionToken
@@ -5516,7 +5514,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }
 
       const dramaId = cleanText(req.body?.dramaId).slice(0, 80);
-      const provider = cleanText(req.body?.provider, 'DramaBox').slice(0, 40);
+      const provider = cleanText(req.body?.provider, 'DramaBoxV2').slice(0, 40);
       const episodeNumber = Math.max(
         1,
         Math.min(5000, Math.floor(Number(req.body?.episodeNumber) || 1))
@@ -5574,7 +5572,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         req.body?.sessionToken ?? req.body?.streamSessionId
       ).slice(0, 128);
       const dramaId = cleanText(req.body?.dramaId).slice(0, 80);
-      const provider = cleanText(req.body?.provider, 'DramaBox').slice(0, 40);
+      const provider = cleanText(req.body?.provider, 'DramaBoxV2').slice(0, 40);
       const episodeNumber = Math.max(
         1,
         Math.min(5000, Math.floor(Number(req.body?.episodeNumber) || 1))
@@ -5745,13 +5743,29 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   // --- Watch History Cloud Sync ---
 
+  const isGuestVisitorActorId = (uid: string) =>
+    /^v-[a-zA-Z0-9._:-]{4,120}$/.test(uid);
+
   app.get('/api/watch-history', async (req: Request, res: Response) => {
     try {
-      const userId = cleanText(req.query.userId);
-      if (!userId) {
-        res.status(400).json({ ok: false, error: 'Missing userId' });
-        return;
+      const { session } = extractAuthSessionFromRequest(req);
+      const requestedUid = cleanText(req.query.userId);
+      if (session) {
+        if (requestedUid && requestedUid !== session.uid) {
+          res.status(403).json({ ok: false, error: 'Forbidden' });
+          return;
+        }
+      } else {
+        if (!requestedUid) {
+          res.status(400).json({ ok: false, error: 'Missing userId' });
+          return;
+        }
+        if (!isGuestVisitorActorId(requestedUid)) {
+          res.status(401).json({ ok: false, error: 'Authentication required' });
+          return;
+        }
       }
+      const userId = session ? session.uid : requestedUid;
       const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 24));
       const items = await listWatchHistoryFromDb(userId, limit);
       res.json({ ok: true, items });
@@ -5765,13 +5779,34 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   app.post('/api/watch-history', async (req: Request, res: Response) => {
     try {
-      const userId = cleanText(req.body?.userId);
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      const requestedUid = cleanText(req.body?.userId);
       const dramaId = cleanText(req.body?.dramaId);
-      const provider = cleanText(req.body?.provider, 'DramaBox');
-      if (!userId || !dramaId) {
-        res.status(400).json({ ok: false, error: 'userId and dramaId are required' });
-        return;
+      const provider = cleanText(req.body?.provider, 'DramaBoxV2');
+      if (session) {
+        if (viaCookie && !isTrustedSameOriginMutation(req)) {
+          res.status(403).json({ ok: false, error: 'Untrusted origin' });
+          return;
+        }
+        if (requestedUid && requestedUid !== session.uid) {
+          res.status(403).json({ ok: false, error: 'Forbidden' });
+          return;
+        }
+        if (!dramaId) {
+          res.status(400).json({ ok: false, error: 'dramaId is required' });
+          return;
+        }
+      } else {
+        if (!requestedUid || !dramaId) {
+          res.status(400).json({ ok: false, error: 'userId and dramaId are required' });
+          return;
+        }
+        if (!isGuestVisitorActorId(requestedUid)) {
+          res.status(401).json({ ok: false, error: 'Authentication required' });
+          return;
+        }
       }
+      const userId = session ? session.uid : requestedUid;
       const saved = await upsertWatchHistoryInDb({
         userId,
         dramaId,
@@ -5802,13 +5837,34 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   app.delete('/api/watch-history', async (req: Request, res: Response) => {
     try {
-      const userId = cleanText(req.query.userId ?? req.body?.userId);
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      const requestedUid = cleanText(req.query.userId ?? req.body?.userId);
       const dramaId = cleanText(req.query.dramaId ?? req.body?.dramaId);
       const provider = cleanText(req.query.provider ?? req.body?.provider) || undefined;
-      if (!userId || !dramaId) {
-        res.status(400).json({ ok: false, error: 'userId and dramaId are required' });
-        return;
+      if (session) {
+        if (viaCookie && !isTrustedSameOriginMutation(req)) {
+          res.status(403).json({ ok: false, error: 'Untrusted origin' });
+          return;
+        }
+        if (requestedUid && requestedUid !== session.uid) {
+          res.status(403).json({ ok: false, error: 'Forbidden' });
+          return;
+        }
+        if (!dramaId) {
+          res.status(400).json({ ok: false, error: 'dramaId is required' });
+          return;
+        }
+      } else {
+        if (!requestedUid || !dramaId) {
+          res.status(400).json({ ok: false, error: 'userId and dramaId are required' });
+          return;
+        }
+        if (!isGuestVisitorActorId(requestedUid)) {
+          res.status(401).json({ ok: false, error: 'Authentication required' });
+          return;
+        }
       }
+      const userId = session ? session.uid : requestedUid;
       const deleted = await deleteWatchHistoryInDb(userId, dramaId, provider);
       res.json({ ok: true, deleted });
     } catch (err) {
@@ -6103,7 +6159,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         }
         const ssrById = await fetchDramaForSsr(
           bookIdParam,
-          providerHint ?? 'DramaBox'
+          providerHint ?? 'DramaBoxV2'
         );
         if (ssrById.drama) {
           const resolvedSlug = ssrById.drama.slug || slugifyTitle(ssrById.drama.title);
@@ -6152,13 +6208,22 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       const offset = Math.max(0, Number(req.query.offset) || 0);
 
       if (userId) {
-        const result = await listUserCommentsFromDb(userId, limit, offset);
+        const { session } = extractAuthSessionFromRequest(req);
+        if (!session) {
+          res.status(401).json({ ok: false, error: 'Authentication required' });
+          return;
+        }
+        if (userId !== session.uid) {
+          res.status(403).json({ ok: false, error: 'Forbidden' });
+          return;
+        }
+        const result = await listUserCommentsFromDb(session.uid, limit, offset);
         res.json({ ok: true, ...result, limit, offset });
         return;
       }
 
       const dramaId = cleanText(req.query.dramaId);
-      const provider = cleanText(req.query.provider, 'DramaBox');
+      const provider = cleanText(req.query.provider, 'DramaBoxV2');
       const episode = Math.max(1, Number(req.query.episode) || 1);
       if (!dramaId) {
         res.status(400).json({ ok: false, error: 'Missing dramaId query parameter' });
@@ -6176,11 +6241,28 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   app.post('/api/comments', async (req: Request, res: Response) => {
     try {
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.status(401).json({ ok: false, error: 'Authentication required to post comments' });
+        return;
+      }
+      if (viaCookie && !isTrustedSameOriginMutation(req)) {
+        res.status(403).json({ ok: false, error: 'Untrusted origin' });
+        return;
+      }
+      const requestedUid = cleanText(req.body?.userId ?? req.body?.authorUid);
+      if (requestedUid && requestedUid !== session.uid) {
+        res.status(403).json({ ok: false, error: 'Forbidden' });
+        return;
+      }
       const dramaId = cleanText(req.body?.dramaId);
-      const provider = cleanText(req.body?.provider, 'DramaBox');
+      const provider = cleanText(req.body?.provider, 'DramaBoxV2');
       const episodeNumber = Math.max(1, Number(req.body?.episodeNumber) || 1);
       const content = cleanText(req.body?.text ?? req.body?.content);
-      const authorName = cleanText(req.body?.authorName ?? req.body?.author, 'Viewer');
+      const authorName = cleanText(
+        req.body?.authorName ?? req.body?.author,
+        session.displayName || 'Viewer'
+      );
       if (!dramaId || !content) {
         res.status(400).json({ ok: false, error: 'dramaId and text are required' });
         return;
@@ -6197,10 +6279,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         dramaId,
         provider,
         episodeNumber,
-        userId: cleanText(req.body?.userId ?? req.body?.authorUid) || undefined,
+        userId: session.uid,
         authorName,
-        authorEmail: cleanText(req.body?.authorEmail) || undefined,
-        authorPhotoURL: cleanText(req.body?.authorPhotoURL) || null,
+        authorEmail: session.email || cleanText(req.body?.authorEmail) || undefined,
+        authorPhotoURL: session.photoURL ?? (cleanText(req.body?.authorPhotoURL) || null),
         authorBadge: cleanText(req.body?.authorBadge) || undefined,
         authorInitials: cleanText(req.body?.authorInitials) || undefined,
         authorColor: cleanText(req.body?.authorColor) || undefined,
@@ -6218,11 +6300,24 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   app.get('/api/likes', async (req: Request, res: Response) => {
     try {
-      const userId = cleanText(req.query.userId);
-      if (!userId) {
-        res.status(400).json({ ok: false, error: 'Missing userId' });
-        return;
+      const { session } = extractAuthSessionFromRequest(req);
+      const requestedUid = cleanText(req.query.userId);
+      if (session) {
+        if (requestedUid && requestedUid !== session.uid) {
+          res.status(403).json({ ok: false, error: 'Forbidden' });
+          return;
+        }
+      } else {
+        if (!requestedUid) {
+          res.status(400).json({ ok: false, error: 'Missing userId' });
+          return;
+        }
+        if (!isGuestVisitorActorId(requestedUid)) {
+          res.status(401).json({ ok: false, error: 'Authentication required' });
+          return;
+        }
       }
+      const userId = session ? session.uid : requestedUid;
       const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
       const offset = Math.max(0, Number(req.query.offset) || 0);
       const result = await listLikesFromDb(userId, limit, offset);
@@ -6237,13 +6332,24 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   app.get('/api/likes/status', async (req: Request, res: Response) => {
     try {
+      const { session } = extractAuthSessionFromRequest(req);
       const dramaId = cleanText(req.query.dramaId);
-      const provider = cleanText(req.query.provider, 'DramaBox');
-      const userId = cleanText(req.query.userId);
+      const provider = cleanText(req.query.provider, 'DramaBoxV2');
+      const requestedUid = cleanText(req.query.userId);
       if (!dramaId) {
         res.status(400).json({ ok: false, error: 'dramaId is required' });
         return;
       }
+      if (session) {
+        if (requestedUid && requestedUid !== session.uid) {
+          res.status(403).json({ ok: false, error: 'Forbidden' });
+          return;
+        }
+      } else if (requestedUid && !isGuestVisitorActorId(requestedUid)) {
+        res.status(401).json({ ok: false, error: 'Authentication required' });
+        return;
+      }
+      const userId = session ? session.uid : requestedUid;
       const stats = await getDramaStatsFromDb(dramaId, provider, userId || undefined);
       res.json({
         ok: true,
@@ -6262,13 +6368,34 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   app.post('/api/likes/toggle', async (req: Request, res: Response) => {
     try {
-      const userId = cleanText(req.body?.userId);
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      const requestedUid = cleanText(req.body?.userId);
       const dramaId = cleanText(req.body?.dramaId);
-      const provider = cleanText(req.body?.provider, 'DramaBox');
-      if (!userId || !dramaId) {
-        res.status(400).json({ ok: false, error: 'userId and dramaId are required' });
-        return;
+      const provider = cleanText(req.body?.provider, 'DramaBoxV2');
+      if (session) {
+        if (viaCookie && !isTrustedSameOriginMutation(req)) {
+          res.status(403).json({ ok: false, error: 'Untrusted origin' });
+          return;
+        }
+        if (requestedUid && requestedUid !== session.uid) {
+          res.status(403).json({ ok: false, error: 'Forbidden' });
+          return;
+        }
+        if (!dramaId) {
+          res.status(400).json({ ok: false, error: 'dramaId is required' });
+          return;
+        }
+      } else {
+        if (!requestedUid || !dramaId) {
+          res.status(400).json({ ok: false, error: 'userId and dramaId are required' });
+          return;
+        }
+        if (!isGuestVisitorActorId(requestedUid)) {
+          res.status(401).json({ ok: false, error: 'Authentication required' });
+          return;
+        }
       }
+      const userId = session ? session.uid : requestedUid;
       const result = await toggleLikeInDb(userId, dramaId, provider);
       res.json({ ok: true, ...result });
     } catch (err) {
@@ -6281,9 +6408,14 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   app.get('/api/favorites', async (req: Request, res: Response) => {
     try {
-      const userId = cleanText(req.query.userId);
-      if (!userId || userId.startsWith('v-')) {
+      const { session } = extractAuthSessionFromRequest(req);
+      if (!session) {
         res.status(401).json({ ok: false, error: 'Authentication required to view Movie Watchlist' });
+        return;
+      }
+      const requestedUid = cleanText(req.query.userId);
+      if (requestedUid && requestedUid !== session.uid) {
+        res.status(403).json({ ok: false, error: 'Forbidden' });
         return;
       }
       const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
@@ -6291,7 +6423,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       const mediaTypeRaw = cleanText(req.query.mediaType);
       const mediaType: 'movie' | 'drama' | undefined =
         mediaTypeRaw === 'movie' || mediaTypeRaw === 'drama' ? mediaTypeRaw : undefined;
-      const result = await listFavoritesFromDb(userId, limit, offset, mediaType);
+      const result = await listFavoritesFromDb(session.uid, limit, offset, mediaType);
       res.json({ ok: true, ...result, limit, offset });
     } catch (err) {
       res.status(500).json({
@@ -6303,13 +6435,22 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   app.post('/api/favorites/toggle', async (req: Request, res: Response) => {
     try {
-      const userId = cleanText(req.body?.userId);
-      const dramaId = cleanText(req.body?.dramaId);
-      const provider = cleanText(req.body?.provider, 'LK21');
-      if (!userId || userId.startsWith('v-')) {
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      if (!session) {
         res.status(401).json({ ok: false, error: 'Authentication required to save to Movie Watchlist' });
         return;
       }
+      if (viaCookie && !isTrustedSameOriginMutation(req)) {
+        res.status(403).json({ ok: false, error: 'Untrusted origin' });
+        return;
+      }
+      const requestedUid = cleanText(req.body?.userId);
+      if (requestedUid && requestedUid !== session.uid) {
+        res.status(403).json({ ok: false, error: 'Forbidden' });
+        return;
+      }
+      const dramaId = cleanText(req.body?.dramaId);
+      const provider = cleanText(req.body?.provider, 'LK21');
       if (!dramaId) {
         res.status(400).json({ ok: false, error: 'dramaId is required' });
         return;
@@ -6322,7 +6463,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       const mediaType: 'movie' | 'drama' | undefined =
         mediaTypeRaw === 'movie' || mediaTypeRaw === 'drama' ? mediaTypeRaw : undefined;
       const result = await toggleFavoriteInDb({
-        userId,
+        userId: session.uid,
         dramaId,
         provider,
         mediaType,
@@ -6343,19 +6484,28 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   app.patch('/api/favorites/folder', async (req: Request, res: Response) => {
     try {
-      const userId = cleanText(req.body?.userId);
-      const dramaId = cleanText(req.body?.dramaId);
-      const provider = cleanText(req.body?.provider, 'LK21');
-      const folderId = cleanText(req.body?.folderId, 'all');
-      if (!userId || userId.startsWith('v-')) {
+      const { session, viaCookie } = extractAuthSessionFromRequest(req);
+      if (!session) {
         res.status(401).json({ ok: false, error: 'Authentication required' });
         return;
       }
+      if (viaCookie && !isTrustedSameOriginMutation(req)) {
+        res.status(403).json({ ok: false, error: 'Untrusted origin' });
+        return;
+      }
+      const requestedUid = cleanText(req.body?.userId);
+      if (requestedUid && requestedUid !== session.uid) {
+        res.status(403).json({ ok: false, error: 'Forbidden' });
+        return;
+      }
+      const dramaId = cleanText(req.body?.dramaId);
+      const provider = cleanText(req.body?.provider, 'LK21');
+      const folderId = cleanText(req.body?.folderId, 'all');
       if (!dramaId) {
         res.status(400).json({ ok: false, error: 'dramaId is required' });
         return;
       }
-      const updated = await updateFavoriteFolderInDb(userId, dramaId, provider, folderId);
+      const updated = await updateFavoriteFolderInDb(session.uid, dramaId, provider, folderId);
       res.json({ ok: true, updated, folderId });
     } catch (err) {
       res.status(500).json({
@@ -6368,7 +6518,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   app.post('/api/stats/view', async (req: Request, res: Response) => {
     try {
       const dramaId = cleanText(req.body?.dramaId);
-      const provider = cleanText(req.body?.provider, 'DramaBox');
+      const provider = cleanText(req.body?.provider, 'DramaBoxV2');
       const episodeNumber = Math.max(1, Number(req.body?.episodeNumber) || 1);
       if (!dramaId) {
         res.status(400).json({ ok: false, error: 'dramaId is required' });
@@ -6402,7 +6552,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   app.get('/api/stats', async (req: Request, res: Response) => {
     try {
       const dramaId = cleanText(req.query.dramaId);
-      const provider = cleanText(req.query.provider, 'DramaBox');
+      const provider = cleanText(req.query.provider, 'DramaBoxV2');
       const userId = cleanText(req.query.userId);
       if (dramaId) {
         const stats = await getDramaStatsFromDb(dramaId, provider, userId || undefined);
@@ -6607,7 +6757,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       '## Primary Sections',
       `- [Home](${siteOrigin}/): Beranda KanoDrama — streaming drama pendek, serial Asia, drama China/Korea, dan film gratis Sub Indo.`,
       `- [Explore Catalog](${siteOrigin}/explore): Browse and watch free from the full multi-provider short drama catalog.`,
-      `- [Providers Directory](${siteOrigin}/providers): Full directory of 89+ short drama providers including DramaBox, NetShort, Melolo, AnyReel, ReelShort, GoodShort, and DramaWave.`,
+      `- [Providers Directory](${siteOrigin}/providers): Full directory of 82+ short drama providers including DramaBox V2, NetShort, MeloLo V2, AnyReel, ReelShort V2, GoodShort, and DramaWave.`,
       `- [Trending Series](${siteOrigin}/trending): Watch free daily most-watched and top-ranked short dramas.`,
       `- [Latest Releases](${siteOrigin}/latest): Watch free newly added episodes and recent drama premieres.`,
       `- [VIP Selection](${siteOrigin}/vip): Watch free premium vertical drama series and complete boxsets.`,
@@ -6622,7 +6772,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       `- Movie Player: ${siteOrigin}/movie/watch/<slug>`,
       '',
       '## Providers & Curated Collections',
-      `- [Multi-Provider Hub](${siteOrigin}/providers): Streaming aggregation across ${Object.keys(PROVIDER_LOGO_PATHS).length}+ short drama providers including DramaBox, NetShort, Melolo, AnyReel, ReelShort, GoodShort, DramaWave, LK21 Movies, and LookSeries Movies.`,
+      `- [Multi-Provider Hub](${siteOrigin}/providers): Streaming aggregation across ${Object.keys(PROVIDER_LOGO_PATHS).length}+ short drama & movie providers including DramaBox V2, NetShort, MeloLo V2, AnyReel, ReelShort V2, GoodShort, DramaWave, LK21 Movies, and LookSeries Movies.`,
       ...curatedLinks,
       '',
       '## Machine-Readable Catalog & Site Info',
@@ -6965,11 +7115,11 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
             const [rankRes, newRes, nsRankRes, nsAllRes, arForYouRes, mlRankRes] =
               await Promise.allSettled([
                 fetch(
-                  `${DRAMABOX_BASE_URL}/ranking?page=1&lang=en&token=${token}`,
+                  `${DRAMABOX_V2_BASE_URL}/ranking?page=1&lang=en&token=${token}`,
                   { signal: AbortSignal.timeout(5000) }
                 ),
                 fetch(
-                  `${DRAMABOX_BASE_URL}/terbaru?page=1&lang=en&token=${token}`,
+                  `${DRAMABOX_V2_BASE_URL}/terbaru?page=1&lang=en&token=${token}`,
                   { signal: AbortSignal.timeout(5000) }
                 ),
                 fetch(
@@ -6985,7 +7135,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
                   { signal: AbortSignal.timeout(5000) }
                 ),
                 fetch(
-                  `${MELOLO_BASE_URL}/rank?page=1&page_size=18&token=${token}`,
+                  `${MELOLO_V2_BASE_URL}/rank?page=1&page_size=18&token=${token}`,
                   { signal: AbortSignal.timeout(5000) }
                 ),
               ]);
@@ -7024,12 +7174,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               }
             };
             await Promise.all([
-              processResult(rankRes, 'DramaBox'),
-              processResult(newRes, 'DramaBox'),
+              processResult(rankRes, 'DramaBoxV2'),
+              processResult(newRes, 'DramaBoxV2'),
               processResult(nsRankRes, 'NetShort'),
               processResult(nsAllRes, 'NetShort'),
               processResult(arForYouRes, 'AnyReel'),
-              processResult(mlRankRes, 'Melolo'),
+              processResult(mlRankRes, 'MeloLoV2'),
             ]);
           }
         } catch {
@@ -7247,7 +7397,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       for (const item of filtered.items) {
         const title = cleanText(item.title ?? item.bookName);
         const slug = cleanText(item.slug) || slugifyTitle(title);
-        const provider = cleanText(item.provider, 'DramaBox');
+        const provider = cleanText(item.provider, 'DramaBoxV2');
         if (!title || !slug || slug.toLowerCase() === excludeSlug.toLowerCase()) {
           continue;
         }
@@ -7525,7 +7675,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           const mappedProv = parseProviderFromRouteSlug(routeProvSlug, segment);
           const providerHint = mappedProv
             ? parseSsrProviderName(mappedProv)
-            : queryProvHint ?? 'DramaBox';
+            : queryProvHint ?? 'DramaBoxV2';
           const dbResolved = await resolveDramaBySlugFromDb(
             queryBookId || segment,
             providerHint
@@ -7607,6 +7757,16 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
             )
               .trim()
               .toLowerCase();
+            const canonicalProvSlug = getProviderRouteSlug(resolvedDrama.provider);
+            if (
+              routeProvSlug !== canonicalProvSlug ||
+              segment.trim().toLowerCase() !== finalSlug
+            ) {
+              const targetPath = `/${canonicalProvSlug}/${isWatchRoute ? 'watch' : 'detail'}/${encodeURIComponent(finalSlug)}${epParam > 1 ? `?ep=${epParam}` : ''}`;
+              res.setHeader('Cache-Control', 'public, max-age=3600');
+              res.redirect(301, targetPath);
+              return;
+            }
             const related = await loadRelatedDramaLinks(
               resolvedDrama.tags,
               finalSlug
@@ -7796,7 +7956,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
                 };
           } else {
             const lookupId = queryBookId || segment;
-            const providerHint = queryProvHint ?? 'DramaBox';
+            const providerHint = queryProvHint ?? 'DramaBoxV2';
             const live = await fetchDramaForSsr(lookupId, providerHint);
             resolvedSsrDrama = live.drama;
             episodes = live.episodes;
@@ -7941,7 +8101,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               (await findDramaBySlugInApiCache(queryBookId));
             const providerHint = homeItem
               ? parseSsrProviderName(homeItem.provider)
-              : queryProvHint ?? 'DramaBox';
+              : queryProvHint ?? 'DramaBoxV2';
             const targetId = homeItem?.bookId || queryBookId;
             const { drama: liveDrama, episodes } = await fetchDramaForSsr(
               targetId,

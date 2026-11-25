@@ -1682,8 +1682,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     // Simulate Bob crossing 3600s verified watch time
     const bobSess = await startWatchSessionInDb({
       userId: 'user-bob',
-      mediaKey: 'DramaBox:d-99:ep1',
-      provider: 'DramaBox',
+      mediaKey: 'DramaBoxV2:d-99:ep1',
+      provider: 'DramaBoxV2',
       dramaId: 'd-99',
       episodeNumber: 1,
     });
@@ -1694,7 +1694,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       today_watch_seconds: 3590,
       today_date_key: todayKey,
       active_stream_session_id: bobSess.sessionToken,
-      active_stream_media_key: 'DramaBox:d-99:ep1',
+      active_stream_media_key: 'DramaBoxV2:d-99:ep1',
       last_heartbeat_at: new Date(Date.now() - 20_000),
       last_video_time_sec: '100',
       fast_delta_strikes: 0,
@@ -1706,7 +1706,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const qualHb = await recordWatchHeartbeatInDb({
       userId: 'user-bob',
       streamSessionId: bobSess.sessionToken,
-      mediaKey: 'DramaBox:d-99:ep1',
+      mediaKey: 'DramaBoxV2:d-99:ep1',
       currentTimeSec: 120,
       isPlaying: true,
       isBuffering: false,
@@ -2038,8 +2038,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     // 1. Simulate reaching 15m (880s + 20s heartbeat = 900s) -> auto 15*20 = 300 pts, milestones still unclaimed
     const sess = await startWatchSessionInDb({
       userId: 'user-alice',
-      mediaKey: 'DramaBox:d-808:ep1',
-      provider: 'DramaBox',
+      mediaKey: 'DramaBoxV2:d-808:ep1',
+      provider: 'DramaBoxV2',
       dramaId: 'd-808',
       episodeNumber: 1,
     });
@@ -2050,7 +2050,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       today_watch_seconds: 880,
       today_date_key: todayKey,
       active_stream_session_id: sess.sessionToken,
-      active_stream_media_key: 'DramaBox:d-808:ep1',
+      active_stream_media_key: 'DramaBoxV2:d-808:ep1',
       last_heartbeat_at: new Date(Date.now() - 20_000),
       last_video_time_sec: '20',
       fast_delta_strikes: 0,
@@ -2063,7 +2063,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const hb15 = await recordWatchHeartbeatInDb({
       userId: 'user-alice',
       streamSessionId: sess.sessionToken,
-      mediaKey: 'DramaBox:d-808:ep1',
+      mediaKey: 'DramaBoxV2:d-808:ep1',
       currentTimeSec: 40,
       isPlaying: true,
       isBuffering: false,
@@ -2127,7 +2127,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const hb60 = await recordWatchHeartbeatInDb({
       userId: 'user-alice',
       streamSessionId: sess.sessionToken,
-      mediaKey: 'DramaBox:d-808:ep1',
+      mediaKey: 'DramaBoxV2:d-808:ep1',
       currentTimeSec: 60,
       isPlaying: true,
       isBuffering: false,
@@ -2183,7 +2183,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       today_watch_seconds: 1000,
       today_date_key: todayKey,
       active_stream_session_id: '',
-      active_stream_media_key: 'DramaBox:d-808:ep1',
+      active_stream_media_key: 'DramaBoxV2:d-808:ep1',
       last_heartbeat_at: new Date(),
       last_video_time_sec: '20',
       fast_delta_strikes: 0,
@@ -2248,8 +2248,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     // 2. Simulate 15m watch and claim 15m milestone while in UTC mode
     const sess = await startWatchSessionInDb({
       userId: 'user-alice',
-      mediaKey: 'DramaBox:d-909:ep1',
-      provider: 'DramaBox',
+      mediaKey: 'DramaBoxV2:d-909:ep1',
+      provider: 'DramaBoxV2',
       dramaId: 'd-909',
       episodeNumber: 1,
     });
@@ -2260,7 +2260,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       today_watch_seconds: 880,
       today_date_key: canonicalKey,
       active_stream_session_id: sess.sessionToken,
-      active_stream_media_key: 'DramaBox:d-909:ep1',
+      active_stream_media_key: 'DramaBoxV2:d-909:ep1',
       last_heartbeat_at: new Date(Date.now() - 20_000),
       last_video_time_sec: '20',
       fast_delta_strikes: 0,
@@ -2272,7 +2272,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const hbUtc = await recordWatchHeartbeatInDb({
       userId: 'user-alice',
       streamSessionId: sess.sessionToken,
-      mediaKey: 'DramaBox:d-909:ep1',
+      mediaKey: 'DramaBoxV2:d-909:ep1',
       currentTimeSec: 40,
       isPlaying: true,
       isBuffering: false,
@@ -2342,7 +2342,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const hbWib = await recordWatchHeartbeatInDb({
       userId: 'user-alice',
       streamSessionId: sess.sessionToken,
-      mediaKey: 'DramaBox:d-909:ep1',
+      mediaKey: 'DramaBoxV2:d-909:ep1',
       currentTimeSec: 60,
       isPlaying: true,
       isBuffering: false,
@@ -2374,7 +2374,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       today_watch_seconds: 1800,
       today_date_key: canonicalKey,
       active_stream_session_id: '',
-      active_stream_media_key: 'DramaBox:d-909:ep1',
+      active_stream_media_key: 'DramaBoxV2:d-909:ep1',
       last_heartbeat_at: new Date(),
       last_video_time_sec: '20',
       fast_delta_strikes: 0,
@@ -2454,8 +2454,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
 
     const sess = await startWatchSessionInDb({
       userId: 'user-alice',
-      mediaKey: 'DramaBox:d-1010:ep1',
-      provider: 'DramaBox',
+      mediaKey: 'DramaBoxV2:d-1010:ep1',
+      provider: 'DramaBoxV2',
       dramaId: 'd-1010',
       episodeNumber: 1,
     });
@@ -2464,7 +2464,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const hb0 = await recordWatchHeartbeatInDb({
       userId: 'user-alice',
       streamSessionId: sess.sessionToken,
-      mediaKey: 'DramaBox:d-1010:ep1',
+      mediaKey: 'DramaBoxV2:d-1010:ep1',
       currentTimeSec: 0.25,
       isPlaying: true,
       isBuffering: false,
@@ -2501,7 +2501,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       const hb = await recordWatchHeartbeatInDb({
         userId: 'user-alice',
         streamSessionId: sess.sessionToken,
-        mediaKey: 'DramaBox:d-1010:ep1',
+        mediaKey: 'DramaBoxV2:d-1010:ep1',
         currentTimeSec: step.videoSec,
         isPlaying: true,
         isBuffering: false,
@@ -2518,6 +2518,153 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       assert.equal(hb.pointsBalance, step.expectedBal);
       assert.equal(hb.todayWatchPointsEarned, step.expectedBal);
     }
+  });
+
+  await t.test('11. Provider V2 Consolidation, Legacy V1 Blocking (410/301), Brand & Sitemap Compliance', async () => {
+    const { mockPool } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    // Legacy V1 API gateway paths must return HTTP 410
+    for (const v1Path of [
+      '/api/mola/dramabox/ranking',
+      '/api/mola/melolo/rank',
+      '/api/mola/storyreel/home',
+      '/api/mola/vibeshort/home',
+      '/api/mola/shortmax/home',
+      '/api/mola/idrama/home',
+      '/api/mola/reelshort/home',
+    ]) {
+      const res = await fetch(`${baseUrl}${v1Path}`);
+      assert.equal(res.status, 410, `Expected 410 for ${v1Path}`);
+    }
+
+    // Legacy V1 provider hub URLs 301 redirect to canonical V2 hub URLs
+    const v1ToV2Hubs: Array<[string, string]> = [
+      ['/provider/dramabox', '/provider/dramaboxv2'],
+      ['/provider/melolo', '/provider/melolov2'],
+      ['/provider/storyreel', '/provider/storyreelv2'],
+      ['/provider/vibeshort', '/provider/vibeshortv2'],
+      ['/provider/shortmax', '/provider/shortmaxv2'],
+      ['/provider/idrama', '/provider/idramav2'],
+      ['/provider/reelshort', '/provider/reelshortv2'],
+    ];
+    for (const [legacyHub, canonicalHub] of v1ToV2Hubs) {
+      const res = await fetch(`${baseUrl}${legacyHub}`, { redirect: 'manual' });
+      assert.equal(res.status, 301, `Expected 301 for ${legacyHub}`);
+      assert.equal(res.headers.get('location'), canonicalHub);
+    }
+
+    // Deprecated /video-sitemap.xml & /embed/* return 404 + noindex, nofollow
+    for (const deadUrl of [
+      '/video-sitemap.xml',
+      '/embed/123',
+      '/dramaboxv2/detail',
+      '/movie',
+      '/drama/non-existent-audit-slug-999',
+    ]) {
+      const res = await fetch(`${baseUrl}${deadUrl}`, { redirect: 'manual' });
+      assert.equal(res.status, 404, `Expected 404 for ${deadUrl}`);
+      assert.equal(res.headers.get('x-robots-tag'), 'noindex, nofollow');
+    }
+
+    // /llms.txt, /ai-catalog.json, /sitemap-part-1.xml are clean of V1/old brand/VideoObject
+    const [llmsRes, aiJsonRes, sitemapRes, rewardsRes] = await Promise.all([
+      fetch(`${baseUrl}/llms.txt`).then((r) => r.text()),
+      fetch(`${baseUrl}/ai-catalog.json`).then((r) => r.json()),
+      fetch(`${baseUrl}/sitemap-part-1.xml`).then((r) => r.text()),
+      fetch(`${baseUrl}/rewards`).then((r) => r.text()),
+    ]);
+    assert.match(llmsRes, /82\+/);
+    assert.doesNotMatch(llmsRes, /HouseDrama|house-drama\.xyz|CoffeeDrama|89\+/i);
+
+    assert.equal(aiJsonRes.providerDirectory.length, 82);
+    assert.ok(
+      aiJsonRes.providerDirectory.every(
+        (p: { slug: string }) =>
+          !['dramabox', 'melolo', 'storyreel', 'vibeshort', 'shortmax', 'idrama', 'reelshort'].includes(
+            p.slug
+          )
+      )
+    );
+
+    assert.doesNotMatch(sitemapRes, /VideoObject|\/embed\/|<\/?video:/i);
+    assert.doesNotMatch(
+      sitemapRes,
+      /\/provider\/(?:dramabox|melolo|storyreel|vibeshort|shortmax|idrama|reelshort)<\/loc>/i
+    );
+    assert.match(rewardsRes, /\+500 poin \(15 menit\), \+1\.200 poin \(30 menit\), dan \+2\.800 poin \(60 menit\)/);
+    assert.match(rewardsRes, /00\.00 WIB \/ 17\.00 UTC/);
+    assert.doesNotMatch(rewardsRes, /HouseDrama|house-drama\.xyz|CoffeeDrama/i);
+  });
+
+  await t.test('12. IDOR & Auth Guard on /api/favorites, /api/watch-history, /api/likes, and /api/comments', async () => {
+    const { mockPool } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    // 1. /api/favorites requires session token and rejects mismatched userId
+    const favUnauth = await fetch(`${baseUrl}/api/favorites?userId=user-alice`);
+    assert.equal(favUnauth.status, 401);
+    const favIdor = await fetch(`${baseUrl}/api/favorites?userId=user-alice`, {
+      headers: { Authorization: `Bearer ${eveToken}` },
+    });
+    assert.equal(favIdor.status, 403);
+    const favToggleIdor = await fetch(`${baseUrl}/api/favorites/toggle`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${eveToken}`,
+      },
+      body: JSON.stringify({ userId: 'user-alice', dramaId: 'd-1', provider: 'LK21' }),
+    });
+    assert.equal(favToggleIdor.status, 403);
+
+    // 2. /api/watch-history & /api/likes block unauthenticated non-guest UIDs (401) and cross-user reads (403)
+    const whUnauth = await fetch(`${baseUrl}/api/watch-history?userId=user-alice`);
+    assert.equal(whUnauth.status, 401);
+    const whIdor = await fetch(`${baseUrl}/api/watch-history?userId=user-alice`, {
+      headers: { Authorization: `Bearer ${eveToken}` },
+    });
+    assert.equal(whIdor.status, 403);
+    const likesUnauth = await fetch(`${baseUrl}/api/likes?userId=user-alice`);
+    assert.equal(likesUnauth.status, 401);
+    const likesIdor = await fetch(`${baseUrl}/api/likes?userId=user-alice`, {
+      headers: { Authorization: `Bearer ${eveToken}` },
+    });
+    assert.equal(likesIdor.status, 403);
+
+    // 3. /api/comments user history and comment creation enforce auth + IDOR
+    const commUserUnauth = await fetch(`${baseUrl}/api/comments?userId=user-alice`);
+    assert.equal(commUserUnauth.status, 401);
+    const commUserIdor = await fetch(`${baseUrl}/api/comments?userId=user-alice`, {
+      headers: { Authorization: `Bearer ${eveToken}` },
+    });
+    assert.equal(commUserIdor.status, 403);
+    const commPostUnauth = await fetch(`${baseUrl}/api/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dramaId: 'd-1',
+        provider: 'DramaBoxV2',
+        episodeNumber: 1,
+        text: 'Unauthorized spoof',
+      }),
+    });
+    assert.equal(commPostUnauth.status, 401);
+    const commPostIdor = await fetch(`${baseUrl}/api/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${eveToken}`,
+      },
+      body: JSON.stringify({
+        dramaId: 'd-1',
+        provider: 'DramaBoxV2',
+        episodeNumber: 1,
+        userId: 'user-alice',
+        text: 'Spoofed authorUid',
+      }),
+    });
+    assert.equal(commPostIdor.status, 403);
   });
 });
 

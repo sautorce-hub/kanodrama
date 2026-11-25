@@ -61,7 +61,7 @@ export function slugifyDramaTitle(title: string): string {
 export function getDramaPath(
   bookId: string,
   title?: string,
-  provider: MediaProviderName = 'DramaBox',
+  provider: MediaProviderName = 'DramaBoxV2',
   slug?: string
 ): string {
   const cleanSlug = (
@@ -75,7 +75,7 @@ export function getDramaPath(
 export function getWatchPath(
   bookId: string,
   title?: string,
-  provider: MediaProviderName = 'DramaBox',
+  provider: MediaProviderName = 'DramaBoxV2',
   slug?: string,
   episodeNumber = 1
 ): string {
@@ -587,7 +587,7 @@ function upsertHreflangLinks(_href: string) {
 
 function upsertJsonLdScript(data: Record<string, unknown>) {
   let script = document.head.querySelector<HTMLScriptElement>(
-    'script#kano-drama-jsonld[type="application/ld+json"], script#coffee-drama-jsonld[type="application/ld+json"]'
+    'script#kano-drama-jsonld[type="application/ld+json"]'
   );
   if (!script) {
     script = document.createElement('script');

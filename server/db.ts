@@ -691,7 +691,7 @@ const SCHEMA_STATEMENTS: string[] = [
     session_token TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     media_key TEXT NOT NULL,
-    provider TEXT NOT NULL DEFAULT 'DramaBox',
+    provider TEXT NOT NULL DEFAULT 'DramaBoxV2',
     drama_id TEXT NOT NULL DEFAULT '',
     episode_number INTEGER NOT NULL DEFAULT 1,
     device_hash TEXT NOT NULL DEFAULT '',
@@ -5112,7 +5112,7 @@ export async function claimWatchEpisodeInDb(input: {
   summary: UserPointsSummary;
 }> {
   const cfg = getPayoutRuntimeConfig();
-  const cleanProvider = String(input.provider || 'DramaBox').trim().slice(0, 60) || 'DramaBox';
+  const cleanProvider = String(input.provider || 'DramaBoxV2').trim().slice(0, 60) || 'DramaBoxV2';
   const cleanDramaId = String(input.dramaId || '').trim().slice(0, 120);
   const epNum = Math.floor(Number(input.episodeNumber) || 0);
   const cleanToken = String(input.sessionToken || '').trim().slice(0, 80);
@@ -6753,7 +6753,7 @@ export async function startWatchSessionInDb(input: {
   minEpisodeWatchSecForBonus: number;
 }> {
   const cleanMediaKey = String(input.mediaKey || '').trim().slice(0, 140);
-  const cleanProvider = String(input.provider || 'DramaBox').trim().slice(0, 60) || 'DramaBox';
+  const cleanProvider = String(input.provider || 'DramaBoxV2').trim().slice(0, 60) || 'DramaBoxV2';
   const cleanDramaId = String(input.dramaId || '').trim().slice(0, 120);
   const epNum = Math.max(1, Math.floor(Number(input.episodeNumber) || 1));
   const cleanDev = String(input.deviceHash || '').trim().slice(0, 64);

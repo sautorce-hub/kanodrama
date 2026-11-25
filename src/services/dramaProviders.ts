@@ -13,11 +13,9 @@ import type {
 } from '../types/drama';
 
 const MOLATV_BASE = '/api/mola';
-const DRAMABOX_BASE = `${MOLATV_BASE}/dramabox`;
 const DRAMABOX_V2_BASE = `${MOLATV_BASE}/dramaboxv2`;
 const NETSHORT_BASE = `${MOLATV_BASE}/netshort`;
 const ANYREEL_BASE = `${MOLATV_BASE}/anyreel`;
-const MELOLO_BASE = `${MOLATV_BASE}/melolo`;
 const MELOLO_V2_BASE = `${MOLATV_BASE}/melolov2`;
 const DRAMAORA_BASE = `${MOLATV_BASE}/dramaora`;
 const MELOSHORT_BASE = `${MOLATV_BASE}/meloshort`;
@@ -42,23 +40,18 @@ const FREESHORT_BASE = `${MOLATV_BASE}/freeshort`;
 const TOONSHORT_BASE = `${MOLATV_BASE}/toonshort`;
 const HAPPYSHORT_BASE = `${MOLATV_BASE}/happyshort`;
 const DRAMADASH_BASE = `${MOLATV_BASE}/dramadash`;
-const STORYREEL_BASE = `${MOLATV_BASE}/storyreel`;
 const STORYREEL_V2_BASE = `${MOLATV_BASE}/storyreel_v2`;
-const VIBESHORT_BASE = `${MOLATV_BASE}/vibeshort`;
 const VIBESHORT_V2_BASE = `${MOLATV_BASE}/vibeshort_v2`;
 const FLICKREELS_BASE = `${MOLATV_BASE}/flickreels`;
 const DRAMAWAVE_BASE = `${MOLATV_BASE}/dramawave`;
 const FREEREELS_BASE = `${MOLATV_BASE}/freereels`;
 const PINEDRAMA_BASE = `${MOLATV_BASE}/pinedrama`;
-const SHORTMAX_BASE = `${MOLATV_BASE}/shortmax`;
 const SHORTMAX_V2_BASE = `${MOLATV_BASE}/shortmax_v2`;
 const FLEXTV_BASE = `${MOLATV_BASE}/flextv`;
 const VIGLOO_BASE = `${MOLATV_BASE}/vigloo`;
 const DOTDRAMA_BASE = `${MOLATV_BASE}/dotdrama`;
-const IDRAMA_BASE = `${MOLATV_BASE}/idrama`;
 const IDRAMA_V2_BASE = `${MOLATV_BASE}/idrama_v2`;
 const GOODSHORT_BASE = `${MOLATV_BASE}/goodshort`;
-const REELSHORT_BASE = `${MOLATV_BASE}/reelshort`;
 const REELSHORT_V2_BASE = `${MOLATV_BASE}/reelshort_v2`;
 const JOYREELS_BASE = `${MOLATV_BASE}/joyreels`;
 const SODAREELS_BASE = `${MOLATV_BASE}/sodareels`;
@@ -193,12 +186,10 @@ export function mapProviderLang(
   lang: LanguageCode
 ): string | undefined {
   switch (provider) {
-    case 'DramaBox':
     case 'DramaBoxV2':
       return mapDramaBoxLang(lang);
     case 'NetShort':
       return mapNetShortLang(lang);
-    case 'Melolo':
     case 'MeloLoV2':
     case 'MeloShort':
     case 'DramaVerse':
@@ -234,24 +225,21 @@ export function mapProviderLang(
 
 export function ensureMeloloDecryptedUrl(
   rawUrl: string,
-  baseUrl: string = MELOLO_BASE
+  baseUrl: string = MELOLO_V2_BASE
 ): string {
   const clean = cleanText(rawUrl);
   if (!clean) return '';
-  if (
-    clean.includes('/api/mola/melolo/decrypt') ||
-    clean.includes('/api/mola/melolov2/decrypt')
-  ) {
+  if (clean.includes('/api/mola/melolov2/decrypt')) {
     return clean;
+  }
+  if (clean.includes('/api/mola/melolo/decrypt')) {
+    return clean.replace('/api/mola/melolo/decrypt', '/api/mola/melolov2/decrypt');
   }
   if (clean.includes('/api/melolov2/decrypt') || clean.includes('/api/melolo/decrypt')) {
     try {
       const parsed = new URL(clean, 'http://localhost');
       parsed.searchParams.delete('token');
-      const targetBase = clean.includes('/api/melolov2/decrypt')
-        ? '/api/mola/melolov2/decrypt'
-        : `${baseUrl}/decrypt`;
-      return `${targetBase}${parsed.search}`;
+      return `${baseUrl}/decrypt${parsed.search}`;
     } catch {
       return clean;
     }
@@ -487,7 +475,7 @@ function normalizeDrama(
     Boolean(rawCover) &&
     !rawCover.startsWith('/api/proxy') &&
     (rawCover.startsWith('http://') ||
-      ((provider === 'Melolo' || provider === 'MeloLoV2') &&
+      (provider === 'MeloLoV2' &&
         (rawCover.toLowerCase().includes('.heic') ||
           rawCover.toLowerCase().includes('fizzopic.org'))));
 
@@ -666,7 +654,6 @@ function normalizeStream(
   const seenUrls = new Set<string>();
 
   const transformUrl = (url: string): string => {
-    if (provider === 'Melolo') return ensureMeloloDecryptedUrl(url, MELOLO_BASE);
     if (provider === 'MeloLoV2') return ensureMeloloDecryptedUrl(url, MELOLO_V2_BASE);
     return ensureHttpsSafeStreamUrl(url);
   };
@@ -1000,7 +987,7 @@ function streamKey(
 export function isStreamCached(
   bookId: string,
   episode: number,
-  provider: ProviderName = 'DramaBox'
+  provider: ProviderName = 'DramaBoxV2'
 ): boolean {
   const entry = streamCache.get(streamKey(provider, bookId, episode));
   if (!entry) return false;
@@ -1011,160 +998,7 @@ export function isStreamCached(
   return true;
 }
 
-// --- Provider 1: DramaBox Adapter ---
-export const dramaBoxProvider: DramaProviderAdapter = {
-  id: 'DramaBox',
-  label: 'DramaBox',
-  enabled: true,
-
-  async setLanguage(lang: LanguageCode): Promise<void> {
-    currentAppLang = lang;
-    await requestProviderJson(DRAMABOX_BASE, '/set_language', {
-      lang: mapDramaBoxLang(lang),
-    });
-  },
-
-  fetchForYou(page = 1) {
-    return fetchProviderFeed(
-      DRAMABOX_BASE,
-      '/foryou',
-      'DramaBox',
-      page,
-      mapDramaBoxLang(currentAppLang)
-    );
-  },
-
-  fetchRanking(page = 1) {
-    return fetchProviderFeed(
-      DRAMABOX_BASE,
-      '/ranking',
-      'DramaBox',
-      page,
-      mapDramaBoxLang(currentAppLang),
-      { withRank: true }
-    );
-  },
-
-  fetchNewReleases(page = 1) {
-    return fetchProviderFeed(
-      DRAMABOX_BASE,
-      '/terbaru',
-      'DramaBox',
-      page,
-      mapDramaBoxLang(currentAppLang)
-    );
-  },
-
-  fetchVip(page = 1) {
-    return fetchProviderFeed(
-      DRAMABOX_BASE,
-      '/vip',
-      'DramaBox',
-      page,
-      mapDramaBoxLang(currentAppLang),
-      { forceVip: true }
-    );
-  },
-
-  fetchDubbing(page = 1) {
-    return fetchProviderFeed(
-      DRAMABOX_BASE,
-      '/dubbing',
-      'DramaBox',
-      page,
-      mapDramaBoxLang(currentAppLang)
-    );
-  },
-
-  async searchDramas(keyword: string, page = 1): Promise<PaginatedResult> {
-    const trimmed = keyword.trim();
-    if (!trimmed) return { items: [], hasMore: false, page };
-    const json = await requestProviderJson(
-      DRAMABOX_BASE,
-      '/search',
-      { keyword: trimmed, page },
-      mapDramaBoxLang(currentAppLang)
-    );
-    const items = extractBookArray(json)
-      .map((raw) => normalizeDrama(raw, 'DramaBox'))
-      .filter((d): d is DramaItem => d !== null);
-    return { items, hasMore: items.length >= 10, page };
-  },
-
-  async fetchDetail(bookId: string): Promise<DramaItem | null> {
-    try {
-      const json = await requestProviderJson<Record<string, unknown>>(
-        DRAMABOX_BASE,
-        '/detail',
-        { book_id: bookId },
-        mapDramaBoxLang(currentAppLang)
-      );
-      const raw =
-        json?.data && typeof json.data === 'object'
-          ? (json.data as Record<string, unknown>)
-          : json;
-      const parsed = normalizeDrama(raw, 'DramaBox', undefined, false, bookId);
-      if (parsed) return parsed;
-    } catch {
-      // Fall back to V2 for legacy DramaBox bookIds cached before V1/V2 split
-    }
-    const json = await requestProviderJson<Record<string, unknown>>(
-      DRAMABOX_V2_BASE,
-      '/detail',
-      { book_id: bookId },
-      mapDramaBoxLang(currentAppLang)
-    );
-    const raw =
-      json?.data && typeof json.data === 'object'
-        ? (json.data as Record<string, unknown>)
-        : json;
-    return normalizeDrama(raw, 'DramaBox', undefined, false, bookId);
-  },
-
-  async fetchAllEpisodes(bookId: string): Promise<EpisodeItem[]> {
-    try {
-      const json = await requestProviderJson(
-        DRAMABOX_BASE,
-        '/allepisode',
-        { book_id: bookId },
-        mapDramaBoxLang(currentAppLang)
-      );
-      const eps = normalizeEpisodeList(json);
-      if (eps.length > 0) return eps;
-    } catch {
-      // Fall back to V2 for legacy DramaBox bookIds
-    }
-    const json = await requestProviderJson(
-      DRAMABOX_V2_BASE,
-      '/allepisode',
-      { book_id: bookId },
-      mapDramaBoxLang(currentAppLang)
-    );
-    return normalizeEpisodeList(json);
-  },
-
-  async fetchStream(bookId: string, episode: number) {
-    try {
-      const json = await requestProviderJson(
-        DRAMABOX_BASE,
-        '/stream',
-        { book_id: bookId, episode },
-        mapDramaBoxLang(currentAppLang)
-      );
-      return normalizeStream(json, bookId, episode, 'DramaBox');
-    } catch {
-      const json = await requestProviderJson(
-        DRAMABOX_V2_BASE,
-        '/stream',
-        { book_id: bookId, episode },
-        mapDramaBoxLang(currentAppLang)
-      );
-      return normalizeStream(json, bookId, episode, 'DramaBox');
-    }
-  },
-};
-
-// --- Provider 1B: DramaBox V2 Adapter ---
+// --- Provider 1: DramaBox V2 Adapter ---
 export const dramaBoxV2Provider: DramaProviderAdapter = {
   id: 'DramaBoxV2',
   label: 'DramaBox V2',
@@ -1496,135 +1330,6 @@ export const anyReelProvider: DramaProviderAdapter = {
       mapIdEnLang(currentAppLang)
     );
     return normalizeStream(json, bookId, episode, 'AnyReel');
-  },
-};
-
-// --- Provider 4: Melolo Adapter ---
-export const meloloProvider: DramaProviderAdapter & {
-  fetchAllDrama: (page?: number) => Promise<PaginatedResult>;
-} = {
-  id: 'Melolo',
-  label: 'Melolo',
-  enabled: true,
-
-  async setLanguage(lang: LanguageCode): Promise<void> {
-    currentAppLang = lang;
-    await requestProviderJson(MELOLO_BASE, '/set_language', {
-      lang: mapInEnLang(lang),
-    });
-  },
-
-  fetchForYou(page = 1) {
-    return fetchProviderFeed(
-      MELOLO_BASE,
-      '/foryou',
-      'Melolo',
-      page,
-      mapInEnLang(currentAppLang)
-    );
-  },
-
-  fetchRanking(page = 1) {
-    return fetchProviderFeed(
-      MELOLO_BASE,
-      '/rank',
-      'Melolo',
-      page,
-      mapInEnLang(currentAppLang),
-      { withRank: true, extraParams: { page_size: 18 } }
-    );
-  },
-
-  fetchNewReleases(page = 1) {
-    return fetchProviderFeed(
-      MELOLO_BASE,
-      '/new_release',
-      'Melolo',
-      page,
-      mapInEnLang(currentAppLang),
-      { extraParams: { page_size: 10 } }
-    );
-  },
-
-  fetchAllDrama(page = 1) {
-    return fetchProviderFeed(
-      MELOLO_BASE,
-      '/all_drama',
-      'Melolo',
-      page,
-      mapInEnLang(currentAppLang),
-      { extraParams: { page_size: 10 } }
-    );
-  },
-
-  fetchVip(page = 1) {
-    return fetchProviderFeed(
-      MELOLO_BASE,
-      '/rank',
-      'Melolo',
-      page,
-      mapInEnLang(currentAppLang),
-      { forceVip: true, extraParams: { page_size: 18 } }
-    );
-  },
-
-  fetchAnime(page = 1) {
-    return fetchProviderFeed(
-      MELOLO_BASE,
-      '/anime',
-      'Melolo',
-      page,
-      mapInEnLang(currentAppLang)
-    );
-  },
-
-  async searchDramas(keyword: string, page = 1): Promise<PaginatedResult> {
-    const trimmed = keyword.trim();
-    if (!trimmed) return { items: [], hasMore: false, page };
-    const json = await requestProviderJson(
-      MELOLO_BASE,
-      '/search',
-      { keyword: trimmed },
-      mapInEnLang(currentAppLang)
-    );
-    const items = extractBookArray(json)
-      .map((raw) => normalizeDrama(raw, 'Melolo'))
-      .filter((d): d is DramaItem => d !== null);
-    return { items, hasMore: false, page };
-  },
-
-  async fetchDetail(bookId: string): Promise<DramaItem | null> {
-    const json = await requestProviderJson<Record<string, unknown>>(
-      MELOLO_BASE,
-      '/detail',
-      { book_id: bookId },
-      mapInEnLang(currentAppLang)
-    );
-    const raw =
-      json?.data && typeof json.data === 'object'
-        ? (json.data as Record<string, unknown>)
-        : json;
-    return normalizeDrama(raw, 'Melolo', undefined, false, bookId);
-  },
-
-  async fetchAllEpisodes(bookId: string): Promise<EpisodeItem[]> {
-    const json = await requestProviderJson(
-      MELOLO_BASE,
-      '/allepisode',
-      { book_id: bookId },
-      mapInEnLang(currentAppLang)
-    );
-    return normalizeEpisodeList(json);
-  },
-
-  async fetchStream(bookId: string, episode: number) {
-    const json = await requestProviderJson(
-      MELOLO_BASE,
-      '/stream',
-      { book_id: bookId, episode },
-      mapInEnLang(currentAppLang)
-    );
-    return normalizeStream(json, bookId, episode, 'Melolo');
   },
 };
 
@@ -3695,31 +3400,11 @@ export const dramaDashProvider = createStandardProvider({
   extraFeedParams: { pageSize: 10 },
 });
 
-// --- Providers 28-31: StoryReel V1/V2 & VibeShort V1/V2 (with stream_plain) ---
-export const storyReelProvider = createStandardProvider({
-  id: 'StoryReel',
-  baseUrl: STORYREEL_BASE,
-  langFn: mapIdEnLang,
-  rankingPath: '/all',
-  newestPath: '/terbaru',
-  vipPath: '/all',
-  usePlainFallback: true,
-});
-
+// --- Providers 28-29: StoryReel V2 & VibeShort V2 (with stream_plain) ---
 export const storyReelV2Provider = createStandardProvider({
   id: 'StoryReelV2',
   label: 'StoryReel V2',
   baseUrl: STORYREEL_V2_BASE,
-  langFn: mapIdEnLang,
-  rankingPath: '/all',
-  newestPath: '/terbaru',
-  vipPath: '/all',
-  usePlainFallback: true,
-});
-
-export const vibeShortProvider = createStandardProvider({
-  id: 'VibeShort',
-  baseUrl: VIBESHORT_BASE,
   langFn: mapIdEnLang,
   rankingPath: '/all',
   newestPath: '/terbaru',
@@ -3933,17 +3618,7 @@ export const pineDramaProvider: DramaProviderAdapter = {
   },
 };
 
-// --- Providers 36-37: ShortMax V1/V2 (with stream_plain) ---
-export const shortMaxProvider = createStandardProvider({
-  id: 'ShortMax',
-  baseUrl: SHORTMAX_BASE,
-  langFn: mapIdEnLang,
-  rankingPath: '/all',
-  newestPath: '/terbaru',
-  vipPath: '/all',
-  usePlainFallback: true,
-});
-
+// --- Provider 36: ShortMax V2 (with stream_plain) ---
 export const shortMaxV2Provider = createStandardProvider({
   id: 'ShortMaxV2',
   label: 'ShortMax V2',
@@ -4021,9 +3696,9 @@ export const dotDramaProvider = createStandardProvider({
   langFn: mapInEnLang,
 });
 
-// --- Providers 41-42: iDrama V1/V2 (Cursor + codec=h264) ---
+// --- Provider 41: iDrama V2 (Cursor + codec=h264) ---
 function createIDramaProvider(
-  id: 'iDrama' | 'iDramaV2',
+  id: 'iDramaV2',
   label: string,
   baseUrl: string
 ): DramaProviderAdapter {
@@ -4126,7 +3801,6 @@ function createIDramaProvider(
   };
 }
 
-export const iDramaProvider = createIDramaProvider('iDrama', 'iDrama', IDRAMA_BASE);
 export const iDramaV2Provider = createIDramaProvider(
   'iDramaV2',
   'iDrama V2',
@@ -4262,13 +3936,7 @@ export const goodShortProvider: DramaProviderAdapter = {
   },
 };
 
-// --- Providers 44-45: ReelShort V1/V2 ---
-export const reelShortProvider = createStandardProvider({
-  id: 'ReelShort',
-  baseUrl: REELSHORT_BASE,
-  langFn: mapIdEnLang,
-});
-
+// --- Provider 44: ReelShort V2 ---
 export const reelShortV2Provider = createStandardProvider({
   id: 'ReelShortV2',
   label: 'ReelShort V2',
@@ -5124,11 +4792,9 @@ export const winkNovelProvider = createResilientMolaProvider({
 });
 
 export const ALL_PROVIDER_ADAPTERS: Record<ProviderName, DramaProviderAdapter> = {
-  DramaBox: dramaBoxProvider,
   DramaBoxV2: dramaBoxV2Provider,
   NetShort: netShortProvider,
   AnyReel: anyReelProvider,
-  Melolo: meloloProvider,
   MeloLoV2: meloLoV2Provider,
   DramaOra: dramaOraProvider,
   MeloShort: meloShortProvider,
@@ -5153,23 +4819,18 @@ export const ALL_PROVIDER_ADAPTERS: Record<ProviderName, DramaProviderAdapter> =
   ToonShort: toonShortProvider,
   HappyShort: happyShortProvider,
   DramaDash: dramaDashProvider,
-  StoryReel: storyReelProvider,
   StoryReelV2: storyReelV2Provider,
-  VibeShort: vibeShortProvider,
   VibeShortV2: vibeShortV2Provider,
   FlickReels: flickReelsProvider,
   DramaWave: dramaWaveProvider,
   FreeReels: freeReelsProvider,
   PineDrama: pineDramaProvider,
-  ShortMax: shortMaxProvider,
   ShortMaxV2: shortMaxV2Provider,
   FlexTV: flexTvProvider,
   Vigloo: viglooProvider,
   DotDrama: dotDramaProvider,
-  iDrama: iDramaProvider,
   iDramaV2: iDramaV2Provider,
   GoodShort: goodShortProvider,
-  ReelShort: reelShortProvider,
   ReelShortV2: reelShortV2Provider,
   JoyReels: joyReelsProvider,
   SodaReels: sodaReelsProvider,
@@ -5216,11 +4877,9 @@ export const ALL_PROVIDER_ADAPTERS: Record<ProviderName, DramaProviderAdapter> =
 };
 
 export const ACTIVE_PROVIDER_NAMES: ProviderName[] = [
-  'DramaBox',
   'DramaBoxV2',
   'NetShort',
   'AnyReel',
-  'Melolo',
   'MeloLoV2',
   'DramaOra',
   'MeloShort',
@@ -5245,23 +4904,18 @@ export const ACTIVE_PROVIDER_NAMES: ProviderName[] = [
   'ToonShort',
   'HappyShort',
   'DramaDash',
-  'StoryReel',
   'StoryReelV2',
-  'VibeShort',
   'VibeShortV2',
   'FlickReels',
   'DramaWave',
   'FreeReels',
   'PineDrama',
-  'ShortMax',
   'ShortMaxV2',
   'FlexTV',
   'Vigloo',
   'DotDrama',
-  'iDrama',
   'iDramaV2',
   'GoodShort',
-  'ReelShort',
   'ReelShortV2',
   'JoyReels',
   'SodaReels',
@@ -5308,13 +4962,13 @@ export const ACTIVE_PROVIDER_NAMES: ProviderName[] = [
 ];
 
 export function getProviderAdapter(provider: ProviderName): DramaProviderAdapter {
-  return ALL_PROVIDER_ADAPTERS[provider] ?? dramaBoxProvider;
+  return ALL_PROVIDER_ADAPTERS[provider] ?? dramaBoxV2Provider;
 }
 
 export async function getStreamUrl(
   bookId: string,
   episode: number,
-  provider: ProviderName = 'DramaBox',
+  provider: ProviderName = 'DramaBoxV2',
   extra?: { eid?: string; chapterId?: string }
 ): Promise<StreamSource> {
   const key = streamKey(provider, bookId, episode);
@@ -5340,7 +4994,7 @@ export async function getStreamUrl(
 export function prefetchStreamUrl(
   bookId: string,
   episode: number,
-  provider: ProviderName = 'DramaBox',
+  provider: ProviderName = 'DramaBoxV2',
   extra?: { eid?: string; chapterId?: string }
 ): void {
   if (!bookId || episode < 1) return;
@@ -5351,7 +5005,7 @@ export function prefetchStreamUrl(
 }
 
 /**
- * Synchronize language across all 49 active providers cleanly via the rate-limited queue
+ * Synchronize language across all 82 active providers cleanly via the rate-limited queue
  */
 export async function syncAllProvidersLanguage(
   lang: LanguageCode
@@ -5363,7 +5017,7 @@ export async function syncAllProvidersLanguage(
 }
 
 /**
- * Cross-provider search across single selected provider or all 49 live providers (rate-limited)
+ * Cross-provider search across single selected provider or all 82 live providers (rate-limited)
  */
 export async function searchAllProviders(
   keyword: string,
@@ -5435,13 +5089,6 @@ export const PROVIDER_ENDPOINT_CATALOG: Record<
   ProviderName,
   ProviderEndpointSpec[]
 > = {
-  DramaBox: [
-    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => dramaBoxProvider.fetchForYou(p) },
-    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => dramaBoxProvider.fetchRanking(p) },
-    { key: 'terbaru', label: 'Terbaru', path: '/terbaru', badgeStyle: 'NEW', fetch: (p) => dramaBoxProvider.fetchNewReleases(p) },
-    { key: 'vip', label: 'VIP', path: '/vip', badgeStyle: 'VIP', fetch: (p) => dramaBoxProvider.fetchVip(p) },
-    { key: 'dubbing', label: 'Dubbing', path: '/dubbing', badgeStyle: 'DUB', fetch: (p) => dramaBoxProvider.fetchDubbing!(p) },
-  ],
   DramaBoxV2: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => dramaBoxV2Provider.fetchForYou(p) },
     { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => dramaBoxV2Provider.fetchRanking(p) },
@@ -5458,13 +5105,6 @@ export const PROVIDER_ENDPOINT_CATALOG: Record<
   AnyReel: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => anyReelProvider.fetchForYou(p) },
     { key: 'asian', label: 'Asian', path: '/asian', ranked: true, fetch: (p) => anyReelProvider.fetchRanking(p) },
-  ],
-  Melolo: [
-    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => meloloProvider.fetchForYou(p) },
-    { key: 'rank', label: 'Rank', path: '/rank', ranked: true, fetch: (p) => meloloProvider.fetchRanking(p) },
-    { key: 'new_release', label: 'New Release', path: '/new_release', badgeStyle: 'NEW', fetch: (p) => meloloProvider.fetchNewReleases(p) },
-    { key: 'all_drama', label: 'All Drama', path: '/all_drama', fetch: (p) => meloloProvider.fetchAllDrama(p) },
-    { key: 'anime', label: 'Anime', path: '/anime', badgeStyle: 'ANIME', fetch: (p) => meloloProvider.fetchAnime!(p) },
   ],
   MeloLoV2: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => meloLoV2Provider.fetchForYou(p) },
@@ -5578,20 +5218,10 @@ export const PROVIDER_ENDPOINT_CATALOG: Record<
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => dramaDashProvider.fetchForYou(p) },
     { key: 'trending', label: 'Trending', path: '/trending', ranked: true, fetch: (p) => dramaDashProvider.fetchRanking(p) },
   ],
-  StoryReel: [
-    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => storyReelProvider.fetchForYou(p) },
-    { key: 'all', label: 'All', path: '/all', ranked: true, fetch: (p) => storyReelProvider.fetchRanking(p) },
-    { key: 'terbaru', label: 'Terbaru', path: '/terbaru', badgeStyle: 'NEW', fetch: (p) => storyReelProvider.fetchNewReleases(p) },
-  ],
   StoryReelV2: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => storyReelV2Provider.fetchForYou(p) },
     { key: 'all', label: 'All', path: '/all', ranked: true, fetch: (p) => storyReelV2Provider.fetchRanking(p) },
     { key: 'terbaru', label: 'Terbaru', path: '/terbaru', badgeStyle: 'NEW', fetch: (p) => storyReelV2Provider.fetchNewReleases(p) },
-  ],
-  VibeShort: [
-    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => vibeShortProvider.fetchForYou(p) },
-    { key: 'all', label: 'All', path: '/all', ranked: true, fetch: (p) => vibeShortProvider.fetchRanking(p) },
-    { key: 'terbaru', label: 'Terbaru', path: '/terbaru', badgeStyle: 'NEW', fetch: (p) => vibeShortProvider.fetchNewReleases(p) },
   ],
   VibeShortV2: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => vibeShortV2Provider.fetchForYou(p) },
@@ -5617,11 +5247,6 @@ export const PROVIDER_ENDPOINT_CATALOG: Record<
   PineDrama: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => pineDramaProvider.fetchForYou(p) },
   ],
-  ShortMax: [
-    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => shortMaxProvider.fetchForYou(p) },
-    { key: 'all', label: 'All', path: '/all', ranked: true, fetch: (p) => shortMaxProvider.fetchRanking(p) },
-    { key: 'terbaru', label: 'Terbaru', path: '/terbaru', badgeStyle: 'NEW', fetch: (p) => shortMaxProvider.fetchNewReleases(p) },
-  ],
   ShortMaxV2: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => shortMaxV2Provider.fetchForYou(p) },
     { key: 'all', label: 'All', path: '/all', ranked: true, fetch: (p) => shortMaxV2Provider.fetchRanking(p) },
@@ -5638,9 +5263,6 @@ export const PROVIDER_ENDPOINT_CATALOG: Record<
   DotDrama: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => dotDramaProvider.fetchForYou(p) },
   ],
-  iDrama: [
-    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => iDramaProvider.fetchForYou(p) },
-  ],
   iDramaV2: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => iDramaV2Provider.fetchForYou(p) },
   ],
@@ -5649,9 +5271,6 @@ export const PROVIDER_ENDPOINT_CATALOG: Record<
     { key: 'terbaru', label: 'Terbaru', path: '/terbaru', badgeStyle: 'NEW', fetch: (p) => goodShortProvider.fetchNewReleases(p) },
     { key: 'anime', label: 'Anime', path: '/anime', badgeStyle: 'ANIME', fetch: (p) => goodShortProvider.fetchAnime!(p) },
     { key: 'dubbing', label: 'Dubbing', path: '/dubbing', badgeStyle: 'DUB', fetch: (p) => goodShortProvider.fetchDubbing!(p) },
-  ],
-  ReelShort: [
-    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => reelShortProvider.fetchForYou(p) },
   ],
   ReelShortV2: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => reelShortV2Provider.fetchForYou(p) },
@@ -5856,15 +5475,15 @@ export type SearchCategoryFilter =
   | 'anime';
 
 export const PRIORITY_SEARCH_PROVIDERS: ProviderName[] = [
-  'Melolo',
-  'DramaBox',
+  'MeloLoV2',
+  'DramaBoxV2',
   'NetShort',
   'AnyReel',
   'FreeReels',
   'GoodShort',
   'FlickReels',
-  'ShortMax',
-  'ReelShort',
+  'ShortMaxV2',
+  'ReelShortV2',
   'iQIYI',
 ];
 
@@ -5888,7 +5507,7 @@ function interleaveDramaLists(lists: DramaItem[][]): DramaItem[] {
 
 /**
  * Fast search: queries a single chosen provider (1 request) or top 10 flagship
- * providers when providerFilter is 'All' (or all 49 when deepAll=true).
+ * providers when providerFilter is 'All' (or all 82 when deepAll=true).
  */
 export async function searchProvidersFast(
   keyword: string,
@@ -5939,9 +5558,6 @@ async function fetchSingleProviderCategoryFeed(
     case 'anime':
       return adapter.fetchAnime ? adapter.fetchAnime(page) : adapter.fetchForYou(page);
     case 'all_drama': {
-      if (provider === 'Melolo') {
-        return meloloProvider.fetchAllDrama(page);
-      }
       if (provider === 'MeloLoV2') {
         return meloLoV2Provider.fetchAllDrama(page);
       }
@@ -5983,7 +5599,7 @@ export async function fetchSearchCategoryFeed(
 
   const categoryProviders: ProviderName[] =
     effectiveCategory === 'all_drama'
-      ? ['Melolo', 'MeloLoV2', 'PetaDrama', 'ShotShort', 'BlinkDrama', 'FlickReels', 'DramaBox']
+      ? ['MeloLoV2', 'PetaDrama', 'ShotShort', 'BlinkDrama', 'FlickReels', 'DramaBoxV2']
       : effectiveCategory === 'anime'
       ? [
           'Bstation',
@@ -5991,14 +5607,13 @@ export async function fetchSearchCategoryFeed(
           'DonghuaQueen',
           'Samehadaku',
           'AnimeX',
-          'Melolo',
           'MeloLoV2',
           'NetShort',
           'FreeReels',
           'GoodShort',
           'iQIYI',
         ]
-      : ['Melolo', 'DramaBox', 'DramaBoxV2', 'NetShort', 'AnyReel', 'FreeReels', 'iQIYI'];
+      : ['MeloLoV2', 'DramaBoxV2', 'NetShort', 'AnyReel', 'FreeReels', 'iQIYI'];
 
   const settled = await Promise.allSettled(
     categoryProviders.map((name) =>

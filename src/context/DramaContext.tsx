@@ -22,6 +22,7 @@ import {
   type ServerAuthenticatedUser,
 } from '../config/auth';
 import { setActiveAppLanguage } from '../services/dramaProviders';
+import { normalizeMediaProviderName } from '../constants/providerLogos';
 import { TRANSLATIONS, type Translations } from '../i18n/translations';
 import {
   detectLanguageFromContent,
@@ -91,7 +92,7 @@ const AVATAR_COLORS = ['#EF4444', '#D4AF37', '#10B981', '#E11D48', '#3B82F6'];
 
 function buildInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'HD';
+  if (parts.length === 0) return 'KD';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
 }
@@ -326,8 +327,8 @@ interface DramaContextValue {
 
 const DramaContext = createContext<DramaContextValue | null>(null);
 
-function makeItemKey(bookId: string, provider: MediaProviderName = 'DramaBox') {
-  return `${provider}:${bookId}`;
+function makeItemKey(bookId: string, provider: MediaProviderName = 'DramaBoxV2') {
+  return `${normalizeMediaProviderName(provider, 'DramaBoxV2')}:${bookId}`;
 }
 
 function makeEpisodeKey(
@@ -371,10 +372,16 @@ function isMovieMedia(drama: Pick<DramaItem, 'provider' | 'mediaType'>): boolean
 
 function getPersistentVisitorId(): string {
   try {
-    const existing = localStorage.getItem('hd_visitor_id');
-    if (existing && existing.trim()) return existing.trim();
+    const existing =
+      localStorage.getItem('kd_visitor_id') ||
+      localStorage.getItem('hd_visitor_id');
+    if (existing && existing.trim()) {
+      localStorage.setItem('kd_visitor_id', existing.trim());
+      localStorage.removeItem('hd_visitor_id');
+      return existing.trim();
+    }
     const next = `v-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    localStorage.setItem('hd_visitor_id', next);
+    localStorage.setItem('kd_visitor_id', next);
     return next;
   } catch {
     return 'v-anon';
@@ -823,8 +830,10 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           return parsed
             .filter((e) => e && e.drama && e.drama.bookId)
             .map((entry) => {
-              const prov: MediaProviderName =
-                entry.provider || entry.drama?.provider || 'DramaBox';
+              const prov = normalizeMediaProviderName(
+                entry.provider || entry.drama?.provider,
+                'DramaBoxV2'
+              );
               const resolvedType =
                 prov === 'LK21' ||
                 prov === 'LookSeries' ||
@@ -1135,7 +1144,11 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!actorId) return;
     try {
       const res = await fetch(
-        `/api/watch-history?userId=${encodeURIComponent(actorId)}&limit=24`
+        `/api/watch-history?userId=${encodeURIComponent(actorId)}&limit=24`,
+        {
+          credentials: 'include',
+          headers: getAuthHeaders(),
+        }
       );
       if (!res.ok) return;
       const json = (await res.json()) as {
@@ -1155,7 +1168,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       const remoteEntries: WatchHistoryEntry[] = json.items
         .filter((e) => e && e.bookId)
         .map((e) => {
-          const prov = (e.provider || 'DramaBox') as MediaProviderName;
+          const prov = normalizeMediaProviderName(e.provider, 'DramaBoxV2');
           const d = e.drama || {};
           const resolvedType =
             prov === 'LK21' ||
@@ -1238,8 +1251,14 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         ).filter((d) => d && d.bookId && isMovieMedia(d));
 
         const [favRes, likeRes] = await Promise.allSettled([
-          fetch(`/api/favorites?userId=${encodeURIComponent(uid)}&limit=200`),
-          fetch(`/api/likes?userId=${encodeURIComponent(uid)}&limit=100`),
+          fetch(`/api/favorites?userId=${encodeURIComponent(uid)}&limit=200`, {
+            credentials: 'include',
+            headers: getAuthHeaders(),
+          }),
+          fetch(`/api/likes?userId=${encodeURIComponent(uid)}&limit=100`, {
+            credentials: 'include',
+            headers: getAuthHeaders(),
+          }),
           hydrateWatchHistoryFromPostgres(uid),
         ]);
 
@@ -1259,7 +1278,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           if (Array.isArray(favJson.items)) {
             for (const entry of favJson.items) {
               if (!entry.dramaId) continue;
-              const prov = (entry.provider || 'LK21') as MediaProviderName;
+              const prov = normalizeMediaProviderName(entry.provider, 'LK21');
               const resolvedType =
                 entry.mediaType ??
                 (prov === 'LK21' || prov === 'LookSeries' ? 'movie' : 'drama');
@@ -1342,7 +1361,10 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           };
           if (Array.isArray(likeJson.items)) {
             const remoteKeys = likeJson.items.map((l) =>
-              makeItemKey(l.dramaId, (l.provider || 'DramaBox') as MediaProviderName)
+              makeItemKey(
+                l.dramaId,
+                normalizeMediaProviderName(l.provider, 'DramaBoxV2')
+              )
             );
             setLikedDramaIds(remoteKeys);
           }
@@ -1351,7 +1373,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         // Keep user library gracefully
       }
     },
-    [hydrateWatchHistoryFromPostgres]
+    [getAuthHeaders, hydrateWatchHistoryFromPostgres]
   );
 
   // Hydrate likes from PostgreSQL for guest visitorId or signed-in actor
@@ -1359,7 +1381,11 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!actorId) return;
     try {
       const res = await fetch(
-        `/api/likes?userId=${encodeURIComponent(actorId)}&limit=100`
+        `/api/likes?userId=${encodeURIComponent(actorId)}&limit=100`,
+        {
+          credentials: 'include',
+          headers: getAuthHeaders(),
+        }
       );
       if (!res.ok) return;
       const likeJson = (await res.json()) as {
@@ -1368,14 +1394,17 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       };
       if (likeJson.ok && Array.isArray(likeJson.items)) {
         const remoteKeys = likeJson.items.map((l) =>
-          makeItemKey(l.dramaId, (l.provider || 'DramaBox') as MediaProviderName)
+          makeItemKey(
+            l.dramaId,
+            normalizeMediaProviderName(l.provider, 'DramaBoxV2')
+          )
         );
         setLikedDramaIds(remoteKeys);
       }
     } catch {
       // Non-blocking fallback to localStorage likedDramaIds
     }
-  }, []);
+  }, [getAuthHeaders]);
 
   const bindPendingReferralIfAny = useCallback(async () => {
     const pendingRef = getPendingReferralCode();
@@ -2028,7 +2057,11 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!user) return [];
     try {
       const res = await fetch(
-        `/api/comments?userId=${encodeURIComponent(user.uid)}&limit=50`
+        `/api/comments?userId=${encodeURIComponent(user.uid)}&limit=50`,
+        {
+          credentials: 'include',
+          headers: getAuthHeaders(),
+        }
       );
       if (!res.ok) return [];
       const data = (await res.json()) as {
@@ -2044,7 +2077,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch {
       return [];
     }
-  }, [user]);
+  }, [user, getAuthHeaders]);
 
   const executeToggleMovieWatchlist = useCallback(
     (activeUser: GoogleUser, drama: DramaItem, folderId = 'all') => {
@@ -2078,7 +2111,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
 
       void fetch('/api/favorites/toggle', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           userId: activeUser.uid,
           dramaId: normalizedMovie.bookId,
@@ -2091,7 +2125,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         }),
       }).catch(() => {});
     },
-    [pushToast]
+    [getAuthHeaders, pushToast]
   );
 
   const executeToggleDramaWatchlist = useCallback(
@@ -2127,7 +2161,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       if (activeUser?.uid) {
         void fetch('/api/favorites/toggle', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             userId: activeUser.uid,
             dramaId: normalizedDrama.bookId,
@@ -2141,7 +2176,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         }).catch(() => {});
       }
     },
-    [pushToast]
+    [getAuthHeaders, pushToast]
   );
 
   const toggleMyList = useCallback(
@@ -2196,13 +2231,13 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const isDramaLiked = useCallback(
-    (bookId: string, provider: MediaProviderName = 'DramaBox') =>
+    (bookId: string, provider: MediaProviderName = 'DramaBoxV2') =>
       likedDramaIds.includes(makeItemKey(bookId, provider)),
     [likedDramaIds]
   );
 
   const getDramaLikesCount = useCallback(
-    (bookId: string, provider: MediaProviderName = 'DramaBox') => {
+    (bookId: string, provider: MediaProviderName = 'DramaBoxV2') => {
       const key = makeItemKey(bookId, provider);
       if (typeof likesCountMap[key] === 'number') {
         return likesCountMap[key];
@@ -2213,15 +2248,20 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const refreshDramaStats = useCallback(
-    async (bookId: string, provider: MediaProviderName = 'DramaBox') => {
+    async (bookId: string, provider: MediaProviderName = 'DramaBoxV2') => {
       if (!bookId) return;
       const actorId = user?.uid || visitorId;
-      const key = makeItemKey(bookId, provider);
+      const normalizedProv = normalizeMediaProviderName(provider, 'DramaBoxV2');
+      const key = makeItemKey(bookId, normalizedProv);
       try {
         const res = await fetch(
           `/api/stats?dramaId=${encodeURIComponent(bookId)}&provider=${encodeURIComponent(
-            provider
-          )}&userId=${encodeURIComponent(actorId)}`
+            normalizedProv
+          )}&userId=${encodeURIComponent(actorId)}`,
+          {
+            credentials: 'include',
+            headers: getAuthHeaders(),
+          }
         );
         if (!res.ok) return;
         const data = (await res.json()) as {
@@ -2310,7 +2350,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         });
         void fetch('/api/favorites/toggle', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             userId: user.uid,
             dramaId: movieItem.bookId,
@@ -2327,7 +2368,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
 
       void fetch('/api/likes/toggle', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           userId: actorId,
           dramaId: drama.bookId,
@@ -2446,7 +2488,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       if (user?.uid) {
         void fetch('/api/favorites/folder', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             userId: user.uid,
             dramaId: bookId,
@@ -2456,7 +2499,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         }).catch(() => {});
       }
     },
-    [user]
+    [getAuthHeaders, user]
   );
 
   const getDramaFolderId = useCallback(
@@ -2526,7 +2569,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
               typeof window !== 'undefined'
             ) {
               window.dispatchEvent(
-                new CustomEvent('hd:view-recorded', {
+                new CustomEvent('kd:view-recorded', {
                   detail: { siteTotalViews: data.siteTotalViews },
                 })
               );
@@ -2606,7 +2649,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         const actorId = user?.uid || visitorId;
         void fetch('/api/watch-history', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             userId: actorId,
             dramaId: drama.bookId,
@@ -2901,7 +2945,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const getDramaLiveStats = useCallback(
-    (bookId: string, provider: MediaProviderName = 'DramaBox') => {
+    (bookId: string, provider: MediaProviderName = 'DramaBoxV2') => {
       return liveBadgeMap[makeItemKey(bookId, provider)] ?? null;
     },
     [liveBadgeMap]
@@ -2926,9 +2970,11 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       if (provider) params.set('provider', provider);
       void fetch(`/api/watch-history?${params.toString()}`, {
         method: 'DELETE',
+        credentials: 'include',
+        headers: getAuthHeaders(),
       }).catch(() => {});
     },
-    [user, visitorId]
+    [getAuthHeaders, user, visitorId]
   );
 
   const getResumePoint = useCallback(
@@ -3112,7 +3158,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         try {
           await fetch('/api/comments', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
               id: commentId,
               dramaId: bookId,
@@ -3146,7 +3193,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       await commitComment(user);
       return true;
     },
-    [language, user, streak, requireAuth]
+    [getAuthHeaders, language, user, streak, requireAuth]
   );
 
   const isEpisodeUnlocked = useCallback(

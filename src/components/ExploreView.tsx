@@ -52,7 +52,7 @@ interface ExploreViewProps {
   selectedProvider: ProviderId;
   extraProviderNames: Exclude<
     ProviderName,
-    'DramaBox' | 'NetShort' | 'AnyReel' | 'Melolo'
+    'DramaBoxV2' | 'NetShort' | 'AnyReel' | 'MeloLoV2'
   >[];
   dbRankingFeed: ExploreFeedSlice;
   nsTrendingFeed: ExploreFeedSlice;
@@ -84,7 +84,7 @@ interface ExploreViewProps {
   onOpenProviderHub: () => void;
   onRetryCore: () => void;
   onRetryFeed: (
-    provider: 'DramaBox' | 'NetShort' | 'AnyReel' | 'Melolo',
+    provider: 'DramaBoxV2' | 'NetShort' | 'AnyReel' | 'MeloLoV2',
     kind: 'rank' | 'vip' | 'anime' | 'dubbing'
   ) => void;
   onLoadMoreRecommended: () => void;
@@ -219,10 +219,10 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
 
   const providerLabel = (id: ProviderId): string => {
     if (id === 'All') return t.providers.all;
-    if (id === 'DramaBox') return t.providers.dramaBox;
+    if (id === 'DramaBoxV2') return t.providers.dramaBox;
     if (id === 'NetShort') return t.providers.netShort;
     if (id === 'AnyReel') return t.providers.anyReel;
-    if (id === 'Melolo') return t.providers.melolo;
+    if (id === 'MeloLoV2') return t.providers.melolo;
     return ALL_PROVIDER_ADAPTERS[id]?.label ?? id;
   };
 
@@ -263,7 +263,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
           </div>
         </div>
 
-        {/* Provider Filter Tabs (Single Horizontal Row — All 89 Providers) */}
+        {/* Provider Filter Tabs (Single Horizontal Row — All 82 Providers) */}
         <div
           className="flex flex-nowrap items-center gap-2 overflow-x-auto scrollbar-none py-1"
           role="tablist"
@@ -495,7 +495,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
             error={dbRankingFeed.error}
             ranked
             myListIds={myListIds}
-            onRetry={() => onRetryFeed('DramaBox', 'rank')}
+            onRetry={() => onRetryFeed('DramaBoxV2', 'rank')}
             onSeeAll={() => onSelectTab('ranking')}
             onSelectDrama={onSelectDrama}
             onQuickPlay={onQuickPlay}
@@ -541,7 +541,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
               error={mlRankFeed.error}
               ranked
               myListIds={myListIds}
-              onRetry={() => onRetryFeed('Melolo', 'rank')}
+              onRetry={() => onRetryFeed('MeloLoV2', 'rank')}
               onSeeAll={() => onSelectTab('ranking')}
               onSelectDrama={onSelectDrama}
               onQuickPlay={onQuickPlay}
@@ -619,7 +619,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
               error={dbVipFeed.error}
               badgeStyle="VIP"
               myListIds={myListIds}
-              onRetry={() => onRetryFeed('DramaBox', 'vip')}
+              onRetry={() => onRetryFeed('DramaBoxV2', 'vip')}
               onSeeAll={() => onSelectTab('vip')}
               onSelectDrama={onSelectDrama}
               onQuickPlay={onQuickPlay}
@@ -653,7 +653,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
                 error={dbDubbingFeed.error}
                 badgeStyle="DUB"
                 myListIds={myListIds}
-                onRetry={() => onRetryFeed('DramaBox', 'dubbing')}
+                onRetry={() => onRetryFeed('DramaBoxV2', 'dubbing')}
                 onSeeAll={() => onSelectTab('dubbing')}
                 onSelectDrama={onSelectDrama}
                 onQuickPlay={onQuickPlay}

@@ -821,7 +821,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                       className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full cd-accent-bg text-xs font-semibold text-white transition-opacity hover:opacity-90"
                     >
                       <Sparkles className="w-3.5 h-3.5" />
-                      <span>Cari di semua 89 provider</span>
+                      <span>Cari di semua 82 provider</span>
                     </button>
                   )}
                 </div>
@@ -867,7 +867,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({
                     className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#141418] border border-white/15 hover:border-[var(--cd-accent)] text-[11px] font-medium text-[#E4E4E7] hover:text-white transition-colors"
                   >
                     <Sparkles className="w-3 h-3 text-[#D4AF37]" />
-                    <span>Perluas ke 89 provider</span>
+                    <span>Perluas ke 82 provider</span>
                   </button>
                 )}
               </div>

@@ -45,4 +45,3 @@ export const KanoDramaLogo: React.FC<LogoProps> = ({ className = '' }) => {
   );
 };
 
-export const CoffeeDramaLogo = KanoDramaLogo;

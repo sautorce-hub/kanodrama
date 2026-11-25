@@ -8,7 +8,7 @@ import {
   Eye,
   Users,
 } from 'lucide-react';
-import { CoffeeDramaLogo } from './CoffeeDramaLogo';
+import { KanoDramaLogo } from './CoffeeDramaLogo';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { PWAInstallButton } from './PWAInstallBanner';
 import { useDramaContext } from '../context/DramaContext';
@@ -40,11 +40,14 @@ function createId(prefix: string): string {
 
 function getSessionId(): string {
   try {
-    let sid = sessionStorage.getItem('hd_session_id');
+    let sid =
+      sessionStorage.getItem('kd_session_id') ||
+      sessionStorage.getItem('hd_session_id');
     if (!sid) {
       sid = createId('s');
-      sessionStorage.setItem('hd_session_id', sid);
     }
+    sessionStorage.setItem('kd_session_id', sid);
+    sessionStorage.removeItem('hd_session_id');
     return sid;
   } catch {
     return createId('s');
@@ -53,12 +56,15 @@ function getSessionId(): string {
 
 function getVisitorId(): string {
   try {
-    let vid = localStorage.getItem('hd_visitor_id');
+    let vid =
+      localStorage.getItem('kd_visitor_id') ||
+      localStorage.getItem('hd_visitor_id');
     if (!vid) {
       vid = createId('v');
-      localStorage.setItem('hd_visitor_id', vid);
     }
-    // Clean up legacy seeded localStorage keys if present
+    localStorage.setItem('kd_visitor_id', vid);
+    // Clean up legacy seeded or deprecated storage keys if present
+    localStorage.removeItem('hd_visitor_id');
     localStorage.removeItem('house_visits_total');
     localStorage.removeItem('coffee_visits_total');
     return vid;
@@ -163,13 +169,13 @@ export const Footer: React.FC = () => {
     }, 30_000);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pagehide', handlePageHide);
-    window.addEventListener('hd:view-recorded', handleViewRecorded);
+    window.addEventListener('kd:view-recorded', handleViewRecorded);
     return () => {
       mounted = false;
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pagehide', handlePageHide);
-      window.removeEventListener('hd:view-recorded', handleViewRecorded);
+      window.removeEventListener('kd:view-recorded', handleViewRecorded);
     };
   }, []);
 
@@ -207,7 +213,7 @@ export const Footer: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-8 lg:gap-8">
             {/* Brand + Editorial Statement + Language Selector */}
             <div className="sm:col-span-2 lg:col-span-3 space-y-3.5">
-              <CoffeeDramaLogo />
+              <KanoDramaLogo />
               <p className="text-xs sm:text-[13px] text-[#8E8E93] leading-relaxed max-w-xs">
                 {t.footer.tagline}
               </p>
@@ -234,7 +240,7 @@ export const Footer: React.FC = () => {
                         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                         e.preventDefault();
                         window.dispatchEvent(
-                          new CustomEvent('hd:navigate-path', {
+                          new CustomEvent('kd:navigate-path', {
                             detail: { path: link.path },
                           })
                         );
@@ -278,7 +284,7 @@ export const Footer: React.FC = () => {
                       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                       e.preventDefault();
                       window.dispatchEvent(
-                        new CustomEvent('hd:navigate-path', {
+                        new CustomEvent('kd:navigate-path', {
                           detail: { path: '/providers' },
                         })
                       );
@@ -295,7 +301,7 @@ export const Footer: React.FC = () => {
                       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                       e.preventDefault();
                       window.dispatchEvent(
-                        new CustomEvent('hd:navigate-path', {
+                        new CustomEvent('kd:navigate-path', {
                           detail: { path: '/movies' },
                         })
                       );
@@ -312,7 +318,7 @@ export const Footer: React.FC = () => {
                       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                       e.preventDefault();
                       window.dispatchEvent(
-                        new CustomEvent('hd:navigate-path', {
+                        new CustomEvent('kd:navigate-path', {
                           detail: { path: '/explore' },
                         })
                       );
@@ -329,7 +335,7 @@ export const Footer: React.FC = () => {
                       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                       e.preventDefault();
                       window.dispatchEvent(
-                        new CustomEvent('hd:navigate-path', {
+                        new CustomEvent('kd:navigate-path', {
                           detail: { path: '/trending' },
                         })
                       );
@@ -346,7 +352,7 @@ export const Footer: React.FC = () => {
                       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                       e.preventDefault();
                       window.dispatchEvent(
-                        new CustomEvent('hd:navigate-path', {
+                        new CustomEvent('kd:navigate-path', {
                           detail: { path: '/rewards' },
                         })
                       );

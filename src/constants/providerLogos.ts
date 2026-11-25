@@ -1,18 +1,14 @@
-import type { MediaProviderName } from '../types/drama';
+import type { MediaProviderName, ProviderName } from '../types/drama';
 
 export const MOLA_PLATFORM_ORIGIN = 'https://api.molatv.id';
 
 export const PROVIDER_SLUG_MAP: Record<MediaProviderName, string> = {
-  DramaBox: 'dramabox',
   DramaBoxV2: 'dramaboxv2',
   NetShort: 'netshort',
   AnyReel: 'anyreel',
-  Melolo: 'melolo',
   MeloLoV2: 'melolov2',
   WeTV: 'wetv',
-  ReelShort: 'reelshort',
   ReelShortV2: 'reelshortv2',
-  ShortMax: 'shortmax',
   ShortMaxV2: 'shortmaxv2',
   GoodShort: 'goodshort',
   FreeReels: 'freereels',
@@ -22,9 +18,7 @@ export const PROVIDER_SLUG_MAP: Record<MediaProviderName, string> = {
   FlexTV: 'flextv',
   DramaDash: 'dramadash',
   FlareFlow: 'flareflow',
-  StoryReel: 'storyreel',
   StoryReelV2: 'storyreelv2',
-  VibeShort: 'vibeshort',
   VibeShortV2: 'vibeshortv2',
   CubeTV: 'cubetv',
   MicroDrama: 'microdrama',
@@ -34,7 +28,6 @@ export const PROVIDER_SLUG_MAP: Record<MediaProviderName, string> = {
   HappyShort: 'happyshort',
   PineDrama: 'pinedrama',
   DotDrama: 'dotdrama',
-  iDrama: 'idrama',
   iDramaV2: 'idramav2',
   DramaOra: 'dramaora',
   MeloShort: 'meloshort',
@@ -97,16 +90,12 @@ export const PROVIDER_SLUG_MAP: Record<MediaProviderName, string> = {
 };
 
 export const PROVIDER_LOGO_PATHS: Record<MediaProviderName, string> = {
-  DramaBox: '/logos/dramabox.png',
   DramaBoxV2: '/logos/dramabox.png',
   NetShort: '/logos/netshort.svg',
   AnyReel: '/logos/anyreel.png',
-  Melolo: '/logos/melolo.svg',
   MeloLoV2: '/logos/melolo.svg',
   WeTV: '/logos/wetv.png',
-  ReelShort: '/logos/reelshort.png',
   ReelShortV2: '/logos/reelshort.png',
-  ShortMax: '/logos/shortmax.png',
   ShortMaxV2: '/logos/shortmax.png',
   GoodShort: '/logos/goodshort.png',
   FreeReels: '/logos/freereels.png',
@@ -116,9 +105,7 @@ export const PROVIDER_LOGO_PATHS: Record<MediaProviderName, string> = {
   FlexTV: '/logos/flextv.svg',
   DramaDash: '/logos/dramadash.png',
   FlareFlow: '/logos/flareflow.svg',
-  StoryReel: '/logos/storyreel.png',
   StoryReelV2: '/logos/storyreel.png',
-  VibeShort: '/logos/vibeshort.png',
   VibeShortV2: '/logos/vibeshort.png',
   CubeTV: '/logos/cubetv.png',
   MicroDrama: '/logos/microdrama.png',
@@ -128,7 +115,6 @@ export const PROVIDER_LOGO_PATHS: Record<MediaProviderName, string> = {
   HappyShort: '/logos/happyshort.png',
   PineDrama: '/logos/pinedrama.png',
   DotDrama: '/logos/dotdrama.png',
-  iDrama: '/logos/idrama.svg',
   iDramaV2: '/logos/idrama.svg',
   DramaOra: '/logos/dramaora.png',
   MeloShort: '/logos/meloshort.png',
@@ -203,23 +189,48 @@ export function getProxiedLogoUrl(logoUrl: string): string {
 
 const ALL_MEDIA_PROVIDERS = Object.keys(PROVIDER_SLUG_MAP) as MediaProviderName[];
 
+export const LEGACY_V1_TO_V2_PROVIDER: Record<string, ProviderName> = {
+  dramabox: 'DramaBoxV2',
+  melolo: 'MeloLoV2',
+  storyreel: 'StoryReelV2',
+  vibeshort: 'VibeShortV2',
+  shortmax: 'ShortMaxV2',
+  idrama: 'iDramaV2',
+  reelshort: 'ReelShortV2',
+};
+
+export const LEGACY_V1_ROUTE_SLUGS = new Set<string>(
+  Object.keys(LEGACY_V1_TO_V2_PROVIDER)
+);
+
+export function isDeprecatedV1RouteSlug(routeSlug?: string | null): boolean {
+  const clean = String(routeSlug || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+  if (!clean) return false;
+  return LEGACY_V1_ROUTE_SLUGS.has(clean);
+}
+
 const ROUTE_PROVIDER_ALIAS_MAP: Record<string, MediaProviderName> = {
-  dramabox: 'DramaBox',
+  dramabox: 'DramaBoxV2',
   dramaboxv2: 'DramaBoxV2',
   dramabox_v2: 'DramaBoxV2',
-  melolo: 'Melolo',
+  melolo: 'MeloLoV2',
   melolov2: 'MeloLoV2',
   melolo_v2: 'MeloLoV2',
   stardust: 'StardustTV',
   stardusttv: 'StardustTV',
+  storyreel: 'StoryReelV2',
   storyreel_v2: 'StoryReelV2',
   storyreelv2: 'StoryReelV2',
+  vibeshort: 'VibeShortV2',
   vibeshort_v2: 'VibeShortV2',
   vibeshortv2: 'VibeShortV2',
+  shortmax: 'ShortMaxV2',
   shortmax_v2: 'ShortMaxV2',
   shortmaxv2: 'ShortMaxV2',
+  idrama: 'iDramaV2',
   idrama_v2: 'iDramaV2',
   idramav2: 'iDramaV2',
+  reelshort: 'ReelShortV2',
   reelshort_v2: 'ReelShortV2',
   reelshortv2: 'ReelShortV2',
   stareel: 'StarReel',
@@ -239,16 +250,33 @@ for (const prov of ALL_MEDIA_PROVIDERS) {
   }
 }
 
+export function normalizeMediaProviderName(
+  raw?: string | null,
+  fallback: MediaProviderName = 'DramaBoxV2'
+): MediaProviderName {
+  const clean = String(raw || '').trim();
+  if (!clean) return fallback;
+  const compact = clean.toLowerCase().replace(/[^a-z0-9_]+/g, '');
+  const mapped = ROUTE_PROVIDER_ALIAS_MAP[compact];
+  if (mapped) return mapped;
+  const noUnderscore = compact.replace(/_/g, '');
+  if (ROUTE_PROVIDER_ALIAS_MAP[noUnderscore]) {
+    return ROUTE_PROVIDER_ALIAS_MAP[noUnderscore];
+  }
+  return fallback;
+}
+
 export function getProviderRouteSlug(
   provider?: MediaProviderName | string | null
 ): string {
   const clean = String(provider || '').trim();
-  if (!clean) return 'dramabox';
+  if (!clean) return 'dramaboxv2';
   const lower = clean.toLowerCase();
   if (lower === 'lk21' || lower === 'lookseries' || lower === 'movie' || lower === 'movies') {
     return 'movie';
   }
-  return lower.replace(/[^a-z0-9]+/g, '');
+  const normalized = normalizeMediaProviderName(clean);
+  return PROVIDER_SLUG_MAP[normalized] || normalized.toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
 export function isKnownProviderRouteSlug(routeSlug?: string | null): boolean {

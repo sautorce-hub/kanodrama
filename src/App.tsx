@@ -37,7 +37,7 @@ import {
   anyReelProvider,
   blinkDramaProvider,
   cubeTvProvider,
-  dramaBoxProvider,
+  dramaBoxV2Provider,
   dramaOraProvider,
   dramaWaveProvider,
   flareFlowProvider,
@@ -50,7 +50,7 @@ import {
   joyReelsProvider,
   loveShotsProvider,
   meloShortProvider,
-  meloloProvider,
+  meloLoV2Provider,
   moboReelsProvider,
   netShortProvider,
   petaDramaProvider,
@@ -232,7 +232,7 @@ const IDLE_FEED: FeedState = {
 
 type ExtraProviderName = Exclude<
   ProviderName,
-  'DramaBox' | 'NetShort' | 'AnyReel' | 'Melolo'
+  'DramaBoxV2' | 'NetShort' | 'AnyReel' | 'MeloLoV2'
 >;
 
 const EXTRA_PROVIDER_NAMES: ExtraProviderName[] = [
@@ -259,30 +259,23 @@ const EXTRA_PROVIDER_NAMES: ExtraProviderName[] = [
   'ToonShort',
   'HappyShort',
   'DramaDash',
-  'StoryReel',
   'StoryReelV2',
-  'VibeShort',
   'VibeShortV2',
   'FlickReels',
   'DramaWave',
   'FreeReels',
   'PineDrama',
-  'ShortMax',
   'ShortMaxV2',
   'FlexTV',
   'Vigloo',
   'DotDrama',
-  'iDrama',
   'iDramaV2',
   'GoodShort',
-  'ReelShort',
   'ReelShortV2',
   'JoyReels',
   'SodaReels',
   'BonusTV',
   'iQIYI',
-  'DramaBoxV2',
-  'MeloLoV2',
   'AudioToon',
   'Playlet',
   'MomeShort',
@@ -350,7 +343,6 @@ function createInitialExtraFeeds(): Record<
         name === 'FreeReels' ||
         name === 'GoodShort' ||
         name === 'iQIYI' ||
-        name === 'MeloLoV2' ||
         name === 'Bstation' ||
         name === 'Anichin' ||
         name === 'DonghuaQueen' ||
@@ -377,15 +369,15 @@ function parseProviderName(raw: string | null | undefined): ProviderName | undef
   if (!raw) return undefined;
   const norm = raw.trim().toLowerCase();
   if (norm === 'stardust') return 'StardustTV';
-  if (norm === 'dramaboxv2' || norm === 'dramabox_v2') return 'DramaBoxV2';
-  if (norm === 'melolov2' || norm === 'melolo_v2') return 'MeloLoV2';
+  if (norm === 'dramabox' || norm === 'dramaboxv2' || norm === 'dramabox_v2') return 'DramaBoxV2';
+  if (norm === 'melolo' || norm === 'melolov2' || norm === 'melolo_v2') return 'MeloLoV2';
   if (norm === 'stareel' || norm === 'starreel') return 'StarReel';
   if (norm === 'dynastyshorts' || norm === 'dynasty_shorts') return 'DynastyShorts';
-  if (norm === 'storyreel_v2') return 'StoryReelV2';
-  if (norm === 'vibeshort_v2') return 'VibeShortV2';
-  if (norm === 'shortmax_v2') return 'ShortMaxV2';
-  if (norm === 'idrama_v2') return 'iDramaV2';
-  if (norm === 'reelshort_v2') return 'ReelShortV2';
+  if (norm === 'storyreel' || norm === 'storyreelv2' || norm === 'storyreel_v2') return 'StoryReelV2';
+  if (norm === 'vibeshort' || norm === 'vibeshortv2' || norm === 'vibeshort_v2') return 'VibeShortV2';
+  if (norm === 'shortmax' || norm === 'shortmaxv2' || norm === 'shortmax_v2') return 'ShortMaxV2';
+  if (norm === 'idrama' || norm === 'idramav2' || norm === 'idrama_v2') return 'iDramaV2';
+  if (norm === 'reelshort' || norm === 'reelshortv2' || norm === 'reelshort_v2') return 'ReelShortV2';
   return ACTIVE_PROVIDER_NAMES.find((p) => p.toLowerCase() === norm);
 }
 
@@ -760,7 +752,7 @@ function parseDramaRouteFromLocation(): {
     /^\/drama\/(dramabox|netshort|anyreel|melolo|dramaora|meloshort|petadrama|radreels|dramaverse|kalostv|stardusttv|stardust|starshort|dramabite|loveshots|mydrama|shotshort|moboreels|blinkdrama|wetv|cubetv|microdrama|flareflow|fundrama|freeshort|toonshort|happyshort|dramadash|storyreel_v2|storyreelv2|storyreel|vibeshort_v2|vibeshortv2|vibeshort|flickreels|dramawave|freereels|pinedrama|shortmax_v2|shortmaxv2|shortmax|flextv|vigloo|dotdrama|idrama_v2|idramav2|idrama|goodshort|reelshort_v2|reelshortv2|reelshort|joyreels|sodareels|bonustv|iqiyi)\/([^/]+)/i
   );
   if (providerMatch) {
-    const prov: ProviderName = parseProviderName(providerMatch[1]) ?? 'DramaBox';
+    const prov: ProviderName = parseProviderName(providerMatch[1]) ?? 'DramaBoxV2';
     const bookId = decodeURIComponent(providerMatch[2]);
     const ssr = window.__INITIAL_DRAMA__;
     if (ssr && ssr.bookId === bookId) {
@@ -806,7 +798,7 @@ function parseDramaRouteFromLocation(): {
       const cached = findDramaInLookupCache(queryDramaId, pHint);
       return {
         bookId: queryDramaId,
-        providerHint: cached?.provider ?? pHint ?? 'DramaBox',
+        providerHint: cached?.provider ?? pHint ?? 'DramaBoxV2',
         drama: cached,
         episodes: [],
       };
@@ -850,7 +842,7 @@ function parseDramaRouteFromLocation(): {
     const cached = findDramaInLookupCache(queryDramaId, pHint);
     return {
       bookId: queryDramaId,
-      providerHint: cached?.provider ?? pHint ?? 'DramaBox',
+      providerHint: cached?.provider ?? pHint ?? 'DramaBoxV2',
       drama: cached,
       episodes: [],
       notFound: !cached && isInitialSsrNotFoundForCurrentPath(),
@@ -1443,8 +1435,7 @@ export default function App() {
           tasks.push(loadExtraFeedSlot(provider, 'anime', (p) => fn(p), 1, false));
         }
       } else if (
-        (provider === 'MeloLoV2' ||
-          provider === 'Bstation' ||
+        (provider === 'Bstation' ||
           provider === 'Anichin' ||
           provider === 'DonghuaQueen' ||
           provider === 'Samehadaku' ||
@@ -1534,19 +1525,19 @@ export default function App() {
       }
       setExtraFeeds(createInitialExtraFeeds());
       await Promise.all([
-        loadSingleFeed(dramaBoxProvider.fetchRanking, setDbRankingFeed, 1, false),
-        loadSingleFeed(dramaBoxProvider.fetchForYou, setDbForYouFeed, 1, false),
+        loadSingleFeed(dramaBoxV2Provider.fetchRanking, setDbRankingFeed, 1, false),
+        loadSingleFeed(dramaBoxV2Provider.fetchForYou, setDbForYouFeed, 1, false),
         loadSingleFeed(
-          dramaBoxProvider.fetchNewReleases,
+          dramaBoxV2Provider.fetchNewReleases,
           setDbNewFeed,
           1,
           false
         ),
-        loadSingleFeed(dramaBoxProvider.fetchVip, setDbVipFeed, 1, false),
-        ...(dramaBoxProvider.fetchDubbing
+        loadSingleFeed(dramaBoxV2Provider.fetchVip, setDbVipFeed, 1, false),
+        ...(dramaBoxV2Provider.fetchDubbing
           ? [
               loadSingleFeed(
-                dramaBoxProvider.fetchDubbing,
+                dramaBoxV2Provider.fetchDubbing,
                 setDbDubbingFeed,
                 1,
                 false
@@ -1571,11 +1562,11 @@ export default function App() {
           : []),
         loadSingleFeed(anyReelProvider.fetchForYou, setArForYouFeed, 1, false),
         loadSingleFeed(anyReelProvider.fetchRanking, setArAsianFeed, 1, false),
-        loadSingleFeed(meloloProvider.fetchRanking, setMlRankFeed, 1, false),
-        loadSingleFeed(meloloProvider.fetchForYou, setMlForYouFeed, 1, false),
-        loadSingleFeed(meloloProvider.fetchNewReleases, setMlNewFeed, 1, false),
-        ...(meloloProvider.fetchAnime
-          ? [loadSingleFeed(meloloProvider.fetchAnime, setMlAnimeFeed, 1, false)]
+        loadSingleFeed(meloLoV2Provider.fetchRanking, setMlRankFeed, 1, false),
+        loadSingleFeed(meloLoV2Provider.fetchForYou, setMlForYouFeed, 1, false),
+        loadSingleFeed(meloLoV2Provider.fetchNewReleases, setMlNewFeed, 1, false),
+        ...(meloLoV2Provider.fetchAnime
+          ? [loadSingleFeed(meloLoV2Provider.fetchAnime, setMlAnimeFeed, 1, false)]
           : []),
       ]);
 
@@ -1705,7 +1696,7 @@ export default function App() {
         ? 'LK21'
         : rawProv?.trim().toUpperCase() === 'LOOKSERIES'
         ? 'LookSeries'
-        : parseProviderName(rawProv) ?? 'DramaBox');
+        : parseProviderName(rawProv) ?? 'DramaBoxV2');
 
     pendingDeepLinkEpRef.current = null;
 
@@ -1769,7 +1760,7 @@ export default function App() {
       return;
     }
 
-    const adapter = ALL_PROVIDER_ADAPTERS[resolvedProv] ?? dramaBoxProvider;
+    const adapter = ALL_PROVIDER_ADAPTERS[resolvedProv] ?? dramaBoxV2Provider;
     Promise.allSettled([
       adapter.fetchDetail(targetBookId),
       adapter.fetchAllEpisodes(targetBookId),
@@ -2103,11 +2094,11 @@ export default function App() {
       }
       openSeoLandingPath(normalized);
     };
-    window.addEventListener('hd:navigate', onNavigateEvent);
-    window.addEventListener('hd:navigate-path', onNavigatePathEvent);
+    window.addEventListener('kd:navigate', onNavigateEvent);
+    window.addEventListener('kd:navigate-path', onNavigatePathEvent);
     return () => {
-      window.removeEventListener('hd:navigate', onNavigateEvent);
-      window.removeEventListener('hd:navigate-path', onNavigatePathEvent);
+      window.removeEventListener('kd:navigate', onNavigateEvent);
+      window.removeEventListener('kd:navigate-path', onNavigatePathEvent);
     };
   }, [
     handleNavigateTab,
@@ -2236,9 +2227,9 @@ export default function App() {
         void handleChangeLanguage(detail.lang);
       }
     };
-    window.addEventListener('hd:change-language', onLanguageEvent);
+    window.addEventListener('kd:change-language', onLanguageEvent);
     return () => {
-      window.removeEventListener('hd:change-language', onLanguageEvent);
+      window.removeEventListener('kd:change-language', onLanguageEvent);
     };
   }, [handleChangeLanguage]);
 
@@ -2482,7 +2473,7 @@ export default function App() {
             const resolvedProv =
               parseProviderName(data.provider) ??
               activeDramaRoute?.providerHint ??
-              'DramaBox';
+              'DramaBoxV2';
             if (data.drama) {
               saveDramaLookupCache({
                 ...data.drama,
@@ -2581,10 +2572,10 @@ export default function App() {
         dbKeys.size + nsKeys.size + arKeys.size + mlKeys.size ||
         cachedCounts.all ||
         0,
-      DramaBox: dbKeys.size || cachedCounts.DramaBox || 0,
+      DramaBoxV2: dbKeys.size || cachedCounts.DramaBoxV2 || 0,
       NetShort: nsKeys.size || cachedCounts.NetShort || 0,
       AnyReel: arKeys.size || cachedCounts.AnyReel || 0,
-      Melolo: mlKeys.size || cachedCounts.Melolo || 0,
+      MeloLoV2: mlKeys.size || cachedCounts.MeloLoV2 || 0,
     } as { all: number } & Record<ProviderName, number>;
 
     for (const name of EXTRA_PROVIDER_NAMES) {
@@ -2641,12 +2632,12 @@ export default function App() {
         ? arForYouFeed.items.slice(0, 5)
         : arAsianFeed.items.slice(0, 5);
     }
-    if (selectedProvider === 'Melolo') {
+    if (selectedProvider === 'MeloLoV2') {
       return mlRankFeed.items.length > 0
         ? mlRankFeed.items.slice(0, 5)
         : mlForYouFeed.items.slice(0, 5);
     }
-    if (selectedProvider === 'DramaBox') {
+    if (selectedProvider === 'DramaBoxV2') {
       return dbRankingFeed.items.length > 0
         ? dbRankingFeed.items.slice(0, 5)
         : dbForYouFeed.items.slice(0, 5);
@@ -2724,10 +2715,10 @@ export default function App() {
 
   // Unified Recommended Feed respecting Provider Filter
   const recommendedItems = useMemo(() => {
-    if (selectedProvider === 'DramaBox') return dbForYouFeed.items;
+    if (selectedProvider === 'DramaBoxV2') return dbForYouFeed.items;
     if (selectedProvider === 'NetShort') return nsForYouFeed.items;
     if (selectedProvider === 'AnyReel') return arForYouFeed.items;
-    if (selectedProvider === 'Melolo') return mlForYouFeed.items;
+    if (selectedProvider === 'MeloLoV2') return mlForYouFeed.items;
     if (isExtraProvider(selectedProvider)) {
       return extraFeeds[selectedProvider].main.items;
     }
@@ -2749,10 +2740,10 @@ export default function App() {
 
   // Unified New Releases respecting Provider Filter
   const newReleaseItems = useMemo(() => {
-    if (selectedProvider === 'DramaBox') return dbNewFeed.items;
+    if (selectedProvider === 'DramaBoxV2') return dbNewFeed.items;
     if (selectedProvider === 'NetShort') return nsAllFeed.items;
     if (selectedProvider === 'AnyReel') return arAsianFeed.items;
-    if (selectedProvider === 'Melolo') return mlNewFeed.items;
+    if (selectedProvider === 'MeloLoV2') return mlNewFeed.items;
     if (isExtraProvider(selectedProvider)) {
       const b = extraFeeds[selectedProvider];
       return b.newest.items.length > 0 ? b.newest.items : b.main.items;
@@ -2777,20 +2768,18 @@ export default function App() {
     extraFeeds,
   ]);
 
-  // Unified Anime Feed respecting Provider Filter (NetShort + Melolo + MeloLoV2 + MoboReels + FreeReels + GoodShort + iQIYI + Bstation + Anichin + DonghuaQueen + Samehadaku + AnimeX)
+  // Unified Anime Feed respecting Provider Filter (NetShort + MeloLoV2 + MoboReels + FreeReels + GoodShort + iQIYI + Bstation + Anichin + DonghuaQueen + Samehadaku + AnimeX)
   const combinedAnimeItems = useMemo(() => {
     const moboAnime = extraFeeds.MoboReels.anime?.items ?? [];
     const freeReelsAnime = extraFeeds.FreeReels.anime?.items ?? [];
     const goodShortAnime = extraFeeds.GoodShort.anime?.items ?? [];
     const iqiyiAnime = extraFeeds.iQIYI.anime?.items ?? [];
-    const meloV2Anime = extraFeeds.MeloLoV2.anime?.items ?? [];
     const bstationAnime = extraFeeds.Bstation.anime?.items ?? [];
     const anichinAnime = extraFeeds.Anichin.anime?.items ?? [];
     const donghuaQueenAnime = extraFeeds.DonghuaQueen.anime?.items ?? [];
     const samehadakuAnime = extraFeeds.Samehadaku.anime?.items ?? [];
     const animeXAnime = extraFeeds.AnimeX.anime?.items ?? [];
-    if (selectedProvider === 'Melolo') return mlAnimeFeed.items;
-    if (selectedProvider === 'MeloLoV2') return meloV2Anime;
+    if (selectedProvider === 'MeloLoV2') return mlAnimeFeed.items;
     if (selectedProvider === 'NetShort') return nsAnimeFeed.items;
     if (selectedProvider === 'MoboReels') return moboAnime;
     if (selectedProvider === 'FreeReels') return freeReelsAnime;
@@ -2804,7 +2793,6 @@ export default function App() {
     return interleaveManyFeeds(
       nsAnimeFeed.items,
       mlAnimeFeed.items,
-      meloV2Anime,
       bstationAnime,
       anichinAnime,
       donghuaQueenAnime,
@@ -2817,11 +2805,11 @@ export default function App() {
     );
   }, [selectedProvider, nsAnimeFeed.items, mlAnimeFeed.items, extraFeeds]);
 
-  // Unified Dubbed Feed respecting Provider Filter (DramaBox + FreeReels + GoodShort)
+  // Unified Dubbed Feed respecting Provider Filter (DramaBoxV2 + FreeReels + GoodShort)
   const combinedDubbingItems = useMemo(() => {
     const freeReelsDub = extraFeeds.FreeReels.dubbing?.items ?? [];
     const goodShortDub = extraFeeds.GoodShort.dubbing?.items ?? [];
-    if (selectedProvider === 'DramaBox') return dbDubbingFeed.items;
+    if (selectedProvider === 'DramaBoxV2') return dbDubbingFeed.items;
     if (selectedProvider === 'FreeReels') return freeReelsDub;
     if (selectedProvider === 'GoodShort') return goodShortDub;
     return interleaveManyFeeds(dbDubbingFeed.items, freeReelsDub, goodShortDub);
@@ -2907,9 +2895,9 @@ export default function App() {
               ? nsTrendingFeed.items
               : selectedProvider === 'AnyReel'
               ? arAsianFeed.items
-              : selectedProvider === 'Melolo'
+              : selectedProvider === 'MeloLoV2'
               ? mlRankFeed.items
-              : selectedProvider === 'DramaBox'
+              : selectedProvider === 'DramaBoxV2'
               ? dbRankingFeed.items
               : interleaveManyFeeds(
                   dbRankingFeed.items,
@@ -2938,7 +2926,7 @@ export default function App() {
             arAsianFeed.error &&
             mlRankFeed.error,
           hasMore:
-            (selectedProvider === 'All' || selectedProvider === 'DramaBox'
+            (selectedProvider === 'All' || selectedProvider === 'DramaBoxV2'
               ? dbRankingFeed.hasMore
               : false) ||
             (selectedProvider === 'All' || selectedProvider === 'NetShort'
@@ -2947,15 +2935,15 @@ export default function App() {
             (selectedProvider === 'All' || selectedProvider === 'AnyReel'
               ? arAsianFeed.hasMore
               : false) ||
-            (selectedProvider === 'All' || selectedProvider === 'Melolo'
+            (selectedProvider === 'All' || selectedProvider === 'MeloLoV2'
               ? mlRankFeed.hasMore
               : false),
           badgeStyle: 'none' as const,
           ranked: true,
           onLoadMore: () => {
-            if (selectedProvider === 'All' || selectedProvider === 'DramaBox') {
+            if (selectedProvider === 'All' || selectedProvider === 'DramaBoxV2') {
               loadSingleFeed(
-                dramaBoxProvider.fetchRanking,
+                dramaBoxV2Provider.fetchRanking,
                 setDbRankingFeed,
                 dbRankingFeed.page + 1,
                 true
@@ -2977,9 +2965,9 @@ export default function App() {
                 true
               );
             }
-            if (selectedProvider === 'All' || selectedProvider === 'Melolo') {
+            if (selectedProvider === 'All' || selectedProvider === 'MeloLoV2') {
               loadSingleFeed(
-                meloloProvider.fetchRanking,
+                meloLoV2Provider.fetchRanking,
                 setMlRankFeed,
                 mlRankFeed.page + 1,
                 true
@@ -3037,7 +3025,7 @@ export default function App() {
             arAsianFeed.error &&
             mlNewFeed.error,
           hasMore:
-            (selectedProvider === 'All' || selectedProvider === 'DramaBox'
+            (selectedProvider === 'All' || selectedProvider === 'DramaBoxV2'
               ? dbNewFeed.hasMore
               : false) ||
             (selectedProvider === 'All' || selectedProvider === 'NetShort'
@@ -3046,15 +3034,15 @@ export default function App() {
             (selectedProvider === 'All' || selectedProvider === 'AnyReel'
               ? arAsianFeed.hasMore
               : false) ||
-            (selectedProvider === 'All' || selectedProvider === 'Melolo'
+            (selectedProvider === 'All' || selectedProvider === 'MeloLoV2'
               ? mlNewFeed.hasMore
               : false),
           badgeStyle: 'NEW' as const,
           ranked: false,
           onLoadMore: () => {
-            if (selectedProvider === 'All' || selectedProvider === 'DramaBox') {
+            if (selectedProvider === 'All' || selectedProvider === 'DramaBoxV2') {
               loadSingleFeed(
-                dramaBoxProvider.fetchNewReleases,
+                dramaBoxV2Provider.fetchNewReleases,
                 setDbNewFeed,
                 dbNewFeed.page + 1,
                 true
@@ -3076,9 +3064,9 @@ export default function App() {
                 true
               );
             }
-            if (selectedProvider === 'All' || selectedProvider === 'Melolo') {
+            if (selectedProvider === 'All' || selectedProvider === 'MeloLoV2') {
               loadSingleFeed(
-                meloloProvider.fetchNewReleases,
+                meloLoV2Provider.fetchNewReleases,
                 setMlNewFeed,
                 mlNewFeed.page + 1,
                 true
@@ -3121,7 +3109,7 @@ export default function App() {
               ? nsTrendingFeed.items
               : selectedProvider === 'AnyReel'
               ? arForYouFeed.items
-              : selectedProvider === 'Melolo'
+              : selectedProvider === 'MeloLoV2'
               ? mlRankFeed.items
               : dbVipFeed.items,
           loading: dbVipFeed.loading,
@@ -3132,13 +3120,13 @@ export default function App() {
           ranked: false,
           onLoadMore: () =>
             loadSingleFeed(
-              dramaBoxProvider.fetchVip,
+              dramaBoxV2Provider.fetchVip,
               setDbVipFeed,
               dbVipFeed.page + 1,
               true
             ),
           onRetry: () =>
-            loadSingleFeed(dramaBoxProvider.fetchVip, setDbVipFeed, 1, false),
+            loadSingleFeed(dramaBoxV2Provider.fetchVip, setDbVipFeed, 1, false),
         };
       }
       case 'anime': {
@@ -3147,7 +3135,6 @@ export default function App() {
         const gsAnimeFeed = extraFeeds.GoodShort.anime ?? IDLE_FEED;
         const iqAnimeFeed = extraFeeds.iQIYI.anime ?? IDLE_FEED;
         const animeExtraProviders: ExtraProviderName[] = [
-          'MeloLoV2',
           'Bstation',
           'Anichin',
           'DonghuaQueen',
@@ -3209,11 +3196,11 @@ export default function App() {
               );
             }
             if (
-              meloloProvider.fetchAnime &&
-              (selectedProvider === 'All' || selectedProvider === 'Melolo')
+              meloLoV2Provider.fetchAnime &&
+              (selectedProvider === 'All' || selectedProvider === 'MeloLoV2')
             ) {
               loadSingleFeed(
-                meloloProvider.fetchAnime,
+                meloLoV2Provider.fetchAnime,
                 setMlAnimeFeed,
                 mlAnimeFeed.page + 1,
                 true
@@ -3290,8 +3277,8 @@ export default function App() {
             if (netShortProvider.fetchAnime) {
               loadSingleFeed(netShortProvider.fetchAnime, setNsAnimeFeed, 1, false);
             }
-            if (meloloProvider.fetchAnime) {
-              loadSingleFeed(meloloProvider.fetchAnime, setMlAnimeFeed, 1, false);
+            if (meloLoV2Provider.fetchAnime) {
+              loadSingleFeed(meloLoV2Provider.fetchAnime, setMlAnimeFeed, 1, false);
             }
             loadExtraFeedSlot(
               'MoboReels',
@@ -3340,11 +3327,11 @@ export default function App() {
           ranked: false,
           onLoadMore: () => {
             if (
-              dramaBoxProvider.fetchDubbing &&
-              (selectedProvider === 'All' || selectedProvider === 'DramaBox')
+              dramaBoxV2Provider.fetchDubbing &&
+              (selectedProvider === 'All' || selectedProvider === 'DramaBoxV2')
             ) {
               loadSingleFeed(
-                dramaBoxProvider.fetchDubbing,
+                dramaBoxV2Provider.fetchDubbing,
                 setDbDubbingFeed,
                 dbDubbingFeed.page + 1,
                 true
@@ -3378,9 +3365,9 @@ export default function App() {
             }
           },
           onRetry: () => {
-            if (dramaBoxProvider.fetchDubbing) {
+            if (dramaBoxV2Provider.fetchDubbing) {
               loadSingleFeed(
-                dramaBoxProvider.fetchDubbing,
+                dramaBoxV2Provider.fetchDubbing,
                 setDbDubbingFeed,
                 1,
                 false
@@ -3448,10 +3435,10 @@ export default function App() {
 
   const providerLabel = (id: ProviderId): string => {
     if (id === 'All') return t.providers.all;
-    if (id === 'DramaBox') return t.providers.dramaBox;
+    if (id === 'DramaBoxV2') return t.providers.dramaBox;
     if (id === 'NetShort') return t.providers.netShort;
     if (id === 'AnyReel') return t.providers.anyReel;
-    if (id === 'Melolo') return t.providers.melolo;
+    if (id === 'MeloLoV2') return t.providers.melolo;
     return ALL_PROVIDER_ADAPTERS[id]?.label ?? id;
   };
 
@@ -3615,25 +3602,25 @@ export default function App() {
                 onOpenProviderHub={handleOpenProviderHub}
                 onRetryCore={() => void fetchAllFeeds()}
                 onRetryFeed={(prov, kind) => {
-                  if (prov === 'DramaBox' && kind === 'rank') {
-                    void loadSingleFeed(dramaBoxProvider.fetchRanking, setDbRankingFeed, 1, false);
-                  } else if (prov === 'DramaBox' && kind === 'vip') {
-                    void loadSingleFeed(dramaBoxProvider.fetchVip, setDbVipFeed, 1, false);
-                  } else if (prov === 'DramaBox' && kind === 'dubbing' && dramaBoxProvider.fetchDubbing) {
-                    void loadSingleFeed(dramaBoxProvider.fetchDubbing, setDbDubbingFeed, 1, false);
+                  if (prov === 'DramaBoxV2' && kind === 'rank') {
+                    void loadSingleFeed(dramaBoxV2Provider.fetchRanking, setDbRankingFeed, 1, false);
+                  } else if (prov === 'DramaBoxV2' && kind === 'vip') {
+                    void loadSingleFeed(dramaBoxV2Provider.fetchVip, setDbVipFeed, 1, false);
+                  } else if (prov === 'DramaBoxV2' && kind === 'dubbing' && dramaBoxV2Provider.fetchDubbing) {
+                    void loadSingleFeed(dramaBoxV2Provider.fetchDubbing, setDbDubbingFeed, 1, false);
                   } else if (prov === 'NetShort' && kind === 'rank') {
                     void loadSingleFeed(netShortProvider.fetchRanking, setNsTrendingFeed, 1, false);
                   } else if (prov === 'NetShort' && kind === 'anime' && netShortProvider.fetchAnime) {
                     void loadSingleFeed(netShortProvider.fetchAnime, setNsAnimeFeed, 1, false);
                   } else if (prov === 'AnyReel' && kind === 'rank') {
                     void loadSingleFeed(anyReelProvider.fetchRanking, setArAsianFeed, 1, false);
-                  } else if (prov === 'Melolo' && kind === 'rank') {
-                    void loadSingleFeed(meloloProvider.fetchRanking, setMlRankFeed, 1, false);
+                  } else if (prov === 'MeloLoV2' && kind === 'rank') {
+                    void loadSingleFeed(meloLoV2Provider.fetchRanking, setMlRankFeed, 1, false);
                   }
                 }}
                 onLoadMoreRecommended={() => {
-                  if (selectedProvider === 'All' || selectedProvider === 'DramaBox') {
-                    void loadSingleFeed(dramaBoxProvider.fetchForYou, setDbForYouFeed, dbForYouFeed.page + 1, true);
+                  if (selectedProvider === 'All' || selectedProvider === 'DramaBoxV2') {
+                    void loadSingleFeed(dramaBoxV2Provider.fetchForYou, setDbForYouFeed, dbForYouFeed.page + 1, true);
                   }
                   if (selectedProvider === 'All' || selectedProvider === 'NetShort') {
                     void loadSingleFeed(netShortProvider.fetchForYou, setNsForYouFeed, nsForYouFeed.page + 1, true);
@@ -3641,8 +3628,8 @@ export default function App() {
                   if (selectedProvider === 'All' || selectedProvider === 'AnyReel') {
                     void loadSingleFeed(anyReelProvider.fetchForYou, setArForYouFeed, arForYouFeed.page + 1, true);
                   }
-                  if (selectedProvider === 'All' || selectedProvider === 'Melolo') {
-                    void loadSingleFeed(meloloProvider.fetchForYou, setMlForYouFeed, mlForYouFeed.page + 1, true);
+                  if (selectedProvider === 'All' || selectedProvider === 'MeloLoV2') {
+                    void loadSingleFeed(meloLoV2Provider.fetchForYou, setMlForYouFeed, mlForYouFeed.page + 1, true);
                   }
                 }}
                 onRetryExtraFull={(prov) => {
@@ -3780,7 +3767,7 @@ export default function App() {
                 onSelectTag={openTagRoute}
               />
 
-              {/* Compact Quick Provider Switcher (Single Horizontal Row — All 89 Providers) + Explore Link */}
+              {/* Compact Quick Provider Switcher (Single Horizontal Row — All 82 Providers) + Explore Link */}
               <section
                 className="max-w-[1440px] mx-auto px-4 md:px-8 pt-2 pb-1"
                 aria-label="Provider quick filter"

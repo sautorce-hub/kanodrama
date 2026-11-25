@@ -36,9 +36,9 @@ const PROVIDER_BADGE_THEMES: Record<MediaProviderName, BadgeTheme> = {
     badgeBg: 'bg-[#09090B]/90',
     badgeText: 'text-sky-200',
   },
-  DramaBox: {
-    label: 'DramaBox',
-    mono: 'DB',
+  DramaBoxV2: {
+    label: 'DramaBox V2',
+    mono: 'DB2',
     bg: '#09090B',
     text: '#EF4444',
     border: 'border-white/20',
@@ -63,9 +63,9 @@ const PROVIDER_BADGE_THEMES: Record<MediaProviderName, BadgeTheme> = {
     badgeBg: 'bg-[#09090B]/85',
     badgeText: 'text-white',
   },
-  Melolo: {
-    label: 'Melolo',
-    mono: 'ML',
+  MeloLoV2: {
+    label: 'MeloLo V2',
+    mono: 'ML2',
     bg: '#F59E0B',
     text: '#09090B',
     border: 'border-amber-400/50',
@@ -279,30 +279,12 @@ const PROVIDER_BADGE_THEMES: Record<MediaProviderName, BadgeTheme> = {
     badgeBg: 'bg-[#09090B]/85',
     badgeText: 'text-white',
   },
-  StoryReel: {
-    label: 'StoryReel',
-    mono: 'SR',
-    bg: '#818CF8',
-    text: '#09090B',
-    border: 'border-indigo-400/50',
-    badgeBg: 'bg-[#09090B]/85',
-    badgeText: 'text-white',
-  },
   StoryReelV2: {
     label: 'StoryReel V2',
     mono: 'S2',
     bg: '#6366F1',
     text: '#FFFFFF',
     border: 'border-indigo-500/50',
-    badgeBg: 'bg-[#09090B]/85',
-    badgeText: 'text-white',
-  },
-  VibeShort: {
-    label: 'VibeShort',
-    mono: 'VS',
-    bg: '#E879F9',
-    text: '#09090B',
-    border: 'border-fuchsia-400/50',
     badgeBg: 'bg-[#09090B]/85',
     badgeText: 'text-white',
   },
@@ -351,15 +333,6 @@ const PROVIDER_BADGE_THEMES: Record<MediaProviderName, BadgeTheme> = {
     badgeBg: 'bg-[#09090B]/85',
     badgeText: 'text-white',
   },
-  ShortMax: {
-    label: 'ShortMax',
-    mono: 'SM',
-    bg: '#EF4444',
-    text: '#FFFFFF',
-    border: 'border-red-500/50',
-    badgeBg: 'bg-[#09090B]/85',
-    badgeText: 'text-white',
-  },
   ShortMaxV2: {
     label: 'ShortMax V2',
     mono: 'M2',
@@ -396,15 +369,6 @@ const PROVIDER_BADGE_THEMES: Record<MediaProviderName, BadgeTheme> = {
     badgeBg: 'bg-[#09090B]/85',
     badgeText: 'text-white',
   },
-  iDrama: {
-    label: 'iDrama',
-    mono: 'ID',
-    bg: '#0284C7',
-    text: '#FFFFFF',
-    border: 'border-sky-500/50',
-    badgeBg: 'bg-[#09090B]/85',
-    badgeText: 'text-white',
-  },
   iDramaV2: {
     label: 'iDrama V2',
     mono: 'I2',
@@ -420,15 +384,6 @@ const PROVIDER_BADGE_THEMES: Record<MediaProviderName, BadgeTheme> = {
     bg: '#D97706',
     text: '#FFFFFF',
     border: 'border-amber-500/50',
-    badgeBg: 'bg-[#09090B]/85',
-    badgeText: 'text-white',
-  },
-  ReelShort: {
-    label: 'ReelShort',
-    mono: 'RS',
-    bg: '#E11D48',
-    text: '#FFFFFF',
-    border: 'border-rose-500/50',
     badgeBg: 'bg-[#09090B]/85',
     badgeText: 'text-white',
   },
@@ -474,24 +429,6 @@ const PROVIDER_BADGE_THEMES: Record<MediaProviderName, BadgeTheme> = {
     bg: '#00BE06',
     text: '#09090B',
     border: 'border-green-400/50',
-    badgeBg: 'bg-[#09090B]/85',
-    badgeText: 'text-white',
-  },
-  DramaBoxV2: {
-    label: 'DramaBox V2',
-    mono: 'D2',
-    bg: '#EF4444',
-    text: '#FFFFFF',
-    border: 'border-red-400/50',
-    badgeBg: 'bg-[#09090B]/90',
-    badgeText: 'text-white',
-  },
-  MeloLoV2: {
-    label: 'MeloLo V2',
-    mono: 'M2',
-    bg: '#D97706',
-    text: '#09090B',
-    border: 'border-amber-400/50',
     badgeBg: 'bg-[#09090B]/85',
     badgeText: 'text-white',
   },
@@ -845,9 +782,9 @@ export const ProviderBadge: React.FC<ProviderBadgeProps> = ({
   className = '',
 }) => {
   const padding = size === 'sm' ? 'px-2.5 py-1 text-[11px]' : 'px-2 py-0.5 text-[10px]';
-  const theme = PROVIDER_BADGE_THEMES[provider] ?? PROVIDER_BADGE_THEMES.DramaBox;
+  const theme = PROVIDER_BADGE_THEMES[provider] ?? PROVIDER_BADGE_THEMES.DramaBoxV2;
 
-  if (provider === 'DramaBox') {
+  if (provider === 'DramaBoxV2') {
     return (
       <span
         className={`inline-flex items-center gap-1.5 rounded-md bg-white/95 backdrop-blur-md border border-white/20 font-bold tracking-wide text-[#09090B] shadow-sm whitespace-nowrap ${padding} ${className}`}
@@ -863,7 +800,7 @@ export const ProviderBadge: React.FC<ProviderBadgeProps> = ({
           <rect width="24" height="24" rx="6" fill="#09090B" />
           <path d="M8.5 7.2L17.2 12L8.5 16.8V7.2Z" fill="#EF4444" />
         </svg>
-        <span>DramaBox</span>
+        <span>DramaBox V2</span>
       </span>
     );
   }

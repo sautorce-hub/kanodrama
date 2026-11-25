@@ -118,8 +118,8 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         setWatchlistCategory(detail.watchlistCategory);
       }
     };
-    window.addEventListener('hd:navigate', onNav);
-    return () => window.removeEventListener('hd:navigate', onNav);
+    window.addEventListener('kd:navigate', onNav);
+    return () => window.removeEventListener('kd:navigate', onNav);
   }, []);
   const [selectedFolder, setSelectedFolder] = useState<string>('all');
   const [displayNameInput, setDisplayNameInput] = useState<string>(
@@ -256,7 +256,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                 type="button"
                 onClick={() => {
                   window.dispatchEvent(
-                    new CustomEvent('hd:navigate', {
+                    new CustomEvent('kd:navigate', {
                       detail: { tab: 'dashboard', subTab: 'profile' },
                     })
                   );

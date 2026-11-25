@@ -26,7 +26,7 @@ export default defineConfig(() => {
           name: 'KanoDrama',
           short_name: 'KanoDrama',
           description:
-            'Multi-provider Chinese & Vertical Short Drama streaming platform across DramaBox, Melolo, NetShort & 49+ providers.',
+            'Multi-provider Chinese & Vertical Short Drama streaming platform across DramaBox V2, MeloLo V2, NetShort & 82+ providers.',
           theme_color: '#090706',
           background_color: '#090706',
           display: 'standalone',

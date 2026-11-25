@@ -151,7 +151,7 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
     onNavigateRewards?.();
     if (typeof window !== 'undefined') {
       window.dispatchEvent(
-        new CustomEvent('hd:navigate', {
+        new CustomEvent('kd:navigate', {
           detail: { tab: 'rewards' },
         })
       );

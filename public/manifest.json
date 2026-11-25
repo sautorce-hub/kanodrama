@@ -2,7 +2,7 @@
   "id": "/",
   "name": "KanoDrama",
   "short_name": "KanoDrama",
-  "description": "Watch free Chinese & vertical short dramas across DramaBox, Melolo, NetShort & 49+ providers on KanoDrama.",
+  "description": "Watch free Chinese & vertical short dramas across DramaBox V2, MeloLo V2, NetShort & 82+ providers on KanoDrama.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

@@ -19,7 +19,7 @@ import {
   Clapperboard,
   Coins,
 } from 'lucide-react';
-import { CoffeeDramaLogo } from './CoffeeDramaLogo';
+import { KanoDramaLogo } from './CoffeeDramaLogo';
 import { PWAInstallButton } from './PWAInstallBanner';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { useDramaContext } from '../context/DramaContext';
@@ -349,7 +349,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cd-accent)] rounded-lg shrink-0 inline-flex"
             aria-label="KanoDrama Home"
           >
-            <CoffeeDramaLogo />
+            <KanoDramaLogo />
           </a>
         </div>
 

@@ -36,13 +36,13 @@ interface ProviderCardSpec {
 }
 
 const PROVIDER_BRAND_META: Record<Exclude<ProviderId, 'All'>, ProviderBrandSpec> = {
-  DramaBox: {
+  DramaBoxV2: {
     domain: 'dramaboxdb.com',
     secondaryDomain: 'dramaboxapp.com',
     accentHex: '#EF4444',
     bgHex: '#121216',
     surfaceTint: 'light',
-    mono: 'DB',
+    mono: 'DB2',
   },
   NetShort: {
     domain: 'netshort.com',
@@ -59,12 +59,12 @@ const PROVIDER_BRAND_META: Record<Exclude<ProviderId, 'All'>, ProviderBrandSpec>
     mono: 'AR',
     textHex: '#ECFDF5',
   },
-  Melolo: {
+  MeloLoV2: {
     domain: 'melolo.com',
     accentHex: '#F59E0B',
     bgHex: '#1E1505',
     surfaceTint: 'light',
-    mono: 'ML',
+    mono: 'ML2',
     textHex: '#09090B',
   },
   WeTV: {
@@ -74,27 +74,12 @@ const PROVIDER_BRAND_META: Record<Exclude<ProviderId, 'All'>, ProviderBrandSpec>
     surfaceTint: 'light',
     mono: 'WT',
   },
-  ReelShort: {
-    domain: 'reelshort.com',
-    accentHex: '#E11D48',
-    bgHex: '#1F0810',
-    surfaceTint: 'light',
-    mono: 'RS',
-  },
   ReelShortV2: {
     domain: 'reelshort.com',
     accentHex: '#BE123C',
     bgHex: '#1A070D',
     surfaceTint: 'light',
     mono: 'R2',
-  },
-  ShortMax: {
-    domain: 'shortmax.app',
-    secondaryDomain: 'shorttv.live',
-    accentHex: '#EF4444',
-    bgHex: '#190A0A',
-    surfaceTint: 'light',
-    mono: 'SM',
   },
   ShortMaxV2: {
     domain: 'shortmax.app',
@@ -168,26 +153,12 @@ const PROVIDER_BRAND_META: Record<Exclude<ProviderId, 'All'>, ProviderBrandSpec>
     mono: 'FF',
     textHex: '#09090B',
   },
-  StoryReel: {
-    domain: 'storyreel.tv',
-    accentHex: '#6366F1',
-    bgHex: '#0E1024',
-    surfaceTint: 'dark',
-    mono: 'SR',
-  },
   StoryReelV2: {
     domain: 'storyreel.tv',
     accentHex: '#4F46E5',
     bgHex: '#0C0D20',
     surfaceTint: 'dark',
     mono: 'S2',
-  },
-  VibeShort: {
-    domain: 'vibeshort.com',
-    accentHex: '#D946EF',
-    bgHex: '#1D0921',
-    surfaceTint: 'dark',
-    mono: 'VS',
   },
   VibeShortV2: {
     domain: 'vibeshort.com',
@@ -256,13 +227,6 @@ const PROVIDER_BRAND_META: Record<Exclude<ProviderId, 'All'>, ProviderBrandSpec>
     bgHex: '#1D0914',
     surfaceTint: 'dark',
     mono: 'DT',
-  },
-  iDrama: {
-    domain: 'idrama.tv',
-    accentHex: '#0284C7',
-    bgHex: '#061522',
-    surfaceTint: 'dark',
-    mono: 'ID',
   },
   iDramaV2: {
     domain: 'idrama.tv',
@@ -407,8 +371,6 @@ const PROVIDER_BRAND_META: Record<Exclude<ProviderId, 'All'>, ProviderBrandSpec>
     mono: 'IQ',
     textHex: '#FFFFFF',
   },
-  DramaBoxV2: { domain: 'dramaboxdb.com', accentHex: '#EF4444', bgHex: '#121216', mono: 'D2' },
-  MeloLoV2: { domain: 'melolo.com', accentHex: '#D97706', bgHex: '#1E1505', mono: 'M2', textHex: '#09090B' },
   AudioToon: { domain: 'audiotoon.app', accentHex: '#22C55E', bgHex: '#071B0E', mono: 'AT', textHex: '#09090B' },
   Playlet: { domain: 'playlet.tv', accentHex: '#EC4899', bgHex: '#1C0914', mono: 'PL' },
   MomeShort: { domain: 'momeshort.com', accentHex: '#E11D48', bgHex: '#1F0810', mono: 'MO' },
@@ -483,7 +445,7 @@ function BrandFallbackEmblem({
     );
   }
 
-  if (providerId === 'DramaBox' || providerId === 'DramaBoxV2') {
+  if (providerId === 'DramaBoxV2') {
     return (
       <div className="w-11 h-11 rounded-xl bg-white flex items-center justify-center shadow-lg border border-white/25 shrink-0">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -495,7 +457,7 @@ function BrandFallbackEmblem({
     );
   }
 
-  if (providerId === 'ReelShort' || providerId === 'ReelShortV2') {
+  if (providerId === 'ReelShortV2') {
     return (
       <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#F43F5E] to-[#BE123C] flex items-center justify-center shadow-lg border border-white/20 shrink-0">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -517,7 +479,7 @@ function BrandFallbackEmblem({
     );
   }
 
-  if (providerId === 'ShortMax' || providerId === 'ShortMaxV2') {
+  if (providerId === 'ShortMaxV2') {
     return (
       <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#DC2626] to-[#7F1D1D] flex items-center justify-center shadow-lg border border-white/20 shrink-0">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -538,7 +500,7 @@ function BrandFallbackEmblem({
     );
   }
 
-  if (providerId === 'Melolo' || providerId === 'MeloLoV2') {
+  if (providerId === 'MeloLoV2') {
     return (
       <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#F59E0B] to-[#EA580C] flex items-center justify-center shadow-lg border border-white/20 shrink-0">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -619,17 +581,13 @@ export const PROVIDER_DIRECTORY_ITEMS: Array<{
   name: string;
   tagline: string;
 }> = [
-  { id: 'DramaBox', name: 'DramaBox', tagline: 'Billionaire Romance, Revenge & VIP Exclusives' },
-  { id: 'DramaBoxV2', name: 'DramaBox V2', tagline: 'DramaBox V2 Mirror & Extended Global Feed' },
+  { id: 'DramaBoxV2', name: 'DramaBox V2', tagline: 'Billionaire Romance, Revenge & VIP Exclusives' },
   { id: 'NetShort', name: 'NetShort', tagline: 'Trending Vertical Shorts & Donghua Hits' },
   { id: 'AnyReel', name: 'AnyReel', tagline: 'Asian Short Dramas, Werewolf & Contract Romance' },
-  { id: 'Melolo', name: 'Melolo', tagline: 'System Awakening, Anime Shorts & Encrypted HD Streams' },
-  { id: 'MeloLoV2', name: 'MeloLo V2', tagline: 'MeloLo V2 Extended Catalog & Encrypted HD Streams' },
+  { id: 'MeloLoV2', name: 'MeloLo V2', tagline: 'System Awakening, Anime Shorts & Encrypted HD Streams' },
   { id: 'WeTV', name: 'WeTV', tagline: 'Premium Asian Series & Youth Campus Dramas' },
-  { id: 'ReelShort', name: 'ReelShort', tagline: 'Global Billionaire, Werewolf & Romance Hits' },
-  { id: 'ReelShortV2', name: 'ReelShort V2', tagline: 'Extended ReelShort Multi-Region Catalog' },
-  { id: 'ShortMax', name: 'ShortMax', tagline: 'Dual AES/Plain HD Vertical Blockbusters' },
-  { id: 'ShortMaxV2', name: 'ShortMax V2', tagline: 'ShortMax V2 Mirror & International Feed' },
+  { id: 'ReelShortV2', name: 'ReelShort V2', tagline: 'Global Billionaire, Werewolf & Multi-Region Hits' },
+  { id: 'ShortMaxV2', name: 'ShortMax V2', tagline: 'Dual AES/Plain HD Vertical Blockbusters' },
   { id: 'GoodShort', name: 'GoodShort', tagline: 'Trending, Terbaru, Anime & Indonesian Dubbing' },
   { id: 'FreeReels', name: 'FreeReels', tagline: 'Cursor-Paginated Popular, Anime & Dubbed Reels' },
   { id: 'DramaWave', name: 'DramaWave', tagline: 'Exclusive & VIP Dubbed Fantasy Dramas' },
@@ -638,10 +596,8 @@ export const PROVIDER_DIRECTORY_ITEMS: Array<{
   { id: 'FlexTV', name: 'FlexTV', tagline: 'Urban Secret Identity & Melodrama Mini-Series' },
   { id: 'DramaDash', name: 'DramaDash', tagline: 'Fast-Paced Trending Romance & Thriller Shorts' },
   { id: 'FlareFlow', name: 'FlareFlow', tagline: '1080p Dubbed & Original Vertical Dramas' },
-  { id: 'StoryReel', name: 'StoryReel', tagline: 'Encrypted & Plain 1080p HLS Mini-Dramas' },
-  { id: 'StoryReelV2', name: 'StoryReel V2', tagline: 'StoryReel V2 Multilingual Global Catalog' },
-  { id: 'VibeShort', name: 'VibeShort', tagline: 'Dubbed Mafia, CEO & Plain-Stream Verticals' },
-  { id: 'VibeShortV2', name: 'VibeShort V2', tagline: 'VibeShort V2 Fresh Drops & Multi-Audio Feed' },
+  { id: 'StoryReelV2', name: 'StoryReel V2', tagline: 'Encrypted & Plain 1080p HLS Multilingual Catalog' },
+  { id: 'VibeShortV2', name: 'VibeShort V2', tagline: 'Fresh Drops, Mafia, CEO & Multi-Audio Feed' },
   { id: 'CubeTV', name: 'CubeTV', tagline: 'Hot Wuxia, Martial Arts & New Release Shorts' },
   { id: 'MicroDrama', name: 'MicroDrama', tagline: 'Bite-Sized Micro Episodes & Revenge Arcs' },
   { id: 'FunDrama', name: 'FunDrama', tagline: 'Lighthearted Rom-Com & Trending Short Stories' },
@@ -650,8 +606,7 @@ export const PROVIDER_DIRECTORY_ITEMS: Array<{
   { id: 'HappyShort', name: 'HappyShort', tagline: 'Trending, Popular, Terbaru & Daily Rankings' },
   { id: 'PineDrama', name: 'PineDrama', tagline: 'Vertical Legal, Suspense & Romance Mini-Series' },
   { id: 'DotDrama', name: 'DotDrama', tagline: 'Fantasy Mystery & Supernatural Short Series' },
-  { id: 'iDrama', name: 'iDrama', tagline: 'H.264 High-Compatibility CEO & Romance Catalog' },
-  { id: 'iDramaV2', name: 'iDrama V2', tagline: 'iDrama V2 Extended Cursor Catalog' },
+  { id: 'iDramaV2', name: 'iDrama V2', tagline: 'H.264 High-Compatibility CEO & Romance Cursor Catalog' },
   { id: 'DramaOra', name: 'DramaOra', tagline: 'Curated Category Hits, Romance & Revenge Shorts' },
   { id: 'MeloShort', name: 'MeloShort', tagline: 'Top Rankings, Fresh Picks & Multi-Genre Reels' },
   { id: 'PetaDrama', name: 'PetaDrama', tagline: 'Full Catalog Vertical Series & Category Specials' },
@@ -893,7 +848,7 @@ export const ProviderHubModal: React.FC<ProviderHubModalProps> = ({
                   onOpenProvidersDirectory();
                 } else {
                   window.dispatchEvent(
-                    new CustomEvent('hd:navigate-path', {
+                    new CustomEvent('kd:navigate-path', {
                       detail: { path: '/providers' },
                     })
                   );

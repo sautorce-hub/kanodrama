@@ -50,7 +50,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
       onChangeLanguage(resolved);
     } else if (typeof window !== 'undefined') {
       window.dispatchEvent(
-        new CustomEvent('hd:change-language', {
+        new CustomEvent('kd:change-language', {
           detail: { lang: resolved, pref },
         })
       );
