@@ -17,7 +17,7 @@ const MOLATV_BASE = '/api/mola';
 const DRAMABOX_V2_BASE = `${MOLATV_BASE}/dramaboxv2`;
 const NETSHORT_BASE = `${MOLATV_BASE}/netshort`;
 const ANYREEL_BASE = `${MOLATV_BASE}/anyreel`;
-const MELOLO_V2_BASE = `${MOLATV_BASE}/melolov2`;
+const MELOLO_V2_BASE = `${MOLATV_BASE}/melolo`;
 const DRAMAORA_BASE = `${MOLATV_BASE}/dramaora`;
 const MELOSHORT_BASE = `${MOLATV_BASE}/meloshort`;
 const PETADRAMA_BASE = `${MOLATV_BASE}/petadrama`;
@@ -51,9 +51,9 @@ const SHORTMAX_V2_BASE = `${MOLATV_BASE}/shortmax_v2`;
 const FLEXTV_BASE = `${MOLATV_BASE}/flextv`;
 const VIGLOO_BASE = `${MOLATV_BASE}/vigloo`;
 const DOTDRAMA_BASE = `${MOLATV_BASE}/dotdrama`;
-const IDRAMA_V2_BASE = `${MOLATV_BASE}/idrama_v2`;
+const IDRAMA_V2_BASE = `${MOLATV_BASE}/idramav2`;
 const GOODSHORT_BASE = `${MOLATV_BASE}/goodshort`;
-const REELSHORT_V2_BASE = `${MOLATV_BASE}/reelshort_v2`;
+const REELSHORT_V2_BASE = `${MOLATV_BASE}/reelshortv2`;
 const JOYREELS_BASE = `${MOLATV_BASE}/joyreels`;
 const SODAREELS_BASE = `${MOLATV_BASE}/sodareels`;
 const BONUSTV_BASE = `${MOLATV_BASE}/bonustv`;
@@ -192,6 +192,7 @@ export function mapProviderLang(
     case 'NetShort':
       return mapNetShortLang(lang);
     case 'MeloLoV2':
+    case 'ReelShortV2':
     case 'MeloShort':
     case 'DramaVerse':
     case 'MoboReels':
@@ -230,11 +231,19 @@ export function ensureMeloloDecryptedUrl(
 ): string {
   const clean = cleanText(rawUrl);
   if (!clean) return '';
-  if (clean.includes('/api/mola/melolov2/decrypt')) {
+  if (
+    clean.startsWith('blob:') ||
+    clean.startsWith('data:') ||
+    clean.startsWith('/api/stream') ||
+    clean.startsWith('/api/proxy')
+  ) {
     return clean;
   }
   if (clean.includes('/api/mola/melolo/decrypt')) {
-    return clean.replace('/api/mola/melolo/decrypt', '/api/mola/melolov2/decrypt');
+    return clean;
+  }
+  if (clean.includes('/api/mola/melolov2/decrypt')) {
+    return clean.replace('/api/mola/melolov2/decrypt', '/api/mola/melolo/decrypt');
   }
   if (clean.includes('/api/melolov2/decrypt') || clean.includes('/api/melolo/decrypt')) {
     try {
@@ -610,6 +619,10 @@ export function normalizeEpisodeList(payload: unknown): EpisodeItem[] {
       rawEpisodes = obj.episodes as Record<string, unknown>[];
     } else if (Array.isArray(obj.chapterList)) {
       rawEpisodes = obj.chapterList as Record<string, unknown>[];
+    } else if (Array.isArray(obj.video_list)) {
+      rawEpisodes = obj.video_list as Record<string, unknown>[];
+    } else if (Array.isArray(obj.videos)) {
+      rawEpisodes = obj.videos as Record<string, unknown>[];
     } else if (Array.isArray(obj.list)) {
       rawEpisodes = obj.list as Record<string, unknown>[];
     } else if (obj.data && typeof obj.data === 'object') {
@@ -618,6 +631,10 @@ export function normalizeEpisodeList(payload: unknown): EpisodeItem[] {
         rawEpisodes = dataObj.episodes as Record<string, unknown>[];
       } else if (Array.isArray(dataObj.chapterList)) {
         rawEpisodes = dataObj.chapterList as Record<string, unknown>[];
+      } else if (Array.isArray(dataObj.video_list)) {
+        rawEpisodes = dataObj.video_list as Record<string, unknown>[];
+      } else if (Array.isArray(dataObj.videos)) {
+        rawEpisodes = dataObj.videos as Record<string, unknown>[];
       } else if (Array.isArray(dataObj.list)) {
         rawEpisodes = dataObj.list as Record<string, unknown>[];
       } else if (Array.isArray(dataObj.data)) {
@@ -1229,6 +1246,13 @@ async function requestStreamWithFallback(
     attemptVariants.push({
       path: '/stream_plain',
       params: { [idParam]: bookId, [epParam]: episode, ...idExtras, ...extraParams },
+    });
+  }
+
+  if (Object.keys(extraParams).length > 0) {
+    attemptVariants.push({
+      path: '/stream',
+      params: { [idParam]: bookId, [epParam]: episode, ...idExtras },
     });
   }
 
@@ -4141,7 +4165,7 @@ function createIDramaProvider(
     async fetchForYou(page = 1): Promise<PaginatedResult> {
       const langVal = mapIdEnLang(currentAppLang);
       const cursorKey = `${id}:foryou:${langVal}`;
-      const params: Record<string, string | number> = { page };
+      const params: Record<string, string | number> = page > 1 ? { page } : {};
       if (page > 1) {
         const storedCursor = feedCursorCache.get(`${cursorKey}:p${page}`);
         if (storedCursor) {
@@ -4171,6 +4195,7 @@ function createIDramaProvider(
     fetchVip(page = 1) {
       return fetchProviderFeed(baseUrl, '/foryou', id, page, mapIdEnLang(currentAppLang), {
         forceVip: true,
+        omitPage: page <= 1,
       });
     },
 
@@ -4196,6 +4221,10 @@ function createIDramaProvider(
         { book_id: bookId },
         mapIdEnLang(currentAppLang)
       );
+      const inlineEps = normalizeEpisodeList(json);
+      if (inlineEps.length > 0) {
+        cacheEpisodes(id, bookId, inlineEps);
+      }
       const raw =
         json?.data && typeof json.data === 'object'
           ? (json.data as Record<string, unknown>)
@@ -4204,15 +4233,63 @@ function createIDramaProvider(
     },
 
     async fetchAllEpisodes(bookId: string): Promise<EpisodeItem[]> {
-      const json = await requestProviderJson(
-        baseUrl,
-        '/allepisode',
-        { book_id: bookId },
-        mapIdEnLang(currentAppLang)
-      );
-      const eps = normalizeEpisodeList(json);
-      cacheEpisodes(id, bookId, eps);
-      return eps;
+      const langVal = mapIdEnLang(currentAppLang);
+      let detailJson: Record<string, unknown> | null = null;
+      try {
+        detailJson = await requestProviderJson<Record<string, unknown>>(
+          baseUrl,
+          '/detail',
+          { book_id: bookId },
+          langVal
+        );
+        const detailEps = normalizeEpisodeList(detailJson);
+        if (detailEps.length > 0) {
+          cacheEpisodes(id, bookId, detailEps);
+          return detailEps;
+        }
+      } catch (err) {
+        if (isFatalProviderError(err)) throw err;
+      }
+
+      try {
+        const epJson = await requestProviderJson(
+          baseUrl,
+          '/allepisode',
+          { book_id: bookId },
+          langVal
+        );
+        const eps = normalizeEpisodeList(epJson);
+        if (eps.length > 0) {
+          cacheEpisodes(id, bookId, eps);
+          return eps;
+        }
+      } catch (err) {
+        if (isFatalProviderError(err)) throw err;
+      }
+
+      if (detailJson) {
+        const raw =
+          detailJson?.data && typeof detailJson.data === 'object'
+            ? (detailJson.data as Record<string, unknown>)
+            : detailJson;
+        const total = toPositiveNumber(
+          raw?.chapterCount ?? raw?.totalEpisodes ?? raw?.episodeCount ?? raw?.episode_count,
+          1
+        );
+        const generated: EpisodeItem[] = Array.from({ length: total }, (_, idx) => {
+          const epNum = idx + 1;
+          return {
+            chapterId: `ep-${epNum}`,
+            episodeNumber: epNum,
+            chapterIndex0: idx,
+            title: `EP ${epNum}`,
+            isVipLocked: epNum > 10 && epNum === 11,
+          };
+        });
+        cacheEpisodes(id, bookId, generated);
+        return generated;
+      }
+      return [];
     },
 
     fetchStream(
@@ -4379,13 +4456,178 @@ export const goodShortProvider: DramaProviderAdapter = {
   },
 };
 
-// --- Provider 44: ReelShort V2 ---
-export const reelShortV2Provider = createStandardProvider({
+// --- Provider 44: ReelShort V2 (/api/reelshortv2/*, word search, populer, terbaru, anime, asia, lang=in|en) ---
+export const reelShortV2Provider: DramaProviderAdapter & {
+  fetchAsia: (page?: number) => Promise<PaginatedResult>;
+} = {
   id: 'ReelShortV2',
   label: 'ReelShort V2',
-  baseUrl: REELSHORT_V2_BASE,
-  langFn: mapIdEnLang,
-});
+  enabled: true,
+
+  async setLanguage(lang: LanguageCode): Promise<void> {
+    currentAppLang = lang;
+    await requestProviderJson(REELSHORT_V2_BASE, '/set_language', {
+      lang: mapInEnLang(lang),
+    });
+  },
+
+  fetchForYou(page = 1) {
+    return fetchProviderFeed(
+      REELSHORT_V2_BASE,
+      '/foryou',
+      'ReelShortV2',
+      page,
+      mapInEnLang(currentAppLang)
+    );
+  },
+
+  fetchRanking(page = 1) {
+    return fetchProviderFeed(
+      REELSHORT_V2_BASE,
+      '/populer',
+      'ReelShortV2',
+      page,
+      mapInEnLang(currentAppLang),
+      { withRank: true }
+    );
+  },
+
+  fetchNewReleases(page = 1) {
+    return fetchProviderFeed(
+      REELSHORT_V2_BASE,
+      '/terbaru',
+      'ReelShortV2',
+      page,
+      mapInEnLang(currentAppLang)
+    );
+  },
+
+  fetchVip(page = 1) {
+    return fetchProviderFeed(
+      REELSHORT_V2_BASE,
+      '/populer',
+      'ReelShortV2',
+      page,
+      mapInEnLang(currentAppLang),
+      { forceVip: true }
+    );
+  },
+
+  fetchAnime(page = 1) {
+    return fetchProviderFeed(
+      REELSHORT_V2_BASE,
+      '/anime',
+      'ReelShortV2',
+      page,
+      mapInEnLang(currentAppLang)
+    );
+  },
+
+  fetchAsia(page = 1) {
+    return fetchProviderFeed(
+      REELSHORT_V2_BASE,
+      '/asia',
+      'ReelShortV2',
+      page,
+      mapInEnLang(currentAppLang)
+    );
+  },
+
+  async searchDramas(keyword: string, page = 1): Promise<PaginatedResult> {
+    const trimmed = keyword.trim();
+    if (!trimmed) return { items: [], hasMore: false, page };
+    const langVal = mapInEnLang(currentAppLang);
+    try {
+      const json = await requestProviderJson(
+        REELSHORT_V2_BASE,
+        '/search',
+        { word: trimmed, page },
+        langVal
+      );
+      const items = extractBookArray(json)
+        .map((raw) => normalizeDrama(raw, 'ReelShortV2'))
+        .filter((d): d is DramaItem => d !== null);
+      if (items.length > 0) {
+        return { items, hasMore: items.length >= 10, page };
+      }
+    } catch (err) {
+      if (isFatalProviderError(err)) throw err;
+    }
+    const fallbackJson = await requestProviderJson(
+      REELSHORT_V2_BASE,
+      '/search',
+      { keyword: trimmed, page },
+      langVal
+    );
+    const items = extractBookArray(fallbackJson)
+      .map((raw) => normalizeDrama(raw, 'ReelShortV2'))
+      .filter((d): d is DramaItem => d !== null);
+    return { items, hasMore: items.length >= 10, page };
+  },
+
+  async fetchDetail(bookId: string): Promise<DramaItem | null> {
+    const json = await requestProviderJson<Record<string, unknown>>(
+      REELSHORT_V2_BASE,
+      '/detail',
+      { book_id: bookId },
+      mapInEnLang(currentAppLang)
+    );
+    const inlineEps = normalizeEpisodeList(json);
+    if (inlineEps.length > 0) {
+      cacheEpisodes('ReelShortV2', bookId, inlineEps);
+    }
+    const raw =
+      json?.data && typeof json.data === 'object'
+        ? (json.data as Record<string, unknown>)
+        : json;
+    return normalizeDrama(raw, 'ReelShortV2', undefined, false, bookId);
+  },
+
+  async fetchAllEpisodes(bookId: string): Promise<EpisodeItem[]> {
+    const langVal = mapInEnLang(currentAppLang);
+    try {
+      const json = await requestProviderJson(
+        REELSHORT_V2_BASE,
+        '/allepisode',
+        { book_id: bookId },
+        langVal
+      );
+      const eps = normalizeEpisodeList(json);
+      if (eps.length > 0) {
+        cacheEpisodes('ReelShortV2', bookId, eps);
+        return eps;
+      }
+    } catch (err) {
+      if (isFatalProviderError(err)) throw err;
+    }
+    const detailJson = await requestProviderJson(
+      REELSHORT_V2_BASE,
+      '/detail',
+      { book_id: bookId },
+      langVal
+    );
+    const detailEps = normalizeEpisodeList(detailJson);
+    cacheEpisodes('ReelShortV2', bookId, detailEps);
+    return detailEps;
+  },
+
+  fetchStream(
+    bookId: string,
+    episode: number,
+    extra?: { eid?: string; chapterId?: string; chapterIndex0?: number }
+  ) {
+    return requestStreamWithFallback({
+      baseUrl: REELSHORT_V2_BASE,
+      bookId,
+      episode,
+      provider: 'ReelShortV2',
+      langVal: mapInEnLang(currentAppLang),
+      idParam: 'book_id',
+      epParam: 'episode',
+      extra,
+    });
+  },
+};
 
 // --- Provider 46: JoyReels (10 Endpoints, playlet_id, episodes from /detail) ---
 export const joyReelsProvider: DramaProviderAdapter & {
@@ -4905,6 +5147,10 @@ export const meloLoV2Provider: DramaProviderAdapter & {
       { book_id: bookId },
       mapInEnLang(currentAppLang)
     );
+    const inlineEps = normalizeEpisodeList(json);
+    if (inlineEps.length > 0) {
+      cacheEpisodes('MeloLoV2', bookId, inlineEps);
+    }
     const raw =
       json?.data && typeof json.data === 'object'
         ? (json.data as Record<string, unknown>)
@@ -4913,15 +5159,31 @@ export const meloLoV2Provider: DramaProviderAdapter & {
   },
 
   async fetchAllEpisodes(bookId: string): Promise<EpisodeItem[]> {
-    const json = await requestProviderJson(
+    const langVal = mapInEnLang(currentAppLang);
+    try {
+      const json = await requestProviderJson(
+        MELOLO_V2_BASE,
+        '/allepisode',
+        { book_id: bookId },
+        langVal
+      );
+      const eps = normalizeEpisodeList(json);
+      if (eps.length > 0) {
+        cacheEpisodes('MeloLoV2', bookId, eps);
+        return eps;
+      }
+    } catch (err) {
+      if (isFatalProviderError(err)) throw err;
+    }
+    const detailJson = await requestProviderJson(
       MELOLO_V2_BASE,
-      '/allepisode',
+      '/detail',
       { book_id: bookId },
-      mapInEnLang(currentAppLang)
+      langVal
     );
-    const eps = normalizeEpisodeList(json);
-    cacheEpisodes('MeloLoV2', bookId, eps);
-    return eps;
+    const detailEps = normalizeEpisodeList(detailJson);
+    cacheEpisodes('MeloLoV2', bookId, detailEps);
+    return detailEps;
   },
 
   fetchStream(
@@ -5236,7 +5498,133 @@ export const zebraShortProvider = createResilientMolaProvider({ id: 'ZebraShort'
 export const drakorIdProvider = createResilientMolaProvider({ id: 'DrakorID', baseUrl: DRAKORID_BASE });
 export const drachinRebornProvider = createResilientMolaProvider({ id: 'DrachinReborn', baseUrl: DRACHINREBORN_BASE });
 export const dramaQueenProvider = createResilientMolaProvider({ id: 'DramaQueen', baseUrl: DRAMAQUEEN_BASE });
-export const ansflixProvider = createResilientMolaProvider({ id: 'Ansflix', baseUrl: ANSFLIX_BASE });
+export const ansflixProvider: DramaProviderAdapter = {
+  id: 'Ansflix',
+  label: 'Ansflix',
+  enabled: true,
+
+  async setLanguage(lang: LanguageCode): Promise<void> {
+    currentAppLang = lang;
+    await requestProviderJson(ANSFLIX_BASE, '/set_language', {
+      lang: mapIdEnLang(lang),
+    });
+  },
+
+  fetchForYou(page = 1) {
+    return fetchProviderFeed(
+      ANSFLIX_BASE,
+      '/foryou',
+      'Ansflix',
+      page,
+      mapIdEnLang(currentAppLang),
+      { extraParams: { pagesize: 12 } }
+    );
+  },
+
+  fetchRanking(page = 1) {
+    return fetchProviderFeed(
+      ANSFLIX_BASE,
+      '/foryou',
+      'Ansflix',
+      page,
+      mapIdEnLang(currentAppLang),
+      { withRank: true, extraParams: { pagesize: 12 } }
+    );
+  },
+
+  fetchNewReleases(page = 1) {
+    return this.fetchForYou(page);
+  },
+
+  fetchVip(page = 1) {
+    return fetchProviderFeed(
+      ANSFLIX_BASE,
+      '/foryou',
+      'Ansflix',
+      page,
+      mapIdEnLang(currentAppLang),
+      { forceVip: true, extraParams: { pagesize: 12 } }
+    );
+  },
+
+  async searchDramas(keyword: string, page = 1): Promise<PaginatedResult> {
+    const trimmed = keyword.trim();
+    if (!trimmed) return { items: [], hasMore: false, page };
+    const json = await requestProviderJson(
+      ANSFLIX_BASE,
+      '/search',
+      { keyword: trimmed, page },
+      mapIdEnLang(currentAppLang)
+    );
+    const items = extractBookArray(json)
+      .map((raw) => normalizeDrama(raw, 'Ansflix'))
+      .filter((d): d is DramaItem => d !== null);
+    return { items, hasMore: items.length >= 10, page };
+  },
+
+  async fetchDetail(bookId: string): Promise<DramaItem | null> {
+    const json = await requestProviderJson<Record<string, unknown>>(
+      ANSFLIX_BASE,
+      '/detail',
+      { book_id: bookId },
+      mapIdEnLang(currentAppLang)
+    );
+    const inlineEps = normalizeEpisodeList(json);
+    if (inlineEps.length > 0) {
+      cacheEpisodes('Ansflix', bookId, inlineEps);
+    }
+    const raw =
+      json?.data && typeof json.data === 'object'
+        ? (json.data as Record<string, unknown>)
+        : json;
+    return normalizeDrama(raw, 'Ansflix', undefined, false, bookId);
+  },
+
+  async fetchAllEpisodes(bookId: string): Promise<EpisodeItem[]> {
+    const langVal = mapIdEnLang(currentAppLang);
+    try {
+      const json = await requestProviderJson(
+        ANSFLIX_BASE,
+        '/allepisode',
+        { book_id: bookId },
+        langVal
+      );
+      const eps = normalizeEpisodeList(json);
+      if (eps.length > 0) {
+        cacheEpisodes('Ansflix', bookId, eps);
+        return eps;
+      }
+    } catch (err) {
+      if (isFatalProviderError(err)) throw err;
+    }
+    const detailJson = await requestProviderJson(
+      ANSFLIX_BASE,
+      '/detail',
+      { book_id: bookId },
+      langVal
+    );
+    const detailEps = normalizeEpisodeList(detailJson);
+    cacheEpisodes('Ansflix', bookId, detailEps);
+    return detailEps;
+  },
+
+  fetchStream(
+    bookId: string,
+    episode: number,
+    extra?: { eid?: string; chapterId?: string; chapterIndex0?: number }
+  ) {
+    return requestStreamWithFallback({
+      baseUrl: ANSFLIX_BASE,
+      bookId,
+      episode,
+      provider: 'Ansflix',
+      langVal: mapIdEnLang(currentAppLang),
+      idParam: 'book_id',
+      epParam: 'episode',
+      extra,
+    });
+  },
+};
 export const lupaCineProvider = createResilientMolaProvider({ id: 'LupaCine', baseUrl: LUPACINE_BASE });
 export const reelLifeProvider = createResilientMolaProvider({ id: 'ReelLife', baseUrl: REELLIFE_BASE });
 export const bstationProvider = createResilientMolaProvider({
@@ -5787,6 +6175,10 @@ export const PROVIDER_ENDPOINT_CATALOG: Record<
   ],
   ReelShortV2: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => reelShortV2Provider.fetchForYou(p) },
+    { key: 'populer', label: 'Populer', path: '/populer', ranked: true, fetch: (p) => reelShortV2Provider.fetchRanking(p) },
+    { key: 'terbaru', label: 'Terbaru', path: '/terbaru', badgeStyle: 'NEW', fetch: (p) => reelShortV2Provider.fetchNewReleases(p) },
+    { key: 'anime', label: 'Anime', path: '/anime', badgeStyle: 'ANIME', fetch: (p) => reelShortV2Provider.fetchAnime!(p) },
+    { key: 'asia', label: 'Asia', path: '/asia', fetch: (p) => reelShortV2Provider.fetchAsia(p) },
   ],
   JoyReels: [
     { key: 'hot', label: 'Hot', path: '/hot', fetch: (p) => joyReelsProvider.fetchHot(p) },
@@ -5931,7 +6323,6 @@ export const PROVIDER_ENDPOINT_CATALOG: Record<
   ],
   Ansflix: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => ansflixProvider.fetchForYou(p) },
-    { key: 'ranking', label: 'Trending', path: '/ranking', ranked: true, fetch: (p) => ansflixProvider.fetchRanking(p) },
   ],
   LupaCine: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => lupaCineProvider.fetchForYou(p) },

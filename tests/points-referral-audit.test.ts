@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 process.env.KD_DISABLE_AUTO_LISTEN = '1';
 process.env.ADMIN_PAYOUT_SECRET = 'test-admin-secret-999';
 process.env.STREAM_SIGNING_SECRET = 'test-signing-secret-abc';
-process.env.SITE_URL = 'https://kano-drama.xyz';
+process.env.SITE_URL = 'https://kano-drama.live';
 delete process.env.DATABASE_URL;
 
 import {
@@ -1763,7 +1763,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
 
     assert.equal(
       getProductionReferralUrl('KDA11CE01'),
-      'https://kano-drama.xyz/?ref=KDA11CE01'
+      'https://kano-drama.live/?ref=KDA11CE01'
     );
 
     state.users.set('user-alice', {
@@ -2046,7 +2046,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const rewardsRes = await fetch(`${baseUrl}/rewards`);
     assert.equal(rewardsRes.status, 200);
     const rewardsHtml = await rewardsRes.text();
-    assert.match(rewardsHtml, /rel="canonical" href="https:\/\/kano-drama\.xyz\/rewards"/);
+    assert.match(rewardsHtml, /rel="canonical" href="https:\/\/kano-drama\.live\/rewards"/);
     assert.match(rewardsHtml, /name="robots" content="index, follow/);
     assert.match(rewardsHtml, /"@type":"FAQPage"/);
     assert.equal(rewardsRes.headers.get('x-robots-tag'), null);
@@ -2055,12 +2055,32 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const refHomeRes = await fetch(`${baseUrl}/?ref=KDA11CE01`);
     assert.equal(refHomeRes.status, 200);
     const refHomeHtml = await refHomeRes.text();
-    assert.match(refHomeHtml, /rel="canonical" href="https:\/\/kano-drama\.xyz\/"/);
+    assert.match(refHomeHtml, /rel="canonical" href="https:\/\/kano-drama\.live\/"/);
 
-    // Legacy /referral redirects 301 to /rewards
+    // Legacy /referral redirects 301 to /rewards (and to https://kano-drama.live/rewards on prod host)
     const legacyRefRes = await fetch(`${baseUrl}/referral`, { redirect: 'manual' });
     assert.equal(legacyRefRes.status, 301);
     assert.equal(legacyRefRes.headers.get('location'), '/rewards');
+
+    const prodLegacyRefRes = await fetch(`${baseUrl}/referral`, {
+      redirect: 'manual',
+      headers: { 'X-Forwarded-Host': 'kano-drama.live' },
+    });
+    assert.equal(prodLegacyRefRes.status, 301);
+    assert.equal(
+      prodLegacyRefRes.headers.get('location'),
+      'https://kano-drama.live/rewards'
+    );
+
+    const oldDomainRes = await fetch(`${baseUrl}/explore`, {
+      redirect: 'manual',
+      headers: { 'X-Forwarded-Host': 'kano-drama.xyz' },
+    });
+    assert.equal(oldDomainRes.status, 301);
+    assert.equal(
+      oldDomainRes.headers.get('location'),
+      'https://kano-drama.live/explore'
+    );
 
     // Private /account stays noindex, nofollow
     const accountRes = await fetch(`${baseUrl}/account`);
@@ -2069,14 +2089,15 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const accountHtml = await accountRes.text();
     assert.match(accountHtml, /name="robots" content="noindex, nofollow"/);
 
-    // robots.txt allows /rewards and sitemap-part-1.xml lists /rewards
+    // robots.txt allows /rewards and sitemap-part-1.xml lists /rewards on kano-drama.live
     const robotsTxt = await fetch(`${baseUrl}/robots.txt`).then((r) => r.text());
     assert.match(robotsTxt, /Allow:\s*\/rewards/);
+    assert.match(robotsTxt, /Sitemap:\s*https:\/\/kano-drama\.live\/sitemap\.xml/);
 
     const sitemapIndexXml = await fetch(`${baseUrl}/sitemap.xml`).then((r) => r.text());
-    assert.match(sitemapIndexXml, /sitemap-part-1\.xml/);
+    assert.match(sitemapIndexXml, /https:\/\/kano-drama\.live\/sitemap-part-1\.xml/);
     const sitemapPart1Xml = await fetch(`${baseUrl}/sitemap-part-1.xml`).then((r) => r.text());
-    assert.match(sitemapPart1Xml, /https:\/\/kano-drama\.xyz\/rewards/);
+    assert.match(sitemapPart1Xml, /https:\/\/kano-drama\.live\/rewards/);
 
     const cfg = getPayoutRuntimeConfig();
     assert.equal(cfg.pointsPerUsd, 100000);
@@ -2695,10 +2716,9 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const { mockPool } = createStatefulPgMock();
     _setDbPoolForTest(mockPool);
 
-    // Legacy V1 API gateway paths must return HTTP 410
+    // Legacy V1 API gateway paths must return HTTP 410 (melolo is active canonical upstream /api/melolo/*)
     for (const v1Path of [
       '/api/mola/dramabox/ranking',
-      '/api/mola/melolo/rank',
       '/api/mola/storyreel/home',
       '/api/mola/vibeshort/home',
       '/api/mola/shortmax/home',
@@ -2708,6 +2728,9 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       const res = await fetch(`${baseUrl}${v1Path}`);
       assert.equal(res.status, 410, `Expected 410 for ${v1Path}`);
     }
+
+    const meloloGatewayRes = await fetch(`${baseUrl}/api/mola/melolo/rank?page=1&page_size=18`);
+    assert.notEqual(meloloGatewayRes.status, 410, '/api/mola/melolo/* must stay active');
 
     // Legacy V1 provider hub URLs 301 redirect to canonical V2 hub URLs
     const v1ToV2Hubs: Array<[string, string]> = [
@@ -2725,30 +2748,36 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       assert.equal(res.headers.get('location'), canonicalHub);
     }
 
-    // Deprecated /video-sitemap.xml & /embed/* return 404 + noindex, nofollow
+    // Deprecated /video-sitemap.xml, /embed/*, empty routes & unknown paths return 404 + noindex, nofollow
     for (const deadUrl of [
       '/video-sitemap.xml',
       '/embed/123',
       '/dramaboxv2/detail',
       '/movie',
       '/drama/non-existent-audit-slug-999',
+      '/halaman-tidak-ada-seo-404',
+      '/genre/null',
     ]) {
       const res = await fetch(`${baseUrl}${deadUrl}`, { redirect: 'manual' });
       assert.equal(res.status, 404, `Expected 404 for ${deadUrl}`);
       assert.equal(res.headers.get('x-robots-tag'), 'noindex, nofollow');
     }
 
-    // /llms.txt, /ai-catalog.json, /sitemap-part-1.xml are clean of V1/old brand/VideoObject
-    const [llmsRes, aiJsonRes, sitemapRes, rewardsRes] = await Promise.all([
+    // /llms.txt, /ai-catalog.json, /sitemap-part-1.xml are clean of V1/old brand/old domain/VideoObject
+    const [llmsRes, aiJsonRes, sitemapRes, rewardsRes, homeHtmlRes] = await Promise.all([
       fetch(`${baseUrl}/llms.txt`).then((r) => r.text()),
       fetch(`${baseUrl}/ai-catalog.json`).then((r) => r.json()),
       fetch(`${baseUrl}/sitemap-part-1.xml`).then((r) => r.text()),
       fetch(`${baseUrl}/rewards`).then((r) => r.text()),
+      fetch(`${baseUrl}/`).then((r) => r.text()),
     ]);
     assert.match(llmsRes, /82\+/);
-    assert.doesNotMatch(llmsRes, /HouseDrama|house-drama\.xyz|CoffeeDrama|89\+/i);
+    assert.match(llmsRes, /https:\/\/kano-drama\.live/);
+    assert.doesNotMatch(llmsRes, /kano-drama\.xyz|HouseDrama|house-drama\.xyz|house-drama\.web\.id|CoffeeDrama|89\+/i);
 
+    assert.equal(aiJsonRes.url, 'https://kano-drama.live');
     assert.equal(aiJsonRes.providerDirectory.length, 82);
+    assert.doesNotMatch(JSON.stringify(aiJsonRes), /kano-drama\.xyz|HouseDrama|house-drama\.xyz|house-drama\.web\.id/i);
     assert.ok(
       aiJsonRes.providerDirectory.every(
         (p: { slug: string }) =>
@@ -2758,14 +2787,16 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       )
     );
 
-    assert.doesNotMatch(sitemapRes, /VideoObject|\/embed\/|<\/?video:/i);
+    assert.doesNotMatch(sitemapRes, /kano-drama\.xyz|VideoObject|\/embed\/|<\/?video:/i);
     assert.doesNotMatch(
       sitemapRes,
       /\/provider\/(?:dramabox|melolo|storyreel|vibeshort|shortmax|idrama|reelshort)<\/loc>/i
     );
     assert.match(rewardsRes, /\+500 poin \(15 menit\), \+1\.200 poin \(30 menit\), dan \+2\.800 poin \(60 menit\)/);
     assert.match(rewardsRes, /00\.00 WIB \/ 17\.00 UTC/);
-    assert.doesNotMatch(rewardsRes, /HouseDrama|house-drama\.xyz|CoffeeDrama/i);
+    assert.doesNotMatch(rewardsRes, /kano-drama\.xyz|HouseDrama|house-drama\.xyz|house-drama\.web\.id|CoffeeDrama/i);
+    assert.doesNotMatch(homeHtmlRes, /kano-drama\.xyz|HouseDrama|house-drama\.xyz|house-drama\.web\.id/i);
+    assert.match(homeHtmlRes, /rel="canonical" href="https:\/\/kano-drama\.live\/"/);
   });
 
   await t.test('12. IDOR & Auth Guard on /api/favorites, /api/watch-history, /api/likes, and /api/comments', async () => {

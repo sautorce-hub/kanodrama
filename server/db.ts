@@ -1649,7 +1649,10 @@ export async function createCommentInDb(input: {
   videoTimestampSec?: number;
 }): Promise<DbCommentRecord | null> {
   const safeTs = Math.max(0, Math.floor(Number(input.videoTimestampSec) || 0));
-  const mediaType = input.provider === 'LK21' ? 'movie' : 'drama';
+  const mediaType =
+    input.provider === 'LK21' || input.provider === 'LookSeries'
+      ? 'movie'
+      : 'drama';
   const res = await dbQuery<{
     id: string;
     drama_id: string;
@@ -6445,13 +6448,13 @@ export async function bindReferralForUserInDb(input: {
     | 'account_not_new'
     | 'fraud_signal_match';
 }> {
+  const cfg = getPayoutRuntimeConfig();
+  const activePool = await requirePointsDbPool();
+
   const cleanCode = input.referralCode.trim().toUpperCase();
   if (!/^KD[A-F0-9]{6,12}$/.test(cleanCode)) {
     return { bound: false, reason: 'invalid_code' };
   }
-
-  const cfg = getPayoutRuntimeConfig();
-  const activePool = await requirePointsDbPool();
 
   let client: PoolClient | null = null;
   try {

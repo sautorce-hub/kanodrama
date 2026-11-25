@@ -905,13 +905,39 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
       failedUrl &&
       !failedUrl.includes('/decrypt')
     ) {
-      const decrypted = ensureMeloloDecryptedUrl(failedUrl, '/api/mola/melolov2');
+      const decrypted = ensureMeloloDecryptedUrl(failedUrl, '/api/mola/melolo');
       if (decrypted && !triedStreamUrlsRef.current.has(decrypted)) {
         triedStreamUrlsRef.current.add(decrypted);
         setStreamError(null);
         setVideoReady(false);
         setSelectedUrl(decrypted);
         return true;
+      }
+    }
+
+    if (failedUrl && failedUrl.includes('/decrypt?')) {
+      try {
+        const parsedDecrypt = new URL(failedUrl, 'http://localhost');
+        const unwrappedUrl = parsedDecrypt.searchParams.get('url');
+        if (unwrappedUrl && /^https?:\/\//i.test(unwrappedUrl)) {
+          const proxiedUnwrapped = `/api/proxy?url=${encodeURIComponent(unwrappedUrl)}`;
+          if (!triedStreamUrlsRef.current.has(proxiedUnwrapped)) {
+            triedStreamUrlsRef.current.add(proxiedUnwrapped);
+            setStreamError(null);
+            setVideoReady(false);
+            setSelectedUrl(proxiedUnwrapped);
+            return true;
+          }
+          if (!triedStreamUrlsRef.current.has(unwrappedUrl)) {
+            triedStreamUrlsRef.current.add(unwrappedUrl);
+            setStreamError(null);
+            setVideoReady(false);
+            setSelectedUrl(unwrappedUrl);
+            return true;
+          }
+        }
+      } catch {
+        // Ignore malformed decrypt URL
       }
     }
 
@@ -947,7 +973,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
       ),
       ...(streamData?.qualities ?? []),
     ];
-    const decryptBaseForProvider = '/api/mola/melolov2';
+    const decryptBaseForProvider = '/api/mola/melolo';
     const isMeloloVariant = drama.provider === 'MeloLoV2';
     const fallback = candidates.find((q) => {
       const candidateUrl = isMeloloVariant
@@ -992,15 +1018,18 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
 
   const streamReqIdRef = useRef(0);
   const retriedWithEpisodesRef = useRef('');
+  const retriedForceRefreshRef = useRef('');
 
   const loadStream = async (
     bookId: string,
     ep: number,
-    provider: DramaItem['provider']
+    provider: DramaItem['provider'],
+    forceRefresh = false
   ) => {
     const reqId = ++streamReqIdRef.current;
     embedWatchTimeRef.current = initialTime > 0 ? initialTime : 0;
     const cachedAlready =
+      !forceRefresh &&
       provider !== 'LK21' &&
       provider !== 'LookSeries' &&
       isStreamCached(bookId, ep, provider);
@@ -1038,12 +1067,12 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
       const epMeta = episodeItems.find((item) => item.episodeNumber === ep);
       const data =
         provider === 'LookSeries'
-          ? await fetchLookSeriesStream(bookId, ep, false, {
+          ? await fetchLookSeriesStream(bookId, ep, forceRefresh, {
               chapterId: epMeta?.chapterId || epMeta?.eid,
               chapterIndex0: epMeta?.chapterIndex0,
             })
           : provider === 'LK21'
-          ? await fetchLk21Stream(bookId, ep, epMeta?.eid)
+          ? await fetchLk21Stream(bookId, ep, epMeta?.eid, forceRefresh)
           : await getStreamUrl(bookId, ep, provider, {
               eid: epMeta?.eid,
               chapterId: epMeta?.chapterId,
@@ -1084,7 +1113,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
           data.qualities.find((q) => q.quality.includes('720')) ??
           data.qualities[0];
         const isMeloloProv = provider === 'MeloLoV2';
-        const decryptBase = '/api/mola/melolov2';
+        const decryptBase = '/api/mola/melolo';
         const rawChosenUrl = isMeloloProv
           ? ensureMeloloDecryptedUrl(data.streamUrl || preferred?.url || '', decryptBase)
           : (preferred?.url ?? firstDirect?.url ?? data.streamUrl);
@@ -1110,6 +1139,17 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
       }
     } catch (err) {
       if (reqId !== streamReqIdRef.current) return;
+      if (
+        !forceRefresh &&
+        (provider === 'LookSeries' || provider === 'LK21')
+      ) {
+        const forceKey = `${bookId}:${provider}:${ep}`;
+        if (retriedForceRefreshRef.current !== forceKey) {
+          retriedForceRefreshRef.current = forceKey;
+          void loadStream(bookId, ep, provider, true);
+          return;
+        }
+      }
       const offlineCached = await readOfflineCachedEpisode(bookId, provider, ep);
       if (reqId !== streamReqIdRef.current) return;
       if (offlineCached?.streamSource?.streamUrl) {
@@ -1144,6 +1184,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     if (!drama) return;
     lastSavedTickRef.current = 0;
     retriedWithEpisodesRef.current = '';
+    retriedForceRefreshRef.current = '';
     loadStream(drama.bookId, episodeNumber, drama.provider);
     void refreshDramaStats(drama.bookId, drama.provider);
   }, [drama?.bookId, drama?.provider, episodeNumber, refreshDramaStats]);

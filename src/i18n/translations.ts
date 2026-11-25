@@ -884,7 +884,7 @@ const EN_TRANSLATIONS: Translations = {
     },
     footer: {
       tagline:
-        'KanoDrama (kano-drama.xyz) is a free streaming platform for vertical short dramas, Asian series, Chinese & Korean dramas, and HD movies with Indonesian and multi-language subtitles.',
+        'KanoDrama (kano-drama.live) is a free streaming platform for vertical short dramas, Asian series, Chinese & Korean dramas, and HD movies with Indonesian and multi-language subtitles.',
       onlineNow: 'Online Now',
       todayVisitors: "Today's Visitors",
       totalVisitors: 'Total Visitors',
@@ -899,14 +899,14 @@ const EN_TRANSLATIONS: Translations = {
       contact: 'Contact & Support',
       helpCenter: 'Help Center & FAQ',
       rights:
-        '© 2026 KanoDrama (kano-drama.xyz). All rights reserved. Powered by Advanced Streaming Architecture.',
+        '© 2026 KanoDrama (kano-drama.live). All rights reserved. Powered by Advanced Streaming Architecture.',
     },
     legal: {
       about: {
         title: 'About KanoDrama',
         subtitle: 'Free Streaming Platform for Short Dramas, Asian Series & Movies',
         paragraphs: [
-          'KanoDrama (https://kano-drama.xyz) is a free streaming platform uniting vertical short dramas, Asian series, Chinese and Korean dramas, and feature films with Indonesian subtitles and multi-language options.',
+          'KanoDrama (https://kano-drama.live) is a free streaming platform uniting vertical short dramas, Asian series, Chinese and Korean dramas, and feature films with Indonesian subtitles and multi-language options.',
           'Our unified adapter engine connects 82+ global drama and movie catalogs including DramaBox V2, NetShort, MeloLo V2, ReelShort V2, LK21, and LookSeries with adaptive HD playback and instant cross-device PWA installation.',
         ],
       },
@@ -1395,7 +1395,7 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
     },
     footer: {
       tagline:
-        'KanoDrama (kano-drama.xyz) adalah platform streaming gratis untuk drama pendek (short drama), serial Asia, drama China/Korea, dan film HD dengan subtitle Bahasa Indonesia maupun bahasa lainnya.',
+        'KanoDrama (kano-drama.live) adalah platform streaming gratis untuk drama pendek (short drama), serial Asia, drama China/Korea, dan film HD dengan subtitle Bahasa Indonesia maupun bahasa lainnya.',
       onlineNow: 'Sedang Online',
       todayVisitors: 'Pengunjung Hari Ini',
       totalVisitors: 'Total Pengunjung',
@@ -1410,14 +1410,14 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       contact: 'Kontak & Dukungan',
       helpCenter: 'Pusat Bantuan & FAQ',
       rights:
-        '© 2026 KanoDrama (kano-drama.xyz). All rights reserved. Powered by Advanced Streaming Architecture.',
+        '© 2026 KanoDrama (kano-drama.live). All rights reserved. Powered by Advanced Streaming Architecture.',
     },
     legal: {
       about: {
         title: 'Tentang KanoDrama',
         subtitle: 'Platform Streaming Gratis Drama Pendek, Serial Asia & Film Sub Indo',
         paragraphs: [
-          'KanoDrama (https://kano-drama.xyz) adalah platform streaming gratis untuk menonton drama pendek vertikal (short drama), serial Asia, drama China/Korea, hingga film layar lebar dengan dukungan subtitle Bahasa Indonesia maupun pilihan bahasa lainnya.',
+          'KanoDrama (https://kano-drama.live) adalah platform streaming gratis untuk menonton drama pendek vertikal (short drama), serial Asia, drama China/Korea, hingga film layar lebar dengan dukungan subtitle Bahasa Indonesia maupun pilihan bahasa lainnya.',
           'Mesin adaptor terpadu kami menghubungkan lebih dari 82 platform seperti DramaBox V2, NetShort, MeloLo V2, ReelShort V2, LK21, dan LookSeries dengan pemutaran adaptif HD serta dukungan aplikasi PWA.',
         ],
       },

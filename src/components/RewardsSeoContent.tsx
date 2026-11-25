@@ -111,7 +111,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
         },
         {
           q: `Kapan bonus referral +${referralBonusPoints.toLocaleString()} poin masuk ke akun pengundang?`,
-          a: `Bagikan tautan referral resmi https://kano-drama.xyz/?ref=KODEANDA kepada teman baru. Setelah teman mendaftar dan menyelesaikan total 60 menit (1 jam) menonton terverifikasi tanpa aktivitas mencurigakan, sistem secara otomatis mengkreditkan +${referralBonusPoints.toLocaleString()} poin ke saldo Anda.`,
+          a: `Bagikan tautan referral resmi https://kano-drama.live/?ref=KODEANDA kepada teman baru. Setelah teman mendaftar dan menyelesaikan total 60 menit (1 jam) menonton terverifikasi tanpa aktivitas mencurigakan, sistem secara otomatis mengkreditkan +${referralBonusPoints.toLocaleString()} poin ke saldo Anda.`,
         },
         {
           q: 'Kapan misi menonton harian dan check-in direset?',
@@ -129,7 +129,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
         },
         {
           q: `When is the +${referralBonusPoints.toLocaleString()} pts referral bonus unlocked?`,
-          a: `Share your permanent link at https://kano-drama.xyz/?ref=YOURCODE. Once your invited friend completes 1 full hour (60 minutes) of verified active watching, +${referralBonusPoints.toLocaleString()} points are credited automatically.`,
+          a: `Share your permanent link at https://kano-drama.live/?ref=YOURCODE. Once your invited friend completes 1 full hour (60 minutes) of verified active watching, +${referralBonusPoints.toLocaleString()} points are credited automatically.`,
         },
         {
           q: 'When do daily watch missions and check-ins reset?',

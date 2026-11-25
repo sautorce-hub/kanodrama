@@ -25,7 +25,7 @@ export { generateMetadata, type GeneratedSeoMetadata };
 export function getSeoOrigin(): string {
   if (typeof window === 'undefined') return DEFAULT_SITE_ORIGIN;
   const origin = window.location.origin;
-  if (/^https?:\/\/(www\.)?kano-drama\.xyz$/i.test(origin)) {
+  if (/^https?:\/\/(www\.)?(kano-drama\.live|kano-drama\.xyz)$/i.test(origin)) {
     return DEFAULT_SITE_ORIGIN;
   }
   return origin;
@@ -784,8 +784,8 @@ export function syncSectionDocumentSeo(
             '@type': 'Answer',
             text:
               lang === 'id'
-                ? 'Bagikan tautan undangan resmi kano-drama.xyz Anda. Setelah teman mendaftar dan menyelesaikan total 1 jam (60 menit) durasi menonton terverifikasi, +5.000 poin otomatis masuk ke saldo Anda.'
-                : 'Share your kano-drama.xyz referral link. Once your invited friend registers and completes 1 hour of verified active watch time, +5,000 bonus points are credited automatically.',
+                ? 'Bagikan tautan undangan resmi kano-drama.live Anda. Setelah teman mendaftar dan menyelesaikan total 1 jam (60 menit) durasi menonton terverifikasi, +5.000 poin otomatis masuk ke saldo Anda.'
+                : 'Share your kano-drama.live referral link. Once your invited friend registers and completes 1 hour of verified active watch time, +5,000 bonus points are credited automatically.',
           },
         },
       ],

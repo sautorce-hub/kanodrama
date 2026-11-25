@@ -24,6 +24,29 @@ function cleanQueryText(value: unknown, fallback = ''): string {
   return trimmed || fallback;
 }
 
+function getHttpStatusForLookSeriesError(
+  err: unknown,
+  defaultStatus = 502
+): number {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  if (
+    err instanceof TypeError ||
+    /Invalid URL|Missing /i.test(msg)
+  ) {
+    return 400;
+  }
+  if (/Disallowed .* origin/i.test(msg)) {
+    return 403;
+  }
+  if (/\bHTTP 404\b|not found/i.test(msg)) {
+    return 404;
+  }
+  if (/MOLA_API_TOKEN is not configured/i.test(msg)) {
+    return 503;
+  }
+  return defaultStatus;
+}
+
 /**
  * Dedicated Express Router for LookSeries Movies & Series endpoints (/api/lookseries/...).
  * MOLA_API_TOKEN is injected exclusively server-side and stripped from client responses.
@@ -41,7 +64,7 @@ export function createLookSeriesRouter({
         res.setHeader('Cache-Control', 'public, max-age=120');
         res.json(data);
       } catch (err) {
-        res.status(502).json({
+        res.status(getHttpStatusForLookSeriesError(err)).json({
           ok: false,
           error:
             err instanceof Error
@@ -67,7 +90,7 @@ export function createLookSeriesRouter({
       res.setHeader('Cache-Control', 'public, max-age=180');
       res.json(data);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLookSeriesError(err)).json({
         ok: false,
         error:
           err instanceof Error
@@ -84,7 +107,7 @@ export function createLookSeriesRouter({
       const data = await getLookSeriesSearch(getToken, q, page);
       res.json(data);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLookSeriesError(err)).json({
         ok: false,
         error:
           err instanceof Error ? err.message : 'Failed to search LookSeries',
@@ -112,7 +135,7 @@ export function createLookSeriesRouter({
       res.setHeader('Cache-Control', 'public, max-age=300');
       res.json(detail);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLookSeriesError(err)).json({
         ok: false,
         error:
           err instanceof Error ? err.message : 'Failed to load LookSeries detail',
@@ -136,7 +159,7 @@ export function createLookSeriesRouter({
       res.setHeader('Cache-Control', 'public, max-age=300');
       res.json(eps);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLookSeriesError(err)).json({
         ok: false,
         error:
           err instanceof Error
@@ -189,7 +212,7 @@ export function createLookSeriesRouter({
       );
       res.json(stream);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLookSeriesError(err)).json({
         ok: false,
         error:
           err instanceof Error ? err.message : 'Failed to load LookSeries stream',
@@ -223,7 +246,7 @@ export function createLookSeriesRouter({
       res.setHeader('Cache-Control', 'no-cache');
       res.send(body);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLookSeriesError(err)).json({
         ok: false,
         error:
           err instanceof Error
@@ -287,7 +310,7 @@ export function createLookSeriesRouter({
       }
     } catch (err) {
       if (!res.headersSent) {
-        res.status(502).json({
+        res.status(getHttpStatusForLookSeriesError(err)).json({
           ok: false,
           error:
             err instanceof Error

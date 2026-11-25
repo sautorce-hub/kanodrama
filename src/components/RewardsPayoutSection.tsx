@@ -2520,7 +2520,7 @@ export const RewardsPayoutSection: React.FC = () => {
         </div>
       </section>
 
-      {/* Referral Hub (Always Uses Production https://kano-drama.xyz/?ref=...) */}
+      {/* Referral Hub (Always Uses Production https://kano-drama.live/?ref=...) */}
       <section
         id="referral-program"
         className="rounded-2xl bg-[#111015] border border-[#D4AF37]/25 p-5 sm:p-6 space-y-5"

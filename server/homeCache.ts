@@ -530,6 +530,7 @@ function mapLangForProvider(provider: string, lang: HomeLangCode): string | null
     case 'FreeReels':
       return lang === 'id' ? 'id-ID' : 'en-US';
     case 'MeloLoV2':
+    case 'ReelShortV2':
     case 'MeloShort':
     case 'DramaVerse':
     case 'MoboReels':
@@ -561,7 +562,7 @@ function resolveProviderApiSegment(provider: string): string {
     DramaBoxV2: 'dramaboxv2',
     NetShort: 'netshort',
     AnyReel: 'anyreel',
-    MeloLoV2: 'melolov2',
+    MeloLoV2: 'melolo',
     DramaOra: 'dramaora',
     MeloShort: 'meloshort',
     PetaDrama: 'petadrama',
@@ -595,9 +596,9 @@ function resolveProviderApiSegment(provider: string): string {
     FlexTV: 'flextv',
     Vigloo: 'vigloo',
     DotDrama: 'dotdrama',
-    iDramaV2: 'idrama_v2',
+    iDramaV2: 'idramav2',
     GoodShort: 'goodshort',
-    ReelShortV2: 'reelshort_v2',
+    ReelShortV2: 'reelshortv2',
     JoyReels: 'joyreels',
     SodaReels: 'sodareels',
     BonusTV: 'bonustv',
@@ -684,7 +685,7 @@ function getEndpointsForProvider(rawProvider: string): ProviderFeedTarget {
         endpoints: [
           { path: '/rank', role: 'rank', extraQuery: { page_size: 18 } },
           { path: '/foryou', role: 'foryou' },
-          { path: '/new_release', role: 'new', extraQuery: { page_size: 12 } },
+          { path: '/new_release', role: 'new', extraQuery: { page_size: 10 } },
         ],
       };
     case 'DramaOra':
@@ -959,6 +960,30 @@ function getEndpointsForProvider(rawProvider: string): ProviderFeedTarget {
           { path: '/popular', role: 'rank' },
         ],
       };
+    case 'iDramaV2':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [{ path: '/foryou', role: 'foryou' }],
+      };
+    case 'ReelShortV2':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/populer', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/terbaru', role: 'new' },
+        ],
+      };
+    case 'Ansflix':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/foryou', role: 'foryou', extraQuery: { pagesize: 12 } },
+        ],
+      };
     default:
       return {
         provider,
@@ -1145,10 +1170,10 @@ async function buildHomePayloadFromUpstream(
       { provider: 'NetShort', apiSegment: 'netshort', path: '/foryou', role: 'foryou' },
       { provider: 'AnyReel', apiSegment: 'anyreel', path: '/asian', role: 'rank' },
       { provider: 'AnyReel', apiSegment: 'anyreel', path: '/foryou', role: 'foryou' },
-      { provider: 'MeloLoV2', apiSegment: 'melolov2', path: '/rank', role: 'rank', extraQuery: { page_size: 18 } },
-      { provider: 'MeloLoV2', apiSegment: 'melolov2', path: '/new_release', role: 'new', extraQuery: { page_size: 12 } },
+      { provider: 'MeloLoV2', apiSegment: 'melolo', path: '/rank', role: 'rank', extraQuery: { page_size: 18 } },
+      { provider: 'MeloLoV2', apiSegment: 'melolo', path: '/new_release', role: 'new', extraQuery: { page_size: 10 } },
       { provider: 'WeTV', apiSegment: 'wetv', path: '/foryou', role: 'foryou' },
-      { provider: 'ReelShortV2', apiSegment: 'reelshort_v2', path: '/foryou', role: 'foryou' },
+      { provider: 'ReelShortV2', apiSegment: 'reelshortv2', path: '/foryou', role: 'foryou' },
       { provider: 'GoodShort', apiSegment: 'goodshort', path: '/tren', role: 'rank', extraQuery: { page_size: 15 } },
     ];
 
@@ -1645,9 +1670,11 @@ const MOLA_SEGMENT_TO_PROVIDER: Record<string, string> = {
   vigloo: 'Vigloo',
   dotdrama: 'DotDrama',
   idrama: 'iDramaV2',
+  idramav2: 'iDramaV2',
   idrama_v2: 'iDramaV2',
   goodshort: 'GoodShort',
   reelshort: 'ReelShortV2',
+  reelshortv2: 'ReelShortV2',
   reelshort_v2: 'ReelShortV2',
   joyreels: 'JoyReels',
   sodareels: 'SodaReels',
@@ -2101,9 +2128,37 @@ export async function searchUpstreamDramaBySlug(
     if (prov === 'MeloLoV2') {
       return {
         provider: prov,
-        segment,
+        segment: 'melolo',
         buildUrls: (kw) => [
-          `${MOLATV_API_BASE}/melolov2/search?keyword=${encodeURIComponent(kw)}&lang=en&token=${token}`,
+          `${MOLATV_API_BASE}/melolo/search?keyword=${encodeURIComponent(kw)}${langQs}&token=${token}`,
+        ],
+      };
+    }
+    if (prov === 'ReelShortV2') {
+      return {
+        provider: prov,
+        segment: 'reelshortv2',
+        buildUrls: (kw) => [
+          `${MOLATV_API_BASE}/reelshortv2/search?word=${encodeURIComponent(kw)}&page=1${langQs}&token=${token}`,
+          `${MOLATV_API_BASE}/reelshortv2/search?keyword=${encodeURIComponent(kw)}&page=1${langQs}&token=${token}`,
+        ],
+      };
+    }
+    if (prov === 'iDramaV2') {
+      return {
+        provider: prov,
+        segment: 'idramav2',
+        buildUrls: (kw) => [
+          `${MOLATV_API_BASE}/idramav2/search?keyword=${encodeURIComponent(kw)}&page=1&page_size=20${langQs}&token=${token}`,
+        ],
+      };
+    }
+    if (prov === 'Ansflix') {
+      return {
+        provider: prov,
+        segment: 'ansflix',
+        buildUrls: (kw) => [
+          `${MOLATV_API_BASE}/ansflix/search?keyword=${encodeURIComponent(kw)}&page=1${langQs}&token=${token}`,
         ],
       };
     }

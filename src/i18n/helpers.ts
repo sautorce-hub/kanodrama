@@ -6,7 +6,7 @@ import type {
   NavTab,
 } from '../types/drama.ts';
 
-export const DEFAULT_SITE_ORIGIN = 'https://kano-drama.xyz';
+export const DEFAULT_SITE_ORIGIN = 'https://kano-drama.live';
 export const LANG_COOKIE_NAME = 'kd_lang';
 export const LANG_PREF_COOKIE_NAME = 'kd_lang_pref';
 
@@ -495,6 +495,8 @@ export function buildOgImageEndpointUrl(
           if (
             (parsed.origin === cleanOrigin ||
               parsed.origin === rawCleanOrigin ||
+              parsed.hostname === 'kano-drama.live' ||
+              parsed.hostname === 'www.kano-drama.live' ||
               parsed.hostname === 'kano-drama.xyz' ||
               parsed.hostname === 'www.kano-drama.xyz') &&
             (parsed.pathname.startsWith('/assets/') ||
@@ -587,7 +589,7 @@ const SECTION_SEO_COPY: Record<
       path: '/',
       title: 'KanoDrama — Watch Free Short Dramas, Asian Series & Movies HD',
       description:
-        'KanoDrama (kano-drama.xyz) is a free streaming platform for short dramas, Asian series, Chinese & Korean dramas, and movies with Indonesian & multi-lang subs.',
+        'KanoDrama (kano-drama.live) is a free streaming platform for short dramas, Asian series, Chinese & Korean dramas, and movies with Indonesian & multi-lang subs.',
     },
     movies: {
       path: '/movies',
@@ -661,7 +663,7 @@ const SECTION_SEO_COPY: Record<
       path: '/',
       title: 'KanoDrama — Nonton Gratis Drama Pendek, Serial Asia & Film Sub Indo HD',
       description:
-        'KanoDrama (kano-drama.xyz) adalah platform streaming drama pendek, serial Asia, drama China/Korea & film gratis dengan subtitle Bahasa Indonesia & lainnya.',
+        'KanoDrama (kano-drama.live) adalah platform streaming drama pendek, serial Asia, drama China/Korea & film gratis dengan subtitle Bahasa Indonesia & lainnya.',
     },
     movies: {
       path: '/movies',
@@ -1683,11 +1685,11 @@ export function generateMetadata(
           'Reward KanoDrama',
           'KanoDrama Poin dan Referral',
           'KanoDrama',
-          'kano-drama.xyz',
+          'kano-drama.live',
         ]
       : [
           'KanoDrama',
-          'kano-drama.xyz',
+          'kano-drama.live',
           'Short Drama',
           'Drama Pendek',
           'Asian Series',

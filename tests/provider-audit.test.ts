@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 
 process.env.KD_DISABLE_AUTO_LISTEN = '1';
 process.env.STREAM_SIGNING_SECRET = 'test-signing-secret-audit';
-process.env.SITE_URL = 'https://kano-drama.xyz';
+process.env.SITE_URL = 'https://kano-drama.live';
 delete process.env.DATABASE_URL;
 
 import { createServerApp } from '../server';
@@ -14,10 +14,12 @@ import {
   ACTIVE_PROVIDER_NAMES,
   ALL_PROVIDER_ADAPTERS,
   PROVIDER_ENDPOINT_CATALOG,
+  ensureMeloloDecryptedUrl,
   getProviderAdapter,
   getStreamUrl,
   normalizeEpisodeList,
   normalizeStream,
+  setActiveAppLanguage,
 } from '../src/services/dramaProviders';
 import {
   LEGACY_V1_TO_V2_PROVIDER,
@@ -282,7 +284,172 @@ test('6. Server routes enforce V1 deprecation (301/410), valid catalog count (82
     const unknownWatchRes = await fetch(`${base}/unknownprov/watch/some-slug`);
     assert.equal(unknownWatchRes.status, 404);
     assert.match(unknownWatchRes.headers.get('x-robots-tag') || '', /noindex/i);
+
+    for (const activePath of [
+      '/api/mola/melolo/rank?page=1&page_size=18',
+      '/api/mola/idramav2/foryou?lang=id',
+      '/api/mola/reelshortv2/foryou?page=1',
+      '/api/mola/ansflix/foryou?page=1&pagesize=12',
+    ]) {
+      const activeRes = await fetch(`${base}${activePath}`);
+      assert.notEqual(activeRes.status, 410, `Canonical route ${activePath} must not return 410`);
+    }
+
+    for (const disabledV1 of ['/api/mola/idrama/foryou', '/api/mola/reelshort/foryou']) {
+      const disabledRes = await fetch(`${base}${disabledV1}`);
+      assert.equal(disabledRes.status, 410, `Legacy v1 ${disabledV1} must return 410`);
+    }
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test('7. resolveProviderFromMolaSegment maps melolo, idramav2, reelshortv2, ansflix cleanly', () => {
+  assert.equal(resolveProviderFromMolaSegment('melolo'), 'MeloLoV2');
+  assert.equal(resolveProviderFromMolaSegment('idramav2'), 'iDramaV2');
+  assert.equal(resolveProviderFromMolaSegment('reelshortv2'), 'ReelShortV2');
+  assert.equal(resolveProviderFromMolaSegment('ansflix'), 'Ansflix');
+});
+
+test('8. MeloLo (/melolo), iDramaV2 (/idramav2), ReelShortV2 (/reelshortv2), and Ansflix (/ansflix) match upstream specs', async () => {
+  const originalFetch = globalThis.fetch;
+  const calledUrls: string[] = [];
+
+  try {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      calledUrls.push(url);
+
+      if (url.includes('/detail')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              bookId: 'bk-101',
+              bookName: 'Spec Drama',
+              chapterCount: 3,
+              episodes: [
+                { chapterIndex: 0, chapterId: 'c1', title: 'EP 1' },
+                { chapterIndex: 1, chapterId: 'c2', title: 'EP 2' },
+              ],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (url.includes('/allepisode')) {
+        return new Response(
+          JSON.stringify({
+            episodes: [{ chapterIndex: 0, chapterId: 'ep-real-1', title: 'EP 1' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (url.includes('/idramav2/stream') && url.includes('codec=h264')) {
+        return new Response(JSON.stringify({ error: 'codec param rejected' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (url.includes('/stream')) {
+        return new Response(
+          JSON.stringify({
+            data: { videoUrl: 'https://cdn.example.com/stream/ep1.mp4' },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          books: [
+            { book_id: 'b-1', title: 'Drama One', cover: 'https://cdn.example.com/c.jpg' },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }) as typeof fetch;
+
+    setActiveAppLanguage('id');
+
+    // 1) MeloLo (/api/mola/melolo/*)
+    const melolo = getProviderAdapter('MeloLoV2');
+    await melolo.setLanguage('id');
+    await melolo.fetchForYou(1);
+    await melolo.fetchRanking(1);
+    await melolo.fetchNewReleases(1);
+    await (melolo as typeof melolo & { fetchAllDrama: (p?: number) => Promise<unknown> }).fetchAllDrama(1);
+    await melolo.fetchAnime!(1);
+    await melolo.searchDramas('love', 1);
+    const meloloStream = await melolo.fetchStream('bk-101', 1);
+    assert.ok(
+      meloloStream.streamUrl.startsWith('/api/mola/melolo/decrypt?url='),
+      `Expected /api/mola/melolo/decrypt?url=..., got ${meloloStream.streamUrl}`
+    );
+    assert.equal(
+      ensureMeloloDecryptedUrl('https://api.molatv.id/api/melolo/decrypt?url=abc&token=secret'),
+      '/api/mola/melolo/decrypt?url=abc'
+    );
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/melolo/set_language?lang=in')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/melolo/rank?') && u.includes('page_size=18')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/melolo/new_release?') && u.includes('page_size=10')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/melolo/all_drama?') && u.includes('page_size=10')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/melolo/anime?')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/melolo/search?keyword=love')));
+
+    // 2) iDramaV2 (/api/mola/idramav2/*, detail-backed episodes, stream fallback without codec)
+    calledUrls.length = 0;
+    const idrama = getProviderAdapter('iDramaV2');
+    await idrama.setLanguage('id');
+    await idrama.fetchForYou(1);
+    await idrama.searchDramas('ceo', 1);
+    const idramaEps = await idrama.fetchAllEpisodes('bk-101');
+    assert.equal(idramaEps.length, 2);
+    const idramaStream = await idrama.fetchStream('bk-101', 1);
+    assert.equal(idramaStream.streamUrl, 'https://cdn.example.com/stream/ep1.mp4');
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/idramav2/set_language?lang=id')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/idramav2/foryou?lang=id')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/idramav2/search?') && u.includes('page_size=20') && u.includes('lang=id')));
+    assert.ok(!calledUrls.some((u) => u.includes('/api/mola/idramav2/allepisode')), 'iDramaV2 should resolve episodes from /detail first');
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/idramav2/stream?') && !u.includes('codec=')));
+
+    // 3) ReelShortV2 (/api/mola/reelshortv2/*, lang=in, search word=, populer/terbaru/anime/asia)
+    calledUrls.length = 0;
+    const reelshort = getProviderAdapter('ReelShortV2');
+    await reelshort.setLanguage('id');
+    await reelshort.fetchForYou(1);
+    await reelshort.fetchRanking(1);
+    await reelshort.fetchNewReleases(1);
+    await reelshort.fetchAnime!(1);
+    await (reelshort as typeof reelshort & { fetchAsia: (p?: number) => Promise<unknown> }).fetchAsia(1);
+    await reelshort.searchDramas('boss', 1);
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/reelshortv2/set_language?lang=in')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/reelshortv2/foryou?')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/reelshortv2/populer?')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/reelshortv2/terbaru?')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/reelshortv2/anime?')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/reelshortv2/asia?')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/reelshortv2/search?') && u.includes('word=boss')));
+
+    // 4) Ansflix (/api/mola/ansflix/*, lang=id, pagesize=12)
+    calledUrls.length = 0;
+    const ansflix = getProviderAdapter('Ansflix');
+    await ansflix.setLanguage('id');
+    await ansflix.fetchForYou(1);
+    await ansflix.searchDramas('secret', 1);
+    await ansflix.fetchDetail('bk-101');
+    await ansflix.fetchAllEpisodes('bk-101');
+    await ansflix.fetchStream('bk-101', 1);
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/ansflix/set_language?lang=id')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/ansflix/foryou?') && u.includes('pagesize=12')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/ansflix/search?keyword=secret&page=1')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/ansflix/detail?book_id=bk-101')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/ansflix/allepisode?book_id=bk-101')));
+    assert.ok(calledUrls.some((u) => u.includes('/api/mola/ansflix/stream?book_id=bk-101&episode=1')));
+  } finally {
+    setActiveAppLanguage('en');
+    globalThis.fetch = originalFetch;
   }
 });

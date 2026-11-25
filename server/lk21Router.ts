@@ -26,6 +26,26 @@ function cleanQueryText(value: unknown, fallback = ''): string {
   return trimmed || fallback;
 }
 
+function getHttpStatusForLk21Error(err: unknown, defaultStatus = 502): number {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  if (
+    err instanceof TypeError ||
+    /Invalid URL|Missing /i.test(msg)
+  ) {
+    return 400;
+  }
+  if (/Disallowed .* origin/i.test(msg)) {
+    return 403;
+  }
+  if (/\bHTTP 404\b|not found/i.test(msg)) {
+    return 404;
+  }
+  if (/MOLA_API_TOKEN is not configured/i.test(msg)) {
+    return 503;
+  }
+  return defaultStatus;
+}
+
 /**
  * Dedicated Express Router for independent LK21 Movies endpoints (/api/lk21/...).
  * MOLA_API_TOKEN is injected exclusively inside server-side lk21Service calls.
@@ -42,7 +62,7 @@ export function createLk21Router({
       res.setHeader('Cache-Control', 'public, max-age=120');
       res.json(data);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLk21Error(err)).json({
         ok: false,
         error:
           err instanceof Error ? err.message : 'Failed to load LK21 home catalog',
@@ -56,7 +76,7 @@ export function createLk21Router({
       res.setHeader('Cache-Control', 'public, max-age=1800');
       res.json(data);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLk21Error(err)).json({
         ok: false,
         error: err instanceof Error ? err.message : 'Failed to load LK21 menu',
       });
@@ -70,7 +90,7 @@ export function createLk21Router({
       res.setHeader('Cache-Control', 'public, max-age=120');
       res.json(data);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLk21Error(err)).json({
         ok: false,
         error:
           err instanceof Error
@@ -93,7 +113,7 @@ export function createLk21Router({
       res.setHeader('Cache-Control', 'public, max-age=180');
       res.json(data);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLk21Error(err)).json({
         ok: false,
         error:
           err instanceof Error ? err.message : 'Failed to load LK21 category',
@@ -108,7 +128,7 @@ export function createLk21Router({
       const data = await getLk21Search(getToken, q, page, resolveOrigin(req));
       res.json(data);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLk21Error(err)).json({
         ok: false,
         error:
           err instanceof Error ? err.message : 'Failed to search LK21 movies',
@@ -131,7 +151,7 @@ export function createLk21Router({
       res.setHeader('Cache-Control', 'public, max-age=300');
       res.json(detail);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLk21Error(err)).json({
         ok: false,
         error:
           err instanceof Error
@@ -152,7 +172,7 @@ export function createLk21Router({
       res.setHeader('Cache-Control', 'public, max-age=300');
       res.json(eps);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLk21Error(err)).json({
         ok: false,
         error:
           err instanceof Error ? err.message : 'Failed to load LK21 episodes',
@@ -173,7 +193,7 @@ export function createLk21Router({
       res.setHeader('Cache-Control', 'public, max-age=180');
       res.json({ ok: true, slug: slug.toLowerCase(), sources });
     } catch (err) {
-      res.status(500).json({
+      res.status(getHttpStatusForLk21Error(err, 500)).json({
         ok: false,
         error:
           err instanceof Error ? err.message : 'Failed to load movie sources',
@@ -201,7 +221,7 @@ export function createLk21Router({
       });
       res.json(stream);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLk21Error(err)).json({
         ok: false,
         error: err instanceof Error ? err.message : 'Failed to load LK21 stream',
       });
@@ -226,7 +246,7 @@ export function createLk21Router({
       res.setHeader('Cache-Control', 'no-cache');
       res.send(body);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLk21Error(err)).json({
         ok: false,
         error:
           err instanceof Error ? err.message : 'Failed to proxy LK21 m3u8',
@@ -281,7 +301,7 @@ export function createLk21Router({
       }
     } catch (err) {
       if (!res.headersSent) {
-        res.status(502).json({
+        res.status(getHttpStatusForLk21Error(err)).json({
           ok: false,
           error:
             err instanceof Error ? err.message : 'Failed to proxy LK21 segment',
@@ -305,7 +325,7 @@ export function createLk21Router({
       res.setHeader('Cache-Control', 'public, max-age=3600');
       res.send(sub.body);
     } catch (err) {
-      res.status(502).json({
+      res.status(getHttpStatusForLk21Error(err)).json({
         ok: false,
         error:
           err instanceof Error ? err.message : 'Failed to proxy LK21 subtitle',

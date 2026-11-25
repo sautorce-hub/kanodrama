@@ -735,8 +735,12 @@ export async function getLookSeriesDetail(
 
   try {
     return await runDeduplicated(cacheKey, refresh);
-  } catch {
-    return null;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err || '');
+    if (/\bHTTP 404\b/i.test(msg)) {
+      return null;
+    }
+    throw err;
   }
 }
 

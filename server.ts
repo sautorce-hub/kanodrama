@@ -161,7 +161,7 @@ const MOLATV_API_BASE = 'https://api.molatv.id/api';
 const DRAMABOX_V2_BASE_URL = `${MOLATV_API_BASE}/dramaboxv2`;
 const NETSHORT_BASE_URL = `${MOLATV_API_BASE}/netshort`;
 const ANYREEL_BASE_URL = `${MOLATV_API_BASE}/anyreel`;
-const MELOLO_V2_BASE_URL = `${MOLATV_API_BASE}/melolov2`;
+const MELOLO_V2_BASE_URL = `${MOLATV_API_BASE}/melolo`;
 const DEFAULT_OG_IMAGE_PATH =
   '/assets/aistudio/file_00000000f37c8211a740b95cbbe03886_b90a3ae0.png';
 
@@ -1107,21 +1107,22 @@ function resolveOrigin(req: Request): string {
   )
     ?.split(',')[0]
     ?.trim();
-  const host = forwardedHost || req.get('host') || `localhost:${PORT}`;
-  if (/^(www\.)?kano-drama\.xyz$/i.test(host)) {
-    return 'https://kano-drama.xyz';
+  const host = (forwardedHost || req.get('host') || `localhost:${PORT}`).split(':')[0];
+  if (/^(www\.)?(kano-drama\.live|kano-drama\.xyz|house-drama\.xyz|house-drama\.web\.id)$/i.test(host)) {
+    return DEFAULT_SITE_ORIGIN;
   }
   const configured = getConfiguredSiteUrl();
   if (configured) {
-    if (/^https?:\/\/(www\.)?kano-drama\.xyz$/i.test(configured)) {
-      return 'https://kano-drama.xyz';
+    if (/^https?:\/\/(www\.)?(kano-drama\.live|kano-drama\.xyz|house-drama\.xyz|house-drama\.web\.id)$/i.test(configured)) {
+      return DEFAULT_SITE_ORIGIN;
     }
     const isLocalConfigured = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(
       configured
     );
     return isLocalConfigured ? configured : configured.replace(/^http:\/\//i, 'https://');
   }
-  const isLocalHost = /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(host);
+  const rawHostWithPort = forwardedHost || req.get('host') || `localhost:${PORT}`;
+  const isLocalHost = /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(rawHostWithPort);
   const forwardedProto = (
     req.headers['x-forwarded-proto'] as string | undefined
   )
@@ -1130,7 +1131,27 @@ function resolveOrigin(req: Request): string {
   const proto = isLocalHost
     ? forwardedProto || req.protocol || 'http'
     : 'https';
-  return `${proto}://${host}`;
+  return `${proto}://${rawHostWithPort}`;
+}
+
+function isLocalRequestHost(req: Request): boolean {
+  const rawHost = (
+    (req.headers['x-forwarded-host'] as string | undefined)?.split(',')[0]?.trim() ||
+    req.get('host') ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
+  if (!rawHost) return true;
+  return /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(rawHost);
+}
+
+function buildCanonicalRedirectUrl(req: Request, targetPath: string): string {
+  const cleanTarget = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
+  if (isLocalRequestHost(req)) {
+    return cleanTarget;
+  }
+  return `${DEFAULT_SITE_ORIGIN}${cleanTarget}`;
 }
 
 function toAbsoluteImageUrl(rawUrl: string, origin: string): string {
@@ -1544,11 +1565,11 @@ function getProviderConfigForSsr(providerHint: SsrProviderName): {
     case 'DotDrama':
       return { baseUrl: `${MOLATV_API_BASE}/dotdrama`, langParam: 'en', idParam: 'book_id' };
     case 'iDramaV2':
-      return { baseUrl: `${MOLATV_API_BASE}/idrama_v2`, langParam: 'en', idParam: 'book_id' };
+      return { baseUrl: `${MOLATV_API_BASE}/idramav2`, langParam: 'id', idParam: 'book_id', epPath: '/detail' };
     case 'GoodShort':
       return { baseUrl: `${MOLATV_API_BASE}/goodshort`, langParam: 'en', idParam: 'book_id' };
     case 'ReelShortV2':
-      return { baseUrl: `${MOLATV_API_BASE}/reelshort_v2`, langParam: 'en', idParam: 'book_id' };
+      return { baseUrl: `${MOLATV_API_BASE}/reelshortv2`, langParam: 'in', idParam: 'book_id' };
     case 'JoyReels':
       return { baseUrl: `${MOLATV_API_BASE}/joyreels`, langParam: 'id', idParam: 'playlet_id', epPath: '/detail' };
     case 'SodaReels':
@@ -1560,7 +1581,9 @@ function getProviderConfigForSsr(providerHint: SsrProviderName): {
     case 'DramaBoxV2':
       return { baseUrl: DRAMABOX_V2_BASE_URL, langParam: 'en', idParam: 'book_id' };
     case 'MeloLoV2':
-      return { baseUrl: MELOLO_V2_BASE_URL, langParam: 'en', idParam: 'book_id' };
+      return { baseUrl: MELOLO_V2_BASE_URL, langParam: 'in', idParam: 'book_id' };
+    case 'Ansflix':
+      return { baseUrl: `${MOLATV_API_BASE}/ansflix`, langParam: 'id', idParam: 'book_id' };
     case 'StarReel':
       return { baseUrl: `${MOLATV_API_BASE}/stareel`, langParam: 'en', idParam: 'book_id' };
     default:
@@ -1610,10 +1633,18 @@ async function fetchDramaForSsr(
         ? (jsonObj.episodes as Record<string, unknown>[])
         : Array.isArray(jsonObj.chapterList)
         ? (jsonObj.chapterList as Record<string, unknown>[])
+        : Array.isArray(jsonObj.video_list)
+        ? (jsonObj.video_list as Record<string, unknown>[])
+        : Array.isArray(jsonObj.videos)
+        ? (jsonObj.videos as Record<string, unknown>[])
         : Array.isArray(dataObj?.chapterList)
         ? (dataObj.chapterList as Record<string, unknown>[])
         : Array.isArray(dataObj?.episodes)
         ? (dataObj.episodes as Record<string, unknown>[])
+        : Array.isArray(dataObj?.video_list)
+        ? (dataObj.video_list as Record<string, unknown>[])
+        : Array.isArray(dataObj?.videos)
+        ? (dataObj.videos as Record<string, unknown>[])
         : Array.isArray(dataObj?.data)
         ? (dataObj.data as Record<string, unknown>[])
         : Array.isArray(jsonObj.data)
@@ -1622,6 +1653,8 @@ async function fetchDramaForSsr(
         ? (rawObj.episodes as Record<string, unknown>[])
         : rawObj && Array.isArray(rawObj.chapterList)
         ? (rawObj.chapterList as Record<string, unknown>[])
+        : rawObj && Array.isArray(rawObj.video_list)
+        ? (rawObj.video_list as Record<string, unknown>[])
         : [];
       if (rawEps.length === 0) return [];
 
@@ -1985,7 +2018,7 @@ function injectDramaSeoIntoHtml(
     drama.title,
     isId ? `Nonton Gratis ${drama.title} Sub Indo` : `Watch Free ${drama.title} online`,
     'KanoDrama',
-    'kano-drama.xyz',
+    'kano-drama.live',
     'Short Drama',
     'Drama Pendek',
     drama.provider,
@@ -2308,7 +2341,7 @@ function injectMovieSeoIntoHtml(
       : `Watch Free ${cleanMovieBaseTitle} online`,
     `${cleanMovieBaseTitle} full movie HD`,
     'KanoDrama',
-    'kano-drama.xyz',
+    'kano-drama.live',
     movieProviderLabel,
     ...movie.genres,
     movie.area,
@@ -2780,7 +2813,7 @@ function injectPageMetadataIntoHtml(
                 name: 'Bagaimana cara mendapatkan bonus referral +5.000 poin?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'Bagikan link referral resmi kano-drama.xyz Anda. Setelah teman mendaftar dan menyelesaikan total 1 jam (60 menit) waktu tonton aktif terverifikasi, +5.000 poin otomatis masuk ke saldo Anda.',
+                  text: 'Bagikan link referral resmi kano-drama.live Anda. Setelah teman mendaftar dan menyelesaikan total 1 jam (60 menit) waktu tonton aktif terverifikasi, +5.000 poin otomatis masuk ke saldo Anda.',
                 },
               },
             ],
@@ -2960,7 +2993,7 @@ function injectProviderSeoIntoHtml(
       provider,
       `${provider} Short Drama`,
       'KanoDrama',
-      'kano-drama.xyz',
+      'kano-drama.live',
       'Watch Free Vertical Drama Online',
     ],
   });
@@ -3084,6 +3117,64 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     })
   );
   app.use(express.json({ limit: '256kb' }));
+  app.use(
+    (
+      err: unknown,
+      req: Request,
+      res: Response,
+      next: (err?: unknown) => void
+    ) => {
+      if (!err) {
+        next();
+        return;
+      }
+      const errObj = err as {
+        type?: string;
+        status?: number;
+        statusCode?: number;
+        message?: string;
+      };
+      const isJsonSyntaxError =
+        err instanceof SyntaxError &&
+        (errObj.type === 'entity.parse.failed' ||
+          errObj.status === 400 ||
+          errObj.statusCode === 400);
+      const isPayloadTooLarge =
+        errObj.type === 'entity.too.large' ||
+        errObj.status === 413 ||
+        errObj.statusCode === 413;
+
+      if (req.path.startsWith('/api') || isJsonSyntaxError || isPayloadTooLarge) {
+        if (isPayloadTooLarge) {
+          res.status(413).json({
+            ok: false,
+            error: 'Request payload too large (max 256kb)',
+          });
+          return;
+        }
+        if (isJsonSyntaxError) {
+          res.status(400).json({
+            ok: false,
+            error: 'Malformed JSON request body',
+          });
+          return;
+        }
+        const status =
+          typeof errObj.status === 'number' && errObj.status >= 400 && errObj.status < 600
+            ? errObj.status
+            : 500;
+        res.status(status).json({
+          ok: false,
+          error:
+            err instanceof Error
+              ? err.message
+              : 'Internal API middleware error',
+        });
+        return;
+      }
+      next(err);
+    }
+  );
   const rootDir = process.cwd();
   const distDir = path.resolve(rootDir, 'dist');
 
@@ -3144,8 +3235,18 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   }
 
   app.get('/api/health', async (_req: Request, res: Response) => {
-    const db = await pingDb();
-    res.json({ ok: true, service: 'kano-drama-ssr', db });
+    try {
+      const db = await pingDb();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ ok: true, service: 'kano-drama-ssr', db });
+    } catch (err) {
+      res.status(503).json({
+        ok: false,
+        service: 'kano-drama-ssr',
+        db: { ok: false, latencyMs: 0, engine: 'error' },
+        error: err instanceof Error ? err.message : 'Health check failed',
+      });
+    }
   });
 
   // Database-cached Home endpoint (reads cache first, stale-while-revalidate async refresh)
@@ -3187,24 +3288,32 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   // Manual async revalidation trigger for Home cache
   app.post('/api/home/revalidate', (req: Request, res: Response) => {
-    const lang =
-      typeof req.query.lang === 'string'
-        ? req.query.lang
-        : typeof req.body?.lang === 'string'
-        ? req.body.lang
-        : 'en';
-    const provider =
-      typeof req.query.provider === 'string'
-        ? req.query.provider
-        : typeof req.body?.provider === 'string'
-        ? req.body.provider
-        : 'All';
-    const result = triggerAsyncHomeRevalidate(getMolaToken(), lang, provider);
-    res.status(result.started ? 202 : 200).json({
-      ok: true,
-      revalidating: result.started,
-      cacheKey: result.cacheKey,
-    });
+    try {
+      const lang =
+        typeof req.query.lang === 'string'
+          ? req.query.lang
+          : typeof req.body?.lang === 'string'
+          ? req.body.lang
+          : 'en';
+      const provider =
+        typeof req.query.provider === 'string'
+          ? req.query.provider
+          : typeof req.body?.provider === 'string'
+          ? req.body.provider
+          : 'All';
+      const result = triggerAsyncHomeRevalidate(getMolaToken(), lang, provider);
+      res.status(result.started ? 202 : 200).json({
+        ok: true,
+        revalidating: result.started,
+        cacheKey: result.cacheKey,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error:
+          err instanceof Error ? err.message : 'Failed to trigger home revalidation',
+      });
+    }
   });
 
   app.get('/api/home/cache-status', async (_req: Request, res: Response) => {
@@ -3229,75 +3338,82 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   } | null = null;
 
   app.get('/api/platforms', async (_req: Request, res: Response) => {
-    const now = Date.now();
-    if (cachedPlatformsPayload && now < cachedPlatformsPayload.expiresAt) {
+    try {
+      const now = Date.now();
+      if (cachedPlatformsPayload && now < cachedPlatformsPayload.expiresAt) {
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.json({
+          ok: true,
+          source: `${MOLA_PLATFORM_ORIGIN}/#platforms`,
+          cached: true,
+          platforms: cachedPlatformsPayload.platforms,
+        });
+        return;
+      }
+
+      const liveSlugLogos = new Map<string, { name?: string; logo: string }>();
+      try {
+        const upstream = await fetch(`${MOLA_PLATFORM_ORIGIN}/`, {
+          method: 'GET',
+          headers: {
+            Accept: 'text/html',
+            'User-Agent': 'KanoDrama/2.0 (+https://kano-drama.live)',
+          },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (upstream.ok) {
+          const html = await upstream.text();
+          const cards = html.matchAll(/<a[^>]*class="plat-card"[^>]*>([\s\S]*?)<\/a>/gi);
+          for (const match of cards) {
+            const cardHtml = match[0];
+            const slug = (cardHtml.match(/data-slug="([^"]+)"/i) || [])[1]?.trim().toLowerCase();
+            const imgPath = (cardHtml.match(/src="([^"]+)"/i) || [])[1]?.trim();
+            const label = (cardHtml.match(/class="plat-name"[^>]*>([^<]+)</i) || [])[1]?.trim();
+            if (slug && imgPath) {
+              const absLogo = imgPath.startsWith('http')
+                ? imgPath
+                : `${MOLA_PLATFORM_ORIGIN}${imgPath.startsWith('/') ? '' : '/'}${imgPath}`;
+              liveSlugLogos.set(slug, { name: label, logo: absLogo });
+            }
+          }
+        }
+      } catch {
+        // Fallback safely to static verified mapping below
+      }
+
+      const platforms = Object.entries(PROVIDER_LOGO_PATHS).map(([id, fallbackPath]) => {
+        const slug =
+          PROVIDER_SLUG_MAP[id as keyof typeof PROVIDER_SLUG_MAP] || id.toLowerCase();
+        const liveEntry = liveSlugLogos.get(slug);
+        const officialLogo =
+          liveEntry?.logo || `${MOLA_PLATFORM_ORIGIN}${fallbackPath}`;
+        return {
+          id,
+          slug,
+          name: liveEntry?.name || id,
+          logo: officialLogo,
+          icon: officialLogo,
+        };
+      });
+
+      cachedPlatformsPayload = {
+        expiresAt: now + 6 * 60 * 60 * 1000,
+        platforms,
+      };
+
       res.setHeader('Cache-Control', 'public, max-age=3600');
       res.json({
         ok: true,
         source: `${MOLA_PLATFORM_ORIGIN}/#platforms`,
-        cached: true,
-        platforms: cachedPlatformsPayload.platforms,
+        cached: false,
+        platforms,
       });
-      return;
-    }
-
-    const liveSlugLogos = new Map<string, { name?: string; logo: string }>();
-    try {
-      const upstream = await fetch(`${MOLA_PLATFORM_ORIGIN}/`, {
-        method: 'GET',
-        headers: {
-          Accept: 'text/html',
-          'User-Agent': 'KanoDrama/2.0 (+https://kano-drama.xyz)',
-        },
-        signal: AbortSignal.timeout(5000),
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to load platforms',
       });
-      if (upstream.ok) {
-        const html = await upstream.text();
-        const cards = html.matchAll(/<a[^>]*class="plat-card"[^>]*>([\s\S]*?)<\/a>/gi);
-        for (const match of cards) {
-          const cardHtml = match[0];
-          const slug = (cardHtml.match(/data-slug="([^"]+)"/i) || [])[1]?.trim().toLowerCase();
-          const imgPath = (cardHtml.match(/src="([^"]+)"/i) || [])[1]?.trim();
-          const label = (cardHtml.match(/class="plat-name"[^>]*>([^<]+)</i) || [])[1]?.trim();
-          if (slug && imgPath) {
-            const absLogo = imgPath.startsWith('http')
-              ? imgPath
-              : `${MOLA_PLATFORM_ORIGIN}${imgPath.startsWith('/') ? '' : '/'}${imgPath}`;
-            liveSlugLogos.set(slug, { name: label, logo: absLogo });
-          }
-        }
-      }
-    } catch {
-      // Fallback safely to static verified mapping below
     }
-
-    const platforms = Object.entries(PROVIDER_LOGO_PATHS).map(([id, fallbackPath]) => {
-      const slug =
-        PROVIDER_SLUG_MAP[id as keyof typeof PROVIDER_SLUG_MAP] || id.toLowerCase();
-      const liveEntry = liveSlugLogos.get(slug);
-      const officialLogo =
-        liveEntry?.logo || `${MOLA_PLATFORM_ORIGIN}${fallbackPath}`;
-      return {
-        id,
-        slug,
-        name: liveEntry?.name || id,
-        logo: officialLogo,
-        icon: officialLogo,
-      };
-    });
-
-    cachedPlatformsPayload = {
-      expiresAt: now + 6 * 60 * 60 * 1000,
-      platforms,
-    };
-
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.json({
-      ok: true,
-      source: `${MOLA_PLATFORM_ORIGIN}/#platforms`,
-      cached: false,
-      platforms,
-    });
   });
 
   function sanitizeMolaUrlString(str: string): string {
@@ -3350,12 +3466,20 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   app.use('/api/mola', async (req: Request, res: Response) => {
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     const rawPath = req.url || '/';
+    if (rawPath === '/' || rawPath.startsWith('/?')) {
+      res.status(400).json({
+        ok: false,
+        success: false,
+        error: 'Missing Mola provider endpoint path',
+      });
+      return;
+    }
     if (rawPath.includes('..') || rawPath.includes('@') || !rawPath.startsWith('/')) {
-      res.status(400).json({ success: false, error: 'Invalid API gateway path' });
+      res.status(400).json({ ok: false, success: false, error: 'Invalid API gateway path' });
       return;
     }
     if (
-      /^\/(dramabox|melolo|storyreel|vibeshort|shortmax|idrama|reelshort)(?:\/|$|\?)/i.test(
+      /^\/(dramabox|storyreel|vibeshort|shortmax|idrama|reelshort)(?:\/|$|\?)/i.test(
         rawPath
       )
     ) {
@@ -3366,6 +3490,11 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       });
       return;
     }
+
+    const canonicalGatewayPath = rawPath
+      .replace(/^\/melolov2(?=\/|\?|$)/i, '/melolo')
+      .replace(/^\/idrama_v2(?=\/|\?|$)/i, '/idramav2')
+      .replace(/^\/reelshort_v2(?=\/|\?|$)/i, '/reelshortv2');
 
     const token = getMolaToken();
     if (!token) {
@@ -3378,7 +3507,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
     let upstreamUrl: URL;
     try {
-      upstreamUrl = new URL(`${MOLATV_API_BASE}${rawPath}`);
+      upstreamUrl = new URL(`${MOLATV_API_BASE}${canonicalGatewayPath}`);
       if (upstreamUrl.origin !== 'https://api.molatv.id') {
         res.status(403).json({ success: false, error: 'Forbidden upstream origin' });
         return;
@@ -3445,17 +3574,79 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
       if (lowerCt.includes('application/json') || lowerCt.includes('text/json')) {
         const text = await upstream.text();
-        res.status(upstream.status);
-        res.setHeader('Content-Type', 'application/json; charset=utf-8');
         try {
           const parsed = JSON.parse(text);
+          const acceptHeader = (req.get('accept') || '').toLowerCase();
+          if (
+            upstream.ok &&
+            upstreamUrl.pathname.toLowerCase().endsWith('/decrypt') &&
+            !acceptHeader.includes('application/json')
+          ) {
+            const pObj =
+              parsed && typeof parsed === 'object'
+                ? (parsed as Record<string, unknown>)
+                : null;
+            const dObj =
+              pObj?.data && typeof pObj.data === 'object'
+                ? (pObj.data as Record<string, unknown>)
+                : pObj;
+            const resolvedMediaUrl = cleanText(
+              dObj?.url ??
+                dObj?.videoUrl ??
+                dObj?.video_url ??
+                dObj?.streamUrl ??
+                dObj?.stream_url ??
+                pObj?.url ??
+                pObj?.videoUrl
+            );
+            if (resolvedMediaUrl && /^https?:\/\//i.test(resolvedMediaUrl)) {
+              const targetHeaders: Record<string, string> = {
+                Accept: req.get('accept') || '*/*',
+              };
+              if (rangeHeader) {
+                targetHeaders.Range = rangeHeader;
+              }
+              const mediaRes = await fetch(resolvedMediaUrl, {
+                method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+                headers: targetHeaders,
+                signal: AbortSignal.timeout(15000),
+              });
+              const mediaCt =
+                mediaRes.headers.get('content-type') || 'video/mp4';
+              res.status(mediaRes.status);
+              res.setHeader('Content-Type', mediaCt);
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              const mediaRange = mediaRes.headers.get('content-range');
+              const mediaAcceptRanges = mediaRes.headers.get('accept-ranges');
+              const mediaLen = mediaRes.headers.get('content-length');
+              if (mediaRange) res.setHeader('Content-Range', mediaRange);
+              if (mediaAcceptRanges) {
+                res.setHeader('Accept-Ranges', mediaAcceptRanges);
+              }
+              if (mediaLen) res.setHeader('Content-Length', mediaLen);
+              if (mediaRes.body) {
+                pipeWebStreamToExpress(
+                  mediaRes.body,
+                  req,
+                  res,
+                  'Decrypted media stream interrupted'
+                );
+              } else {
+                res.send(Buffer.from(await mediaRes.arrayBuffer()));
+              }
+              return;
+            }
+          }
+
+          res.status(upstream.status);
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
           const sanitized = JSON.stringify(sanitizeMolaPayload(parsed));
           if (cacheableListGet && upstream.ok) {
             setCachedMolaApiResponse(molaCacheKey, upstream.status, sanitized);
             res.setHeader('X-Mola-Cache', 'MISS');
           } else if (
             upstream.ok &&
-            /\/(search|cari|detail|list|rank|hot|new|recommend|foryou|drama)/i.test(
+            /\/(search|cari|detail|list|rank|hot|new|recommend|foryou|drama|populer|terbaru|anime|asia)/i.test(
               upstreamUrl.pathname
             )
           ) {
@@ -3514,6 +3705,8 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           }
           res.send(sanitized);
         } catch {
+          res.status(upstream.status);
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
           res.send(text);
         }
         return;
@@ -3840,7 +4033,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         }
         if (current.startsWith('/api/proxy?') || current.startsWith('/api/og?')) {
           try {
-            const parsed = new URL(current, 'https://kano-drama.xyz');
+            const parsed = new URL(current, DEFAULT_SITE_ORIGIN);
             const inner = parsed.searchParams.get('url');
             if (inner) {
               current = inner.trim();
@@ -3889,6 +4082,8 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         const parsedSelf = new URL(targetUrl);
         const host = parsedSelf.hostname.toLowerCase();
         const isOwnHost =
+          host === 'kano-drama.live' ||
+          host === 'www.kano-drama.live' ||
           host === 'kano-drama.xyz' ||
           host === 'www.kano-drama.xyz' ||
           (reqHost && host === reqHost);
@@ -4078,32 +4273,39 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   };
 
   app.post('/api/stream/sign', (req: Request, res: Response) => {
-    const rawUrl = cleanText(req.body?.url);
-    const uid = cleanText(req.body?.uid, 'guest');
-    if (!rawUrl) {
-      res.status(400).json({ ok: false, error: 'Missing stream url' });
-      return;
-    }
-    let parsed: URL;
     try {
-      parsed = new URL(rawUrl);
-    } catch {
-      res.status(400).json({ ok: false, error: 'Invalid stream url' });
-      return;
+      const rawUrl = cleanText(req.body?.url);
+      const uid = cleanText(req.body?.uid, 'guest');
+      if (!rawUrl) {
+        res.status(400).json({ ok: false, error: 'Missing stream url' });
+        return;
+      }
+      let parsed: URL;
+      try {
+        parsed = new URL(rawUrl);
+      } catch {
+        res.status(400).json({ ok: false, error: 'Invalid stream url' });
+        return;
+      }
+      const isAllowedProto =
+        parsed.protocol === 'https:' ||
+        (parsed.protocol === 'http:' && ALLOWED_HTTP_HOSTS.test(parsed.hostname));
+      if (!isAllowedProto || !ALLOWED_PROXY_HOSTS.test(parsed.hostname)) {
+        res.status(403).json({ ok: false, error: 'Target stream host not permitted' });
+        return;
+      }
+      const { token, exp } = signStreamToken(parsed.toString(), uid);
+      res.json({
+        ok: true,
+        signedUrl: `/api/stream?st=${encodeURIComponent(token)}`,
+        expiresAt: exp,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to sign stream url',
+      });
     }
-    const isAllowedProto =
-      parsed.protocol === 'https:' ||
-      (parsed.protocol === 'http:' && ALLOWED_HTTP_HOSTS.test(parsed.hostname));
-    if (!isAllowedProto || !ALLOWED_PROXY_HOSTS.test(parsed.hostname)) {
-      res.status(403).json({ ok: false, error: 'Target stream host not permitted' });
-      return;
-    }
-    const { token, exp } = signStreamToken(parsed.toString(), uid);
-    res.json({
-      ok: true,
-      signedUrl: `/api/stream?st=${encodeURIComponent(token)}`,
-      expiresAt: exp,
-    });
   });
 
   app.options('/api/stream', (_req: Request, res: Response) => {
@@ -4277,48 +4479,62 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   });
 
   app.get('/api/auth/config', (_req: Request, res: Response) => {
-    const googleClientId = getPrimaryGoogleClientId();
-    const hasOAuthCodeFlow = Boolean(googleClientId && getGoogleClientSecret());
-    res.setHeader('Cache-Control', 'no-store');
-    res.json({
-      ok: true,
-      googleClientId,
-      hasOAuthCodeFlow,
-    });
+    try {
+      const googleClientId = getPrimaryGoogleClientId();
+      const hasOAuthCodeFlow = Boolean(googleClientId && getGoogleClientSecret());
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        googleClientId,
+        hasOAuthCodeFlow,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to read auth config',
+      });
+    }
   });
 
   app.get('/api/auth/session', async (req: Request, res: Response) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const { session } = extractAuthSessionFromRequest(req);
-    if (!session) {
-      res.json({ ok: true, authenticated: false, user: null });
-      return;
+    try {
+      res.setHeader('Cache-Control', 'no-store');
+      const { session } = extractAuthSessionFromRequest(req);
+      if (!session) {
+        res.json({ ok: true, authenticated: false, user: null });
+        return;
+      }
+
+      const dbUser = await getUserFromDb(session.uid).catch(() => null);
+      const dbCount = await getUniqueGmailLoginCountFromDb().catch(() => null);
+      const gmailLoginCount =
+        dbCount !== null
+          ? Math.max(dbCount, memoryGmailTotalLogins)
+          : memoryGmailTotalLogins;
+
+      res.json({
+        ok: true,
+        authenticated: true,
+        gmailLoginCount,
+        user: {
+          uid: session.uid,
+          email: dbUser?.email || session.email,
+          displayName: dbUser?.displayName || session.displayName,
+          photoURL: dbUser?.photoURL ?? session.photoURL,
+          bio: dbUser?.bio || '',
+          preferredLanguage: dbUser?.preferredLanguage || 'en',
+          preferences: dbUser?.preferences || {},
+          streakCount: dbUser?.streakCount || 1,
+          lastVisitDate: dbUser?.lastVisitDate || getJakartaDateKey(),
+          isVip: Boolean(dbUser?.isVip),
+        },
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to inspect auth session',
+      });
     }
-
-    const dbUser = await getUserFromDb(session.uid).catch(() => null);
-    const dbCount = await getUniqueGmailLoginCountFromDb().catch(() => null);
-    const gmailLoginCount =
-      dbCount !== null
-        ? Math.max(dbCount, memoryGmailTotalLogins)
-        : memoryGmailTotalLogins;
-
-    res.json({
-      ok: true,
-      authenticated: true,
-      gmailLoginCount,
-      user: {
-        uid: session.uid,
-        email: dbUser?.email || session.email,
-        displayName: dbUser?.displayName || session.displayName,
-        photoURL: dbUser?.photoURL ?? session.photoURL,
-        bio: dbUser?.bio || '',
-        preferredLanguage: dbUser?.preferredLanguage || 'en',
-        preferences: dbUser?.preferences || {},
-        streakCount: dbUser?.streakCount || 1,
-        lastVisitDate: dbUser?.lastVisitDate || getJakartaDateKey(),
-        isVip: Boolean(dbUser?.isVip),
-      },
-    });
   });
 
   app.post('/api/auth/google', async (req: Request, res: Response) => {
@@ -4650,34 +4866,41 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   });
 
   app.get('/api/auth/google/url', (req: Request, res: Response) => {
-    const clientId = getPrimaryGoogleClientId();
-    const clientSecret = getGoogleClientSecret();
-    if (!clientId || !clientSecret) {
-      res.status(503).json({
-        ok: false,
-        error: 'Google OAuth code flow is not configured.',
+    try {
+      const clientId = getPrimaryGoogleClientId();
+      const clientSecret = getGoogleClientSecret();
+      if (!clientId || !clientSecret) {
+        res.status(503).json({
+          ok: false,
+          error: 'Google OAuth code flow is not configured.',
+        });
+        return;
+      }
+      const baseOrigin = (getConfiguredSiteUrl() || resolveOrigin(req))
+        .trim()
+        .replace(/\/+$/, '');
+      const redirectUri = `${baseOrigin}/api/auth/google/callback`;
+      const state = signOAuthStateToken(baseOrigin);
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: 'openid email profile',
+        prompt: 'select_account',
+        access_type: 'online',
+        state,
       });
-      return;
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to generate Google OAuth URL',
+      });
     }
-    const baseOrigin = (getConfiguredSiteUrl() || resolveOrigin(req))
-      .trim()
-      .replace(/\/+$/, '');
-    const redirectUri = `${baseOrigin}/api/auth/google/callback`;
-    const state = signOAuthStateToken(baseOrigin);
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      response_type: 'code',
-      scope: 'openid email profile',
-      prompt: 'select_account',
-      access_type: 'online',
-      state,
-    });
-    res.setHeader('Cache-Control', 'no-store');
-    res.json({
-      ok: true,
-      url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
-    });
   });
 
   app.get(
@@ -4810,14 +5033,21 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   );
 
   app.post('/api/auth/logout', (req: Request, res: Response) => {
-    const { viaCookie } = extractAuthSessionFromRequest(req);
-    if (viaCookie && !isTrustedSameOriginMutation(req)) {
-      res.status(403).json({ ok: false, error: 'Cross-origin logout rejected' });
-      return;
+    try {
+      const { viaCookie } = extractAuthSessionFromRequest(req);
+      if (viaCookie && !isTrustedSameOriginMutation(req)) {
+        res.status(403).json({ ok: false, error: 'Cross-origin logout rejected' });
+        return;
+      }
+      clearAuthSessionCookie(req, res);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to log out',
+      });
     }
-    clearAuthSessionCookie(req, res);
-    res.setHeader('Cache-Control', 'no-store');
-    res.json({ ok: true });
   });
 
   app.post('/api/users/sync', async (req: Request, res: Response) => {
@@ -4935,8 +5165,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         res.status(400).json({ ok: false, error: 'Missing uid' });
         return;
       }
-      if (!session || session.uid !== uid) {
+      if (!session) {
         res.status(401).json({ ok: false, error: 'Authentication required' });
+        return;
+      }
+      if (session.uid !== uid) {
+        res.status(403).json({ ok: false, error: 'Forbidden' });
         return;
       }
       const user = await getUserFromDb(uid);
@@ -5130,15 +5364,22 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   }
 
   app.get('/api/points/config', (_req: Request, res: Response) => {
-    const config = getPayoutRuntimeConfig();
-    res.setHeader('Cache-Control', 'no-store');
-    res.json({
-      ok: true,
-      dbConnected: isDatabaseEnabled(),
-      config,
-      banks: INDONESIAN_BANK_OPTIONS,
-      usdtNetworks: USDT_NETWORK_OPTIONS,
-    });
+    try {
+      const config = getPayoutRuntimeConfig();
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        dbConnected: isDatabaseEnabled(),
+        config,
+        banks: INDONESIAN_BANK_OPTIONS,
+        usdtNetworks: USDT_NETWORK_OPTIONS,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to load points config',
+      });
+    }
   });
 
   app.get('/api/payouts/live', async (req: Request, res: Response) => {
@@ -6392,7 +6633,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
       const dramaId = cleanText(req.query.dramaId);
       const provider = cleanText(req.query.provider, 'DramaBoxV2');
-      const episode = Math.max(1, Number(req.query.episode) || 1);
+      const episode = Math.max(
+        1,
+        Number(req.query.episode ?? req.query.episodeNumber) || 1
+      );
       if (!dramaId) {
         res.status(400).json({ ok: false, error: 'Missing dramaId query parameter' });
         return;
@@ -6425,7 +6669,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }
       const dramaId = cleanText(req.body?.dramaId);
       const provider = cleanText(req.body?.provider, 'DramaBoxV2');
-      const episodeNumber = Math.max(1, Number(req.body?.episodeNumber) || 1);
+      const episodeNumber = Math.max(
+        1,
+        Number(req.body?.episodeNumber ?? req.body?.episode) || 1
+      );
       const content = cleanText(req.body?.text ?? req.body?.content);
       const authorName = cleanText(
         req.body?.authorName ?? req.body?.author,
@@ -6442,6 +6689,13 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         0,
         Math.floor(Number(req.body?.videoTimestampSec) || 0)
       );
+      const authorEmail = session.email || cleanText(req.body?.authorEmail) || undefined;
+      const authorPhotoURL =
+        session.photoURL ?? (cleanText(req.body?.authorPhotoURL) || null);
+      const authorBadge = cleanText(req.body?.authorBadge) || undefined;
+      const authorInitials = cleanText(req.body?.authorInitials) || undefined;
+      const authorColor = cleanText(req.body?.authorColor) || undefined;
+
       const comment = await createCommentInDb({
         id,
         dramaId,
@@ -6449,15 +6703,34 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         episodeNumber,
         userId: session.uid,
         authorName,
-        authorEmail: session.email || cleanText(req.body?.authorEmail) || undefined,
-        authorPhotoURL: session.photoURL ?? (cleanText(req.body?.authorPhotoURL) || null),
-        authorBadge: cleanText(req.body?.authorBadge) || undefined,
-        authorInitials: cleanText(req.body?.authorInitials) || undefined,
-        authorColor: cleanText(req.body?.authorColor) || undefined,
+        authorEmail,
+        authorPhotoURL,
+        authorBadge,
+        authorInitials,
+        authorColor,
         content,
         videoTimestampSec,
       });
-      res.status(201).json({ ok: true, comment });
+      res.status(201).json({
+        ok: true,
+        persisted: Boolean(comment),
+        comment: comment ?? {
+          id,
+          dramaId,
+          provider,
+          episodeNumber,
+          authorUid: session.uid,
+          author: authorName,
+          authorEmail,
+          authorPhotoURL,
+          authorBadge,
+          authorInitials,
+          authorColor,
+          text: content.slice(0, 400),
+          videoTimestampSec,
+          createdAt: Date.now(),
+        },
+      });
     } catch (err) {
       res.status(500).json({
         ok: false,
@@ -6618,7 +6891,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         return;
       }
       const dramaId = cleanText(req.body?.dramaId);
-      const provider = cleanText(req.body?.provider, 'LK21');
+      const provider = cleanText(req.body?.provider, 'DramaBoxV2');
       if (!dramaId) {
         res.status(400).json({ ok: false, error: 'dramaId is required' });
         return;
@@ -6667,7 +6940,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         return;
       }
       const dramaId = cleanText(req.body?.dramaId);
-      const provider = cleanText(req.body?.provider, 'LK21');
+      const provider = cleanText(req.body?.provider, 'DramaBoxV2');
       const folderId = cleanText(req.body?.folderId, 'all');
       if (!dramaId) {
         res.status(400).json({ ok: false, error: 'dramaId is required' });
@@ -6784,102 +7057,116 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   };
 
   app.get('/api/visitors/stats', async (_req: Request, res: Response) => {
-    const wibDay = syncJakartaDayRollover();
-    res.setHeader('Cache-Control', 'no-store');
-    const payload = await getCurrentReadOnlyVisitorStats(wibDay);
-    res.json(payload);
+    try {
+      const wibDay = syncJakartaDayRollover();
+      res.setHeader('Cache-Control', 'no-store');
+      const payload = await getCurrentReadOnlyVisitorStats(wibDay);
+      res.json(payload);
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to load visitor stats',
+      });
+    }
   });
 
   app.post('/api/visitors/heartbeat', async (req: Request, res: Response) => {
-    const now = Date.now();
-    const wibDay = syncJakartaDayRollover(now);
-    res.setHeader('Cache-Control', 'no-store');
-
-    if (isBotOrAutomatedRequest(req)) {
-      const payload = await getCurrentReadOnlyVisitorStats(wibDay);
-      res.json({ ...payload, botFiltered: true });
-      return;
-    }
-
-    const bodyObj =
-      req.body && typeof req.body === 'object'
-        ? (req.body as Record<string, unknown>)
-        : {};
-    const rawSid = sanitizeTrackingId(bodyObj.sessionId);
-    const rawVid = sanitizeTrackingId(bodyObj.visitorId);
-
-    // Require valid client session/visitor identifiers or fall back to deterministic IP+UA bucket
-    const uaHash = crypto
-      .createHash('sha256')
-      .update(`${req.ip || 'local'}|${req.get('user-agent') || ''}`)
-      .digest('hex')
-      .slice(0, 20);
-    const vid = rawVid || `v-ip-${uaHash}`;
-    const sid = rawSid || `s-ip-${uaHash}`;
-
-    activeSessions.set(sid, { visitorId: vid, lastSeen: now });
-
-    // Cooldown per visitorId (30m) so opening multiple tabs concurrently doesn't inflate totalViews
-    const lastViewTs = visitorLastViewAt.get(vid) ?? 0;
-    const allowSessionView =
-      !countedSessionViews.has(sid) && now - lastViewTs >= VISITOR_VIEW_COOLDOWN_MS;
-    if (allowSessionView) {
-      visitorLastViewAt.set(vid, now);
-    }
-
     try {
-      const persisted = await recordVisitorHeartbeatInDb(
-        sid,
-        vid,
-        allowSessionView
-      );
-      if (persisted) {
-        addBoundedSetItem(countedTodayVisitors, vid);
-        addBoundedSetItem(countedAllTimeVisitors, vid);
-        addBoundedSetItem(countedSessionViews, sid);
-        todayUniqueVisitors = persisted.todayVisitors;
-        cumulativeVisitors = persisted.totalVisitors;
-        cumulativeViews = persisted.totalViews;
-        res.json(normalizeVisitorStatsResponse(persisted));
+      const now = Date.now();
+      const wibDay = syncJakartaDayRollover(now);
+      res.setHeader('Cache-Control', 'no-store');
+
+      if (isBotOrAutomatedRequest(req)) {
+        const payload = await getCurrentReadOnlyVisitorStats(wibDay);
+        res.json({ ...payload, botFiltered: true });
         return;
       }
-    } catch {
-      // Fallback gracefully to in-memory + disk snapshot counters
-    }
 
-    let fallbackMutated = false;
-    if (!countedTodayVisitors.has(vid)) {
-      addBoundedSetItem(countedTodayVisitors, vid);
-      todayUniqueVisitors += 1;
-      fallbackMutated = true;
-    }
-    if (!countedAllTimeVisitors.has(vid)) {
-      addBoundedSetItem(countedAllTimeVisitors, vid);
-      cumulativeVisitors += 1;
-      fallbackMutated = true;
-    }
-    if (allowSessionView && !countedSessionViews.has(sid)) {
-      addBoundedSetItem(countedSessionViews, sid);
-      cumulativeViews += 1;
-      fallbackMutated = true;
-    }
-    if (fallbackMutated) {
-      scheduleFallbackVisitorStatsSave();
-    }
+      const bodyObj =
+        req.body && typeof req.body === 'object'
+          ? (req.body as Record<string, unknown>)
+          : {};
+      const rawSid = sanitizeTrackingId(bodyObj.sessionId);
+      const rawVid = sanitizeTrackingId(bodyObj.visitorId);
 
-    const uniqueOnline = new Set(
-      Array.from(activeSessions.values()).map((v) => v.visitorId)
-    ).size;
+      // Require valid client session/visitor identifiers or fall back to deterministic IP+UA bucket
+      const uaHash = crypto
+        .createHash('sha256')
+        .update(`${req.ip || 'local'}|${req.get('user-agent') || ''}`)
+        .digest('hex')
+        .slice(0, 20);
+      const vid = rawVid || `v-ip-${uaHash}`;
+      const sid = rawSid || `s-ip-${uaHash}`;
 
-    res.json(
-      normalizeVisitorStatsResponse({
-        onlineNow: uniqueOnline,
-        todayVisitors: todayUniqueVisitors,
-        totalVisitors: cumulativeVisitors,
-        totalViews: cumulativeViews,
-        dayKey: currentDayKey || wibDay,
-      })
-    );
+      activeSessions.set(sid, { visitorId: vid, lastSeen: now });
+
+      // Cooldown per visitorId (30m) so opening multiple tabs concurrently doesn't inflate totalViews
+      const lastViewTs = visitorLastViewAt.get(vid) ?? 0;
+      const allowSessionView =
+        !countedSessionViews.has(sid) && now - lastViewTs >= VISITOR_VIEW_COOLDOWN_MS;
+      if (allowSessionView) {
+        visitorLastViewAt.set(vid, now);
+      }
+
+      try {
+        const persisted = await recordVisitorHeartbeatInDb(
+          sid,
+          vid,
+          allowSessionView
+        );
+        if (persisted) {
+          addBoundedSetItem(countedTodayVisitors, vid);
+          addBoundedSetItem(countedAllTimeVisitors, vid);
+          addBoundedSetItem(countedSessionViews, sid);
+          todayUniqueVisitors = persisted.todayVisitors;
+          cumulativeVisitors = persisted.totalVisitors;
+          cumulativeViews = persisted.totalViews;
+          res.json(normalizeVisitorStatsResponse(persisted));
+          return;
+        }
+      } catch {
+        // Fallback gracefully to in-memory + disk snapshot counters
+      }
+
+      let fallbackMutated = false;
+      if (!countedTodayVisitors.has(vid)) {
+        addBoundedSetItem(countedTodayVisitors, vid);
+        todayUniqueVisitors += 1;
+        fallbackMutated = true;
+      }
+      if (!countedAllTimeVisitors.has(vid)) {
+        addBoundedSetItem(countedAllTimeVisitors, vid);
+        cumulativeVisitors += 1;
+        fallbackMutated = true;
+      }
+      if (allowSessionView && !countedSessionViews.has(sid)) {
+        addBoundedSetItem(countedSessionViews, sid);
+        cumulativeViews += 1;
+        fallbackMutated = true;
+      }
+      if (fallbackMutated) {
+        scheduleFallbackVisitorStatsSave();
+      }
+
+      const uniqueOnline = new Set(
+        Array.from(activeSessions.values()).map((v) => v.visitorId)
+      ).size;
+
+      res.json(
+        normalizeVisitorStatsResponse({
+          onlineNow: uniqueOnline,
+          todayVisitors: todayUniqueVisitors,
+          totalVisitors: cumulativeVisitors,
+          totalViews: cumulativeViews,
+          dayKey: currentDayKey || wibDay,
+        })
+      );
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to record visitor heartbeat',
+      });
+    }
   });
 
   app.post(
@@ -6910,6 +7197,38 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     }
   );
 
+  // 301 canonical host redirect for legacy domains and www alias on non-API GET/HEAD requests
+  app.use((req: Request, res: Response, next) => {
+    if (
+      (req.method === 'GET' || req.method === 'HEAD') &&
+      !req.path.startsWith('/api/') &&
+      !req.path.startsWith('/_serverFn/')
+    ) {
+      const rawHost = (
+        (req.headers['x-forwarded-host'] as string | undefined)?.split(',')[0]?.trim() ||
+        req.get('host') ||
+        ''
+      )
+        .split(':')[0]
+        .trim()
+        .toLowerCase();
+      if (
+        rawHost === 'www.kano-drama.live' ||
+        rawHost === 'kano-drama.xyz' ||
+        rawHost === 'www.kano-drama.xyz' ||
+        rawHost === 'house-drama.xyz' ||
+        rawHost === 'www.house-drama.xyz' ||
+        rawHost === 'house-drama.web.id' ||
+        rawHost === 'www.house-drama.web.id'
+      ) {
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.redirect(301, `${DEFAULT_SITE_ORIGIN}${req.originalUrl || '/'}`);
+        return;
+      }
+    }
+    next();
+  });
+
   app.get('/llms.txt', (_req: Request, res: Response) => {
     const siteOrigin = DEFAULT_SITE_ORIGIN;
     const curatedLinks = CURATED_PROGRAMMATIC_PAGES.slice(0, 12).map(
@@ -6919,8 +7238,8 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     const markdown = [
       '# KanoDrama',
       '',
-      '> KanoDrama (https://kano-drama.xyz) adalah platform streaming drama pendek (short drama), serial Asia, drama China dan Korea, serta film gratis dengan dukungan subtitle Bahasa Indonesia (Sub Indo) maupun pilihan bahasa lainnya.',
-      '> KanoDrama (https://kano-drama.xyz) is a free streaming platform for vertical short dramas, Asian series, Chinese & Korean dramas, and full-length movies with Indonesian subtitles (Sub Indo) and multilingual options.',
+      `> KanoDrama (${siteOrigin}) adalah platform streaming drama pendek (short drama), serial Asia, drama China dan Korea, serta film gratis dengan dukungan subtitle Bahasa Indonesia (Sub Indo) maupun pilihan bahasa lainnya.`,
+      `> KanoDrama (${siteOrigin}) is a free streaming platform for vertical short dramas, Asian series, Chinese & Korean dramas, and full-length movies with Indonesian subtitles (Sub Indo) and multilingual options.`,
       '',
       '## Primary Sections',
       `- [Home](${siteOrigin}/): Beranda KanoDrama — streaming drama pendek, serial Asia, drama China/Korea, dan film gratis Sub Indo.`,
@@ -6930,6 +7249,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       `- [Latest Releases](${siteOrigin}/latest): Watch free newly added episodes and recent drama premieres.`,
       `- [VIP Selection](${siteOrigin}/vip): Watch free premium vertical drama series and complete boxsets.`,
       `- [Movies](${siteOrigin}/movies): Watch free full-length Asian & international movies online in HD with Indonesian and English subtitles.`,
+      `- [Rewards & Referral](${siteOrigin}/rewards): Watch short dramas to earn points, claim daily milestones, and redeem IDR/USD payouts.`,
       `- [My Account](${siteOrigin}/account): User profile, Gmail login counter, saved watchlist, and watch history.`,
       '',
       '## Canonical Route Patterns',
@@ -7039,7 +7359,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       name: 'KanoDrama',
       url: siteOrigin,
       description:
-        'KanoDrama (https://kano-drama.xyz) is a free streaming platform for short dramas (drama pendek), Asian series, Chinese & Korean dramas, and HD movies with Indonesian subtitles (Sub Indo) and multilingual options.',
+        `KanoDrama (${siteOrigin}) is a free streaming platform for short dramas (drama pendek), Asian series, Chinese & Korean dramas, and HD movies with Indonesian subtitles (Sub Indo) and multilingual options.`,
       language: 'id, en',
       supportedLanguages: ['id', 'en'],
       generatedAt: new Date().toISOString(),
@@ -7093,6 +7413,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           'Allow: /llms.txt',
           'Allow: /ai-catalog.json',
           'Allow: /sitemap.xml',
+          'Allow: /sitemap-part-',
           'Allow: /movies',
           'Allow: /providers',
           'Allow: /provider/',
@@ -7536,7 +7857,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       res.setHeader('Cache-Control', 'public, max-age=3600');
       res.redirect(
         301,
-        `/${provSlug}/watch/${encodeURIComponent(slug)}${epNum > 1 ? `?ep=${epNum}` : ''}`
+        buildCanonicalRedirectUrl(
+          req,
+          `/${provSlug}/watch/${encodeURIComponent(slug)}${epNum > 1 ? `?ep=${epNum}` : ''}`
+        )
       );
     } catch (err) {
       console.error('[Legacy Watch Redirect]', err);
@@ -7642,6 +7966,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       const cleanPath = req.path.length > 1 ? req.path.replace(/\/+$/, '') : req.path;
       const lowerCleanPath = cleanPath.toLowerCase();
 
+      if (lowerCleanPath === '/index.html') {
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.redirect(301, buildCanonicalRedirectUrl(req, '/'));
+        return;
+      }
+
       // Legacy account/provider route redirects (301 canonical)
       if (
         lowerCleanPath === '/dashboard' ||
@@ -7650,7 +7980,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         lowerCleanPath.startsWith('/watchlist/')
       ) {
         res.setHeader('Cache-Control', 'no-store, max-age=0');
-        res.redirect(301, '/account');
+        res.redirect(301, buildCanonicalRedirectUrl(req, '/account'));
         return;
       }
 
@@ -7659,13 +7989,13 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         lowerCleanPath.startsWith('/referral/')
       ) {
         res.setHeader('Cache-Control', 'public, max-age=3600');
-        res.redirect(301, '/rewards');
+        res.redirect(301, buildCanonicalRedirectUrl(req, '/rewards'));
         return;
       }
 
       if (lowerCleanPath === '/provider') {
         res.setHeader('Cache-Control', 'public, max-age=3600');
-        res.redirect(301, '/providers');
+        res.redirect(301, buildCanonicalRedirectUrl(req, '/providers'));
         return;
       }
 
@@ -7816,7 +8146,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
             if (routeProvSlug !== 'movie' || canonicalSlug !== mSlug) {
               const targetPath = `/movie/${isWatchRoute ? 'watch' : 'detail'}/${encodeURIComponent(canonicalSlug)}${epParam > 1 ? `?ep=${epParam}` : ''}`;
               res.setHeader('Cache-Control', 'public, max-age=3600');
-              res.redirect(301, targetPath);
+              res.redirect(301, buildCanonicalRedirectUrl(req, targetPath));
               return;
             }
             const related = await loadRelatedMovieLinks(
@@ -7939,7 +8269,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
             ) {
               const targetPath = `/${canonicalProvSlug}/${isWatchRoute ? 'watch' : 'detail'}/${encodeURIComponent(finalSlug)}${epParam > 1 ? `?ep=${epParam}` : ''}`;
               res.setHeader('Cache-Control', 'public, max-age=3600');
-              res.redirect(301, targetPath);
+              res.redirect(301, buildCanonicalRedirectUrl(req, targetPath));
               return;
             }
             const related = await loadRelatedDramaLinks(
@@ -7983,7 +8313,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           const cleanM = (cleanText(movieDetail.slug) || mSlug).toLowerCase();
           const targetPath = `/movie/${epParam > 1 ? 'watch' : 'detail'}/${encodeURIComponent(cleanM)}${epParam > 1 ? `?ep=${epParam}` : ''}`;
           res.setHeader('Cache-Control', 'public, max-age=3600');
-          res.redirect(301, targetPath);
+          res.redirect(301, buildCanonicalRedirectUrl(req, targetPath));
           return;
         } else {
           ssrHttpStatus = 404;
@@ -8031,7 +8361,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           const provSlug = getProviderRouteSlug(resolvedSsrDrama.provider);
           const targetPath = `/${provSlug}/${epParam > 1 ? 'watch' : 'detail'}/${encodeURIComponent(finalSlug)}${epParam > 1 ? `?ep=${epParam}` : ''}`;
           res.setHeader('Cache-Control', 'public, max-age=3600');
-          res.redirect(301, targetPath);
+          res.redirect(301, buildCanonicalRedirectUrl(req, targetPath));
           return;
         } else {
           ssrHttpStatus = 404;
@@ -8147,7 +8477,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           const provSlug = getProviderRouteSlug(resolvedSsrDrama.provider);
           const targetPath = `/${provSlug}/${epParam > 1 ? 'watch' : 'detail'}/${encodeURIComponent(finalSlug)}${epParam > 1 ? `?ep=${epParam}` : ''}`;
           res.setHeader('Cache-Control', 'public, max-age=3600');
-          res.redirect(301, targetPath);
+          res.redirect(301, buildCanonicalRedirectUrl(req, targetPath));
           return;
         } else {
           ssrHttpStatus = 404;
@@ -8348,22 +8678,45 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           : 'genre';
         const slugSeg = tagMatch ? tagMatch[1] : genreMatch![2];
         const modSeg = genreMatch?.[3];
-        const landing = resolveProgrammaticLanding(slugSeg, baseKind, modSeg);
-        const filtered = await filterCatalogFromDb({
-          genre: landing.filter.genre,
-          status: landing.filter.status,
-          sort: landing.filter.sort,
-          q: landing.filter.q,
-          limit: 12,
-          offset: 0,
-        });
-        html = injectProgrammaticSeoIntoHtml(
-          html,
-          origin,
-          landing,
-          filtered.items,
-          ssrLang
-        );
+        const normalizedTopicSeg = decodeURIComponent(slugSeg || '')
+          .toLowerCase()
+          .trim()
+          .replace(/[^a-z0-9-]+/g, '-')
+          .replace(/^-+|-+$/g, '');
+        if (
+          !normalizedTopicSeg ||
+          normalizedTopicSeg === 'null' ||
+          normalizedTopicSeg === 'undefined' ||
+          normalizedTopicSeg === 'unknown' ||
+          normalizedTopicSeg === 'none'
+        ) {
+          ssrHttpStatus = 404;
+          isNotFoundResponse = true;
+          html = injectNotFoundSeoIntoHtml(
+            html,
+            origin,
+            req.path,
+            'drama',
+            ssrLang
+          );
+        } else {
+          const landing = resolveProgrammaticLanding(slugSeg, baseKind, modSeg);
+          const filtered = await filterCatalogFromDb({
+            genre: landing.filter.genre,
+            status: landing.filter.status,
+            sort: landing.filter.sort,
+            q: landing.filter.q,
+            limit: 12,
+            offset: 0,
+          });
+          html = injectProgrammaticSeoIntoHtml(
+            html,
+            origin,
+            landing,
+            filtered.items,
+            ssrLang
+          );
+        }
       } else if (providerHubMatch) {
         const rawProvSlug = decodeURIComponent(providerHubMatch[1]).trim().toLowerCase();
         if (
@@ -8373,7 +8726,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           rawProvSlug === 'lookseries'
         ) {
           res.setHeader('Cache-Control', 'public, max-age=3600');
-          res.redirect(301, '/movies');
+          res.redirect(301, buildCanonicalRedirectUrl(req, '/movies'));
           return;
         }
         const matchedProv = parseProviderFromRouteSlug(rawProvSlug);
@@ -8385,7 +8738,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           const canonicalSlug = getProviderRouteSlug(matchedProv);
           if (rawProvSlug !== canonicalSlug) {
             res.setHeader('Cache-Control', 'public, max-age=3600');
-            res.redirect(301, `/provider/${canonicalSlug}`);
+            res.redirect(301, buildCanonicalRedirectUrl(req, `/provider/${canonicalSlug}`));
             return;
           }
           const filtered = await filterCatalogFromDb({
@@ -8423,7 +8776,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           cleanPath,
           ssrLang
         );
-      } else {
+      } else if (cleanPath === '/' || cleanPath === '') {
         let homeFeatured: HomeSsrFeaturedData | undefined;
         try {
           const [cachedDramasRes, cachedMoviesRes] = await Promise.race([
@@ -8462,9 +8815,19 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           html,
           origin,
           'home',
-          cleanPath === '/' ? '/' : cleanPath,
+          '/',
           ssrLang,
           homeFeatured
+        );
+      } else {
+        ssrHttpStatus = 404;
+        isNotFoundResponse = true;
+        html = injectNotFoundSeoIntoHtml(
+          html,
+          origin,
+          req.path,
+          'drama',
+          ssrLang
         );
       }
 

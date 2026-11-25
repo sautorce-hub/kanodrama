@@ -9,6 +9,7 @@ import {
   getConfiguredSiteUrl,
   getGoogleIndexingServiceAccount,
 } from './config.ts';
+import { DEFAULT_SITE_ORIGIN } from '../src/i18n/helpers.ts';
 
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const GOOGLE_INDEXING_PUBLISH_ENDPOINT =
@@ -43,9 +44,16 @@ export function resolveSiteOrigin(fallbackOrigin?: string): string {
   if (configured) return configured;
   const fallback = (fallbackOrigin || '').trim().replace(/\/+$/, '');
   if (fallback && /^https?:\/\//i.test(fallback)) {
+    if (
+      /^https?:\/\/(www\.)?(kano-drama\.live|kano-drama\.xyz|house-drama\.xyz|house-drama\.web\.id)$/i.test(
+        fallback
+      )
+    ) {
+      return DEFAULT_SITE_ORIGIN;
+    }
     return fallback;
   }
-  return 'http://localhost:3000';
+  return DEFAULT_SITE_ORIGIN;
 }
 
 function loadServiceAccountCredentials(): ServiceAccountCredentials | null {

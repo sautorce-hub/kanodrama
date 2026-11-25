@@ -480,7 +480,7 @@ export const Footer: React.FC = () => {
                 <div className="pt-2 space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
                     <a
-                      href="mailto:support@kano-drama.xyz"
+                      href="mailto:support@kano-drama.live"
                       className="flex items-center gap-2.5 p-3 rounded-xl bg-[#1A1512] border border-white/10 hover:border-[#EF4444]/60 text-white"
                     >
                       <Mail className="w-4 h-4 text-[#EF4444]" />
@@ -488,7 +488,7 @@ export const Footer: React.FC = () => {
                         <p className="text-[10px] text-[#A1A1AA]">
                           {t.contactForm.emailLabel}
                         </p>
-                        <p className="font-semibold">support@kano-drama.xyz</p>
+                        <p className="font-semibold">support@kano-drama.live</p>
                       </div>
                     </a>
                     <a

@@ -1016,7 +1016,7 @@ export async function getLk21Detail(
 
   try {
     return await runDeduplicated(cacheKey, refresh);
-  } catch {
+  } catch (err) {
     if (dbMovie && dbMovie.title && !isPlaceholderLk21Detail(dbMovie)) {
       const recs = (dbMovie.recommendations || [])
         .map((r) => normalizeLk21Card(r))
@@ -1049,7 +1049,11 @@ export async function getLk21Detail(
         recommendations: recs,
       };
     }
-    return null;
+    const msg = err instanceof Error ? err.message : String(err || '');
+    if (/\bHTTP 404\b/i.test(msg)) {
+      return null;
+    }
+    throw err;
   }
 }
 
