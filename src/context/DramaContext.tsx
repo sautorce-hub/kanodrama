@@ -1882,20 +1882,61 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           : EMPTY_STREAK;
       setStreak(resolvedStreak);
 
-      void bindPendingReferralIfAny();
+      let autoBindBonus = 0;
+      if (result.referralBindResult) {
+        clearPendingReferralCode();
+        if (
+          result.referralBindResult.bound &&
+          typeof result.referralBindResult.bindBonusAwarded === 'number' &&
+          result.referralBindResult.bindBonusAwarded > 0
+        ) {
+          autoBindBonus = result.referralBindResult.bindBonusAwarded;
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('kd:points-updated', {
+                detail: {
+                  referralBound: true,
+                  bindBonusAwarded: autoBindBonus,
+                },
+              })
+            );
+          }
+        }
+      } else {
+        void bindPendingReferralIfAny();
+      }
       void hydrateUserLibraryFromPostgres(mapped.uid);
       void refreshPointsBalance();
-      if (
-        typeof result.firstLoginBonusAwarded === 'number' &&
-        result.firstLoginBonusAwarded > 0
-      ) {
-        const formattedBonus = result.firstLoginBonusAwarded.toLocaleString(
+      const firstLoginBonus =
+        typeof result.firstLoginBonusAwarded === 'number' && result.firstLoginBonusAwarded > 0
+          ? result.firstLoginBonusAwarded
+          : 0;
+      if (firstLoginBonus > 0 && autoBindBonus > 0) {
+        const locale = language === 'id' ? 'id-ID' : 'en-US';
+        pushToast(
+          language === 'id'
+            ? `Masuk sebagai ${mapped.displayName} · Bonus login +${firstLoginBonus.toLocaleString(locale)} & bind referral +${autoBindBonus.toLocaleString(locale)} poin!`
+            : `Signed in as ${mapped.displayName} · +${firstLoginBonus.toLocaleString(locale)} login & +${autoBindBonus.toLocaleString(locale)} bind referral pts!`,
+          'gold'
+        );
+      } else if (firstLoginBonus > 0) {
+        const formattedBonus = firstLoginBonus.toLocaleString(
           language === 'id' ? 'id-ID' : 'en-US'
         );
         pushToast(
           language === 'id'
             ? `Masuk sebagai ${mapped.displayName} · Bonus login pertama +${formattedBonus} poin!`
             : `Signed in as ${mapped.displayName} · First login bonus +${formattedBonus} pts!`,
+          'gold'
+        );
+      } else if (autoBindBonus > 0) {
+        const formattedBind = autoBindBonus.toLocaleString(
+          language === 'id' ? 'id-ID' : 'en-US'
+        );
+        pushToast(
+          language === 'id'
+            ? `Masuk sebagai ${mapped.displayName} · Bonus bind referral +${formattedBind} poin!`
+            : `Signed in as ${mapped.displayName} · Bind referral bonus +${formattedBind} pts!`,
           'gold'
         );
       } else {

@@ -501,6 +501,7 @@ export function buildOgImageEndpointUrl(
               parsed.hostname === 'www.kano-drama.xyz') &&
             (parsed.pathname.startsWith('/assets/') ||
               parsed.pathname.startsWith('/pwa-') ||
+              parsed.pathname === '/og-image.jpg' ||
               parsed.pathname === '/apple-touch-icon.png')
           ) {
             return parsed.pathname;
@@ -516,11 +517,15 @@ export function buildOgImageEndpointUrl(
 
   const trimmed = (rawImage || '').trim();
   if (
+    !trimmed ||
+    trimmed === `${cleanOrigin}/og-image.jpg` ||
+    trimmed === `${rawCleanOrigin}/og-image.jpg` ||
+    trimmed === '/og-image.jpg' ||
     trimmed === `${cleanOrigin}/api/og` ||
     trimmed === `${rawCleanOrigin}/api/og` ||
     trimmed === '/api/og'
   ) {
-    return `${cleanOrigin}/api/og`;
+    return `${cleanOrigin}/og-image.jpg`;
   }
 
   let resolvedTarget = unwrapTarget(trimmed);
@@ -536,12 +541,13 @@ export function buildOgImageEndpointUrl(
 
   if (
     !resolvedTarget ||
+    resolvedTarget === '/og-image.jpg' ||
     resolvedTarget ===
       '/assets/aistudio/file_00000000f37c8211a740b95cbbe03886_b90a3ae0.png' ||
     resolvedTarget === '/assets/aistudio/kano-drama-og.png' ||
     resolvedTarget === '/assets/aistudio/gambar_OG_39d1f12c.png'
   ) {
-    return `${cleanOrigin}/api/og`;
+    return `${cleanOrigin}/og-image.jpg`;
   }
 
   const params = new URLSearchParams();
@@ -655,7 +661,7 @@ const SECTION_SEO_COPY: Record<
       path: '/rewards',
       title: 'Watch Short Dramas & Earn Points — KanoDrama Rewards & Referral',
       description:
-        'Earn points watching Chinese & Asian short dramas, +20 pts/min auto, daily check-in streaks (+500 pts, Day 7 +2,000 pts), 15/30/60m milestones (+150/+300/+600), +200 pts bind bonus & +2,000 pts per referral. Redeem for USDT, PayPal, or Wise.',
+        'Earn points watching Chinese & Asian short dramas, +20 pts/min auto, daily check-in (+500 pts, Day 7 +2,000 pts), daily social share (+500 pts), 15/30/60m milestones (+150/+300/+600), +200 pts bind bonus & +5,000 pts per referral. Redeem for USDT, PayPal, or Wise.',
     },
   },
   id: {
@@ -729,7 +735,7 @@ const SECTION_SEO_COPY: Record<
       path: '/rewards',
       title: 'Nonton Drama Dapat Poin & Saldo DANA — Reward KanoDrama',
       description:
-        'Nonton drama China & short drama dapat hadiah di KanoDrama! Kumpulkan poin harian (+20 poin/menit), check-in streak WIB (+500 poin, H-7 +2.000 poin), ikat referral (+200 poin) & undang teman (+2.000 poin), lalu tarik ke DANA, GoPay, Bank, PayPal, atau USDT.',
+        'Nonton drama China & short drama dapat hadiah di KanoDrama! Kumpulkan poin harian (+20 poin/menit), check-in streak WIB (+500 poin, H-7 +2.000 poin), share media sosial (+500 poin/hari), bind referral (+200 poin) & undang teman (+5.000 poin), lalu tarik ke DANA, GoPay, Bank, PayPal, atau USDT.',
     },
   },
   cn: {
@@ -798,7 +804,7 @@ const SECTION_SEO_COPY: Record<
     rewards: {
       path: '/rewards',
       title: '看短剧赚积分与现金奖励 — KanoDrama 积分与邀请计划',
-      description: '在 KanoDrama 观看中国短剧与亚洲剧集即可赚取积分（每分钟 +20）、每日签到（+500，第 7 天 +2,000）、达成 15/30/60 分钟里程碑，绑定邀请码（+200）并邀请好友赢取 2,000 积分奖励，支持提现至 USDT、PayPal 及 Wise。',
+      description: '在 KanoDrama 观看中国短剧与亚洲剧集即可赚取积分（每分钟 +20）、每日签到（+500，第 7 天 +2,000）、每日分享（+500）、达成 15/30/60 分钟里程碑，绑定邀请码（+200）并邀请好友赢取 5,000 积分奖励，支持提现至 USDT、PayPal 及 Wise。',
     },
   },
   vi: {

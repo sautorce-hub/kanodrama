@@ -13,6 +13,7 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         filename: 'pwa-sw-v2.js',
         includeAssets: [
+          'og-image.jpg',
           'icon.svg',
           'apple-touch-icon.png',
           'pwa-192x192.png',

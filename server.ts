@@ -17,6 +17,7 @@ import {
   bindReferralForUserInDb,
   buildGmailAccountKey,
   claimDailyCheckinInDb,
+  claimDailySocialShareInDb,
   claimWatchEpisodeInDb,
   claimWatchMilestoneInDb,
   createCommentInDb,
@@ -163,8 +164,7 @@ const DRAMABOX_V2_BASE_URL = `${MOLATV_API_BASE}/dramaboxv2`;
 const NETSHORT_BASE_URL = `${MOLATV_API_BASE}/netshort`;
 const ANYREEL_BASE_URL = `${MOLATV_API_BASE}/anyreel`;
 const MELOLO_V2_BASE_URL = `${MOLATV_API_BASE}/melolo`;
-const DEFAULT_OG_IMAGE_PATH =
-  '/assets/aistudio/file_00000000f37c8211a740b95cbbe03886_b90a3ae0.png';
+const DEFAULT_OG_IMAGE_PATH = '/og-image.jpg';
 
 function getMolaToken(): string {
   return getMolaApiToken();
@@ -924,6 +924,10 @@ function isIndonesianRequest(req: Request): boolean {
     typeof req.query.lang === 'string' ? req.query.lang : null
   );
   if (queryLang) return queryLang === 'id';
+  const bodyLang = normalizeLanguageCode(
+    typeof req.body?.lang === 'string' ? req.body.lang : null
+  );
+  if (bodyLang) return bodyLang === 'id';
   return resolveRequestLanguage(req).lang === 'id';
 }
 
@@ -2931,10 +2935,10 @@ function injectPageMetadataIntoHtml(
                   },
                   {
                     '@type': 'Question',
-                    name: 'Bagaimana cara mendapatkan bonus referral +200 poin & +2.000 poin?',
+                    name: 'Bagaimana cara kerja bonus Bind Referral (+200 poin), Bonus Referral (+5.000 poin), dan Share Harian (+500 poin)?',
                     acceptedAnswer: {
                       '@type': 'Answer',
-                      text: 'Bagikan link referral resmi kano-drama.live Anda. Teman yang mengikat kode referral Anda langsung menerima +200 poin, dan setelah menyelesaikan total 1 jam (3.600 detik) waktu tonton aktif terverifikasi, +2.000 poin otomatis masuk ke saldo Anda.',
+                      text: 'KanoDrama memisahkan Bonus Bind Referral (+200 poin) dan Bonus Referral Utama (+5.000 poin). Jika mendaftar langsung lewat tautan ?ref= teman, bonus bind +200 poin otomatis masuk; jika belum lewat tautan, Anda dapat menautkan kode referral teman sekali untuk +200 poin. Setelah teman menyelesaikan minimal 1 jam (3.600 detik) waktu tonton aktif terverifikasi, +5.000 poin masuk ke akun pengundang. Tersedia juga tugas share media sosial harian (+500 poin/hari, reset pukul 00.00 WIB).',
                     },
                   },
                 ]
@@ -2947,7 +2951,7 @@ function injectPageMetadataIntoHtml(
                         name: 'How do I earn points watching dramas on KanoDrama?',
                         acceptedAnswer: {
                           '@type': 'Answer',
-                          text: 'Sign in to claim a +10,000 points first-login welcome bonus (once per account), then actively watch short dramas or movies at normal 1x speed. You earn +20 points/min automatically up to 60 minutes daily (scaled up to 1.6x by your account level), +50 points per new episode (15s minimum), +500 points daily check-in and +2,000 points on Day 7 (5,000 points/week), plus +150 / +300 / +600 milestone bonuses up to 2,500 daily watch points (all daily missions reset at 17:00 UTC).',
+                          text: 'Sign in to claim a +10,000 points first-login welcome bonus (once per account), then actively watch short dramas or movies at normal 1x speed. You earn +20 points/min automatically up to 60 minutes daily (scaled up to 1.6x by your account level), +50 points per new episode (15s minimum), +500 points daily check-in and +2,000 points on Day 7 (5,000 points/week), +500 points daily social share, plus +150 / +300 / +600 milestone bonuses up to 2,500 daily watch points (all daily missions reset at 17:00 UTC).',
                         },
                       },
                       {
@@ -2960,10 +2964,10 @@ function injectPageMetadataIntoHtml(
                       },
                       {
                         '@type': 'Question',
-                        name: 'How do the +200 bind bonus and +2,000 referral bonus work?',
+                        name: 'How do the +200 bind bonus, +5,000 referral bonus, and +500 daily social share work?',
                         acceptedAnswer: {
                           '@type': 'Answer',
-                          text: 'Share your official kano-drama.live referral link. Friends who bind your referral code receive +200 bonus points immediately, and once they complete 1 hour (3,600 seconds) of verified active watch time, +2,000 points are automatically credited to your balance.',
+                          text: 'KanoDrama separates the Bind Referral Bonus (+200 pts) from the Main Referral Bonus (+5,000 pts). Users who register directly via a friend referral link automatically receive +200 pts per applicable rules, or users who registered without a link can bind a code once for +200 pts. Once the invited friend completes 1 hour (3,600 seconds) of verified active watch time, +5,000 pts are credited to the referrer. Users can also claim +500 pts once per day for sharing KanoDrama on social media (resets at 17:00 UTC).',
                         },
                       },
                     ],
@@ -3100,7 +3104,8 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
           <li>Bonus episode baru: +50 poin per episode setelah minimal 15 detik menonton terverifikasi.</li>
           <li>Check-in harian &amp; streak 7 hari: +500 poin/hari (H-1 s.d. H-6) dan +2.000 poin di H-7 (total 5.000 poin/minggu, reset pukul 00.00 WIB).</li>
           <li>Bonus milestone harian (klaim manual setelah target tercapai): +150 poin (15 menit), +300 poin (30 menit), dan +600 poin (60 menit), dengan batas poin nonton harian 2.500 poin.</li>
-          <li>Program Referral KanoDrama: +200 poin saat teman mengikat kode referral Anda dan +2.000 poin setelah teman menyelesaikan 1 jam waktu tonton terverifikasi.</li>
+          <li>Tugas Share Media Sosial Harian: +500 poin sekali per hari (reset serentak pukul 00.00 WIB).</li>
+          <li>Program Referral KanoDrama: +200 poin Bonus Bind Referral (otomatis jika mendaftar lewat tautan referral teman, atau input manual kode referral 1x jika mendaftar tanpa tautan) serta +5.000 poin Bonus Referral Utama setelah teman menyelesaikan 1 jam waktu tonton terverifikasi.</li>
         </ul>
       </section>
       <section>
@@ -3121,7 +3126,8 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
           <li>New episode bonus: +50 points per episode after at least 15 seconds of verified active playback.</li>
           <li>Daily check-in &amp; 7-day streak bonus: +500 points/day (Days 1–6) and +2,000 points on Day 7 (5,000 points/week total, resets at 17:00 UTC).</li>
           <li>Daily milestone bonuses (manual claim once reached): +150 points (15 min), +300 points (30 min), and +600 points (60 min), within a 2,500 daily watch points cap.</li>
-          <li>KanoDrama Referral Program: +200 points on valid referral code bind and +2,000 points once your friend completes 1 hour of verified active watch time.</li>
+          <li>Daily social share task: +500 points once per daily cycle (resets at 17:00 UTC).</li>
+          <li>KanoDrama Referral Program: +200 points Bind Referral Bonus (credited automatically when registering via a friend link, or via 1-time code bind if you registered without a link) and +5,000 points Main Referral Bonus once your invited friend completes 1 hour of verified active watch time.</li>
         </ul>
       </section>
       <section>
@@ -3368,6 +3374,35 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     next();
   });
 
+  // Direct crawler-safe serving for /og-image.jpg (WhatsApp, Telegram, Facebook, X)
+  app.get('/og-image.jpg', (req: Request, res: Response) => {
+    const candidates = [
+      path.resolve(distDir, 'og-image.jpg'),
+      path.resolve(rootDir, 'public', 'og-image.jpg'),
+    ];
+    for (const filePath of candidates) {
+      if (!fs.existsSync(filePath)) continue;
+      const buf = fs.readFileSync(filePath);
+      if (buf.length === 0) continue;
+      res.status(200);
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Content-Length', String(buf.length));
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader(
+        'Cache-Control',
+        'public, max-age=86400, stale-while-revalidate=604800'
+      );
+      if (req.method === 'HEAD') {
+        res.end();
+        return;
+      }
+      res.send(buf);
+      return;
+    }
+    res.status(404).type('text/plain').send('OG image not found');
+  });
+
   let vite: ViteDevServer | null = null;
   if (!IS_PROD && enableVite) {
     vite = await createViteServer({
@@ -3405,8 +3440,14 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }
     });
     app.use(vite.middlewares);
-  } else if (fs.existsSync(distDir)) {
-    app.use(express.static(distDir, { index: false }));
+  } else {
+    if (fs.existsSync(distDir)) {
+      app.use(express.static(distDir, { index: false }));
+    }
+    const publicDir = path.resolve(rootDir, 'public');
+    if (fs.existsSync(publicDir)) {
+      app.use(express.static(publicDir, { index: false }));
+    }
   }
 
   app.get('/api/health', async (_req: Request, res: Response) => {
@@ -4138,6 +4179,18 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     contentType: string;
   }> => {
     if (cachedDefaultOgResult) return cachedDefaultOgResult;
+    const directJpegCandidates = [
+      path.resolve(rootDir, 'public', 'og-image.jpg'),
+      path.resolve(distDir, 'og-image.jpg'),
+    ];
+    for (const jpegPath of directJpegCandidates) {
+      if (!fs.existsSync(jpegPath)) continue;
+      const rawBuf = fs.readFileSync(jpegPath);
+      if (rawBuf.length > 0 && detectImageMimeType(rawBuf) === 'image/jpeg') {
+        cachedDefaultOgResult = { buf: rawBuf, contentType: 'image/jpeg' };
+        return cachedDefaultOgResult;
+      }
+    }
     const candidatePaths = [
       path.resolve(
         rootDir,
@@ -4781,14 +4834,14 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }).catch(() => null);
 
       const pendingRefCode = cleanText(req.body?.referralCode);
-      if (pendingRefCode) {
-        await bindReferralForUserInDb({
-          refereeUid: uid,
-          referralCode: pendingRefCode,
-          ...secHashes,
-          displayName: synced?.displayName || displayName,
-        }).catch(() => null);
-      }
+      const referralBindResult = pendingRefCode
+        ? await bindReferralForUserInDb({
+            refereeUid: uid,
+            referralCode: pendingRefCode,
+            ...secHashes,
+            displayName: synced?.displayName || displayName,
+          }).catch(() => null)
+        : null;
 
       const firstLoginBonus = await grantFirstLoginBonusIfEligibleInDb({
         userId: uid,
@@ -4808,6 +4861,15 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         sessionToken,
         gmailLoginCount,
         firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+        ...(referralBindResult
+          ? {
+              referralBindResult: {
+                bound: referralBindResult.bound,
+                bindBonusAwarded: referralBindResult.bindBonusAwarded ?? 0,
+                reason: referralBindResult.reason,
+              },
+            }
+          : {}),
         user: {
           uid,
           email,
@@ -4893,14 +4955,14 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }).catch(() => null);
 
       const pendingRefCode = cleanText(req.body?.referralCode);
-      if (pendingRefCode) {
-        await bindReferralForUserInDb({
-          refereeUid: dbUser.uid,
-          referralCode: pendingRefCode,
-          ...secHashes,
-          displayName: dbUser.displayName,
-        }).catch(() => null);
-      }
+      const referralBindResult = pendingRefCode
+        ? await bindReferralForUserInDb({
+            refereeUid: dbUser.uid,
+            referralCode: pendingRefCode,
+            ...secHashes,
+            displayName: dbUser.displayName,
+          }).catch(() => null)
+        : null;
 
       const dbCount = await getUniqueGmailLoginCountFromDb().catch(() => null);
       const gmailLoginCount =
@@ -4924,6 +4986,15 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         sessionToken,
         gmailLoginCount,
         firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+        ...(referralBindResult
+          ? {
+              referralBindResult: {
+                bound: referralBindResult.bound,
+                bindBonusAwarded: referralBindResult.bindBonusAwarded ?? 0,
+                reason: referralBindResult.reason,
+              },
+            }
+          : {}),
         user: {
           uid: dbUser.uid,
           email: dbUser.email,
@@ -4993,14 +5064,14 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }).catch(() => null);
 
       const pendingRefCode = cleanText(req.body?.referralCode);
-      if (pendingRefCode) {
-        await bindReferralForUserInDb({
-          refereeUid: dbUser.uid,
-          referralCode: pendingRefCode,
-          ...secHashes,
-          displayName: dbUser.displayName,
-        }).catch(() => null);
-      }
+      const referralBindResult = pendingRefCode
+        ? await bindReferralForUserInDb({
+            refereeUid: dbUser.uid,
+            referralCode: pendingRefCode,
+            ...secHashes,
+            displayName: dbUser.displayName,
+          }).catch(() => null)
+        : null;
 
       const dbCount = await getUniqueGmailLoginCountFromDb().catch(() => null);
       const gmailLoginCount =
@@ -5024,6 +5095,15 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         sessionToken,
         gmailLoginCount,
         firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+        ...(referralBindResult
+          ? {
+              referralBindResult: {
+                bound: referralBindResult.bound,
+                bindBonusAwarded: referralBindResult.bindBonusAwarded ?? 0,
+                reason: referralBindResult.reason,
+              },
+            }
+          : {}),
         user: {
           uid: dbUser.uid,
           email: dbUser.email,
@@ -5266,14 +5346,14 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }).catch(() => null);
 
       const pendingRefCode = cleanText(req.body?.referralCode);
-      if (pendingRefCode) {
-        await bindReferralForUserInDb({
-          refereeUid: uid,
-          referralCode: pendingRefCode,
-          ...secHashes,
-          displayName: synced?.displayName || displayName,
-        }).catch(() => null);
-      }
+      const referralBindResult = pendingRefCode
+        ? await bindReferralForUserInDb({
+            refereeUid: uid,
+            referralCode: pendingRefCode,
+            ...secHashes,
+            displayName: synced?.displayName || displayName,
+          }).catch(() => null)
+        : null;
 
       const firstLoginBonus = isLoginEvent
         ? await grantFirstLoginBonusIfEligibleInDb({
@@ -5288,6 +5368,15 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         user: synced,
         gmailLoginCount,
         firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+        ...(referralBindResult
+          ? {
+              referralBindResult: {
+                bound: referralBindResult.bound,
+                bindBonusAwarded: referralBindResult.bindBonusAwarded ?? 0,
+                reason: referralBindResult.reason,
+              },
+            }
+          : {}),
       });
     } catch (err) {
       res.status(500).json({
@@ -5705,6 +5794,73 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           awardedPoints: result.entry?.points ?? cfg.dailyCheckinPoints,
           streakDay: result.streakDay,
           streak: result.streakDay,
+          entry: result.entry,
+          summary: result.summary,
+          config: cfg,
+        });
+        return;
+      }
+
+      if (action === 'daily_social_share' || action === 'social_share') {
+        if (isEndpointRateLimited(`share:${session.uid}`, 8, 60_000)) {
+          res.status(429).json({
+            ok: false,
+            reason: 'rate_limited',
+            error: isId
+              ? 'Terlalu banyak permintaan share. Coba lagi sebentar lagi.'
+              : 'Too many social share attempts. Please wait a moment.',
+          });
+          return;
+        }
+        const channel = cleanText(
+          req.body?.channel ?? req.body?.platform,
+          ''
+        ).toLowerCase();
+        const result = await claimDailySocialShareInDb({
+          userId: session.uid,
+          channel,
+          displayName: session.displayName,
+          timeZone: extractUserTimeZone(req),
+        });
+        if (!result.ok) {
+          const statusCode =
+            result.reason === 'daily_cap_reached'
+              ? 429
+              : result.reason === 'duplicate_claim'
+              ? 409
+              : result.reason === 'anti_cheat_blocked'
+              ? 403
+              : 400;
+          const message =
+            result.reason === 'duplicate_claim'
+              ? isId
+                ? 'Tugas share media sosial harian untuk periode berjalan sudah diklaim (reset serentak pukul 00:00 WIB).'
+                : 'Daily social share reward for the current cycle has already been claimed (resets at 17:00 UTC).'
+              : result.reason === 'daily_cap_reached'
+              ? isId
+                ? `Batas poin harian (${cfg.maxDailyEarnPoints.toLocaleString('id-ID')} poin) hari ini sudah tercapai.`
+                : `Daily earn limit (${cfg.maxDailyEarnPoints.toLocaleString('en-US')} pts) reached for today.`
+              : result.reason === 'anti_cheat_blocked'
+              ? isId
+                ? 'Klaim share ditolak oleh proteksi anti-curang server.'
+                : 'Share claim blocked by server anti-cheat protection.'
+              : isId
+              ? 'Pilih kanal share media sosial yang valid (WhatsApp, Telegram, X, Facebook, atau Salin Link).'
+              : 'Please select a valid social share channel (WhatsApp, Telegram, X, Facebook, or Copy Link).';
+          res.status(statusCode).json({
+            ok: false,
+            reason: result.reason,
+            error: message,
+            summary: result.summary,
+            config: cfg,
+          });
+          return;
+        }
+
+        res.json({
+          ok: true,
+          awardedPoints: result.entry?.points ?? cfg.dailySocialSharePoints,
+          channel: result.channel,
           entry: result.entry,
           summary: result.summary,
           config: cfg,
@@ -7644,6 +7800,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           'Allow: /latest',
           'Allow: /vip',
           'Allow: /rewards',
+          'Allow: /og-image.jpg',
           'Allow: /api/og',
           'Allow: /api/og?*',
           'Allow: /api/home',

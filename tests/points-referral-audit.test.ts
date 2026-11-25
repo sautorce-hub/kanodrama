@@ -367,13 +367,19 @@ function createStatefulPgMock() {
 
     if (sql.startsWith('INSERT INTO users (')) {
       const uid = String(params[0]);
-      const email = String(params[1] || '');
-      const displayName = String(params[2] || 'Kano Viewer');
-      const streakCount = Number(params[6] || 1);
-      const lastVisitDate = String(params[7] || '');
-      const isVip = Boolean(params[8]);
-      const referralCode = String(params[9] || '');
       const existing = state.users.get(uid);
+      if (sql.includes('ON CONFLICT (uid) DO NOTHING') && existing) {
+        return { rows: [], rowCount: 0 };
+      }
+      const isShortInsert = params.length === 2;
+      const email = isShortInsert ? '' : String(params[1] || '');
+      const displayName = isShortInsert
+        ? String(params[1] || 'Kano Viewer')
+        : String(params[2] || 'Kano Viewer');
+      const streakCount = isShortInsert ? 1 : Number(params[6] || 1);
+      const lastVisitDate = isShortInsert ? '' : String(params[7] || '');
+      const isVip = isShortInsert ? false : Boolean(params[8]);
+      const referralCode = isShortInsert ? '' : String(params[9] || '');
       const nextDisplay =
         existing && existing.display_name && existing.display_name !== 'Kano Viewer'
           ? existing.display_name
@@ -737,6 +743,11 @@ function createStatefulPgMock() {
       };
     }
 
+    if (sql.includes('SELECT risk_flag FROM watch_telemetry WHERE user_id = $1')) {
+      const t = state.telemetry.get(String(params[0]));
+      return { rows: t ? [{ risk_flag: t.risk_flag }] : [], rowCount: t ? 1 : 0 };
+    }
+
     if (sql.startsWith('UPDATE watch_telemetry SET active_stream_session_id')) {
       const t = state.telemetry.get(String(params[0]));
       if (t) {
@@ -902,7 +913,11 @@ function createStatefulPgMock() {
           }
           return false;
         })
-        .map((l) => ({ reference_id: l.reference_id, created_at: l.created_at }));
+        .map((l) => ({
+          reference_id: l.reference_id,
+          event_meta: l.event_meta,
+          created_at: l.created_at,
+        }));
       return { rows, rowCount: rows.length };
     }
 
@@ -1888,11 +1903,11 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.equal(qualHb.referralQualified, true);
 
-    // Verify Alice received +2,000 referral bonus AND Bob received +200 bind + auto 20 pts/min (1,200 pts) with milestones ready to claim
+    // Verify Alice received +5,000 referral bonus AND Bob received +200 bind + auto 20 pts/min (1,200 pts) with milestones ready to claim
     const aliceMe = await fetch(`${baseUrl}/api/points/me`, {
       headers: { Authorization: `Bearer ${aliceToken}` },
     }).then((r) => r.json());
-    assert.equal(aliceMe.summary.balance, 2000);
+    assert.equal(aliceMe.summary.balance, 5000);
     assert.equal(aliceMe.summary.ledger[0].eventCode, 'referral_qualify');
 
     const bobMe = await fetch(`${baseUrl}/api/points/me`, {
@@ -2109,7 +2124,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(cfg.dailyCheckinDay7Points, 2000);
     assert.equal(cfg.watchEpisodePoints, 50);
     assert.equal(cfg.watchMinutePoints, 20);
-    assert.equal(cfg.referralBonusPoints, 2000);
+    assert.equal(cfg.dailySocialSharePoints, 500);
+    assert.equal(cfg.referralBonusPoints, 5000);
     assert.equal(cfg.maxDailyWatchPoints, 2500);
     assert.equal(cfg.maxDailyEarnPoints, 10000);
     assert.deepEqual(cfg.dailyMissionMilestones, [
@@ -3332,8 +3348,314 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.match(formattedSample, /KanoDrama — Pengajuan Withdraw Baru/);
   });
+
+  await t.test('15. Daily Social Media Share (+500 pts/day) enforces canonical WIB/UTC reset, channel allowlist, and anti-cheat', async () => {
+    const { mockPool, state } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    const shareUid = 'user-share-1';
+    const shareToken = signAuthSessionToken({
+      uid: shareUid,
+      email: 'sharer@example.com',
+      displayName: 'Social Sharer',
+      photoURL: null,
+    });
+
+    // 1. Invalid channel returns 400
+    const badChannelRes = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${shareToken}`,
+      },
+      body: JSON.stringify({ action: 'daily_social_share', channel: 'unknown_app', lang: 'en' }),
+    });
+    assert.equal(badChannelRes.status, 400);
+
+    // 2. First claim via WhatsApp grants +500 pts and marks dailySocialShareClaimedToday
+    const claim1Res = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${shareToken}`,
+      },
+      body: JSON.stringify({ action: 'daily_social_share', channel: 'whatsapp', lang: 'en' }),
+    });
+    assert.equal(claim1Res.status, 200);
+    const claim1Body = await claim1Res.json();
+    assert.equal(claim1Body.ok, true);
+    assert.equal(claim1Body.awardedPoints, 500);
+    assert.equal(claim1Body.channel, 'whatsapp');
+    assert.equal(claim1Body.summary.balance, 500);
+    assert.equal(claim1Body.summary.todayEarned, 500);
+    assert.equal(claim1Body.summary.dailySocialShareClaimedToday, true);
+    assert.equal(claim1Body.summary.dailySocialShareChannel, 'whatsapp');
+    assert.equal(claim1Body.summary.ledger[0].eventCode, 'daily_social_share');
+    assert.equal(claim1Body.summary.ledger[0].eventMeta.shareChannel, 'whatsapp');
+
+    // 3. Second claim in the same canonical daily period fails (409) with UTC copy in EN (zero WIB) and WIB copy in ID
+    const dupEnRes = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${shareToken}`,
+      },
+      body: JSON.stringify({ action: 'daily_social_share', channel: 'telegram', lang: 'en' }),
+    });
+    assert.equal(dupEnRes.status, 409);
+    const dupEnBody = await dupEnRes.json();
+    assert.equal(dupEnBody.reason, 'duplicate_claim');
+    assert.match(dupEnBody.error, /17:00 UTC/);
+    assert.doesNotMatch(dupEnBody.error, /\bWIB\b/);
+
+    const dupIdRes = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${shareToken}`,
+      },
+      body: JSON.stringify({ action: 'daily_social_share', channel: 'x', lang: 'id' }),
+    });
+    assert.equal(dupIdRes.status, 409);
+    const dupIdBody = await dupIdRes.json();
+    assert.match(dupIdBody.error, /00:00 WIB/);
+
+    // 4. Anti-cheat risk flag blocks daily social share
+    const flaggedUid = 'user-share-flagged';
+    const flaggedToken = signAuthSessionToken({
+      uid: flaggedUid,
+      email: 'flagged@example.com',
+      displayName: 'Flagged User',
+      photoURL: null,
+    });
+    state.securitySignals.set(flaggedUid, {
+      user_id: flaggedUid,
+      ip_hash: 'h1',
+      subnet_hash: 's1',
+      ua_hash: 'u1',
+      device_hash: 'd1',
+      risk_flag: 'shared_device_abuse',
+      suspicious_reason: 'flagged',
+      last_seen_at: new Date(),
+    });
+    const blockedRes = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${flaggedToken}`,
+      },
+      body: JSON.stringify({ action: 'daily_social_share', channel: 'facebook', lang: 'en' }),
+    });
+    assert.equal(blockedRes.status, 403);
+    const blockedBody = await blockedRes.json();
+    assert.equal(blockedBody.reason, 'anti_cheat_blocked');
+
+    // 5. Reset boundary: previous day's share entry does not block today's claim
+    for (const row of state.ledger) {
+      if (row.user_id === shareUid && row.reference_id.startsWith('social_share:')) {
+        row.reference_id = `social_share:${shareUid}:2020-01-01`;
+        row.created_at = new Date(Date.now() - 48 * 3600 * 1000);
+      }
+    }
+    const nextDayRes = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${shareToken}`,
+      },
+      body: JSON.stringify({ action: 'daily_social_share', channel: 'copy_link', lang: 'en' }),
+    });
+    assert.equal(nextDayRes.status, 200);
+    const nextDayBody = await nextDayRes.json();
+    assert.equal(nextDayBody.summary.balance, 1000);
+    assert.equal(nextDayBody.summary.dailySocialShareChannel, 'copy_link');
+  });
+
+  await t.test('16. Referral (+5,000 pts) vs Bind Referral (+200 pts) separation across auto-link signup and manual bind', async () => {
+    const { mockPool, state } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    state.users.set('user-alice', {
+      uid: 'user-alice',
+      email: 'alice@example.com',
+      display_name: 'Alice Inviter',
+      referral_code: 'KDA11CE01',
+      referred_by: null,
+      streak_count: 1,
+      last_visit_date: '',
+      is_vip: false,
+    });
+
+    // 1. Registering via ?ref=KDA11CE01 auto-binds and grants +200 Bind Referral bonus (+10,000 first login = 10,200)
+    const regAutoRes = await fetch(`${baseUrl}/api/auth/email/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'invited-via-link@example.com',
+        password: 'password123',
+        displayName: 'Link Invitee',
+        referralCode: 'KDA11CE01',
+        deviceFingerprint: 'fp-link-invitee-1',
+      }),
+    });
+    assert.equal(regAutoRes.status, 201);
+    const regAutoBody = await regAutoRes.json();
+    assert.equal(regAutoBody.ok, true);
+    assert.equal(regAutoBody.firstLoginBonusAwarded, 10000);
+    assert.deepEqual(regAutoBody.referralBindResult, {
+      bound: true,
+      bindBonusAwarded: 200,
+    });
+    const linkToken = regAutoBody.sessionToken as string;
+
+    const linkPointsMe = await fetch(`${baseUrl}/api/points/me`, {
+      headers: { Authorization: `Bearer ${linkToken}` },
+    }).then((r) => r.json());
+    assert.equal(linkPointsMe.summary.balance, 10200);
+    assert.ok(
+      linkPointsMe.summary.ledger.some(
+        (row: { eventCode?: string; points?: number }) =>
+          row.eventCode === 'referral_bind' && row.points === 200
+      )
+    );
+    assert.ok(
+      linkPointsMe.summary.ledger.some(
+        (row: { eventCode?: string; points?: number }) =>
+          row.eventCode === 'welcome_login' && row.points === 10000
+      )
+    );
+
+    const linkRefMe = await fetch(`${baseUrl}/api/referrals/me`, {
+      headers: { Authorization: `Bearer ${linkToken}` },
+    }).then((r) => r.json());
+    assert.equal(linkRefMe.referralSummary.referralBonusPoints, 5000);
+    assert.equal(linkRefMe.referralSummary.bindReferralBonusPoints, 200);
+    assert.equal(linkRefMe.referralSummary.hasReferrer, true);
+    assert.equal(linkRefMe.referralSummary.referredBy.referralCode, 'KDA11CE01');
+    assert.equal(linkRefMe.referralSummary.referredBy.bindBonusAwarded, true);
+
+    // Second bind attempt on same account must be blocked
+    const rebindRes = await fetch(`${baseUrl}/api/referrals/bind`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${linkToken}`,
+      },
+      body: JSON.stringify({ referralCode: 'KDA11CE01' }),
+    }).then((r) => r.json());
+    assert.equal(rebindRes.bound, false);
+    assert.equal(rebindRes.reason, 'already_referred');
+
+    // 2. Registering WITHOUT ?ref= allows 1-time manual bind (+200), then 1h watch unlocks +5,000 for Alice
+    const regDirectRes = await fetch(`${baseUrl}/api/auth/email/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'direct-signup@example.com',
+        password: 'password123',
+        displayName: 'Direct User',
+        deviceFingerprint: 'fp-direct-user-2',
+      }),
+    });
+    assert.equal(regDirectRes.status, 201);
+    const regDirectBody = await regDirectRes.json();
+    const directToken = regDirectBody.sessionToken as string;
+    const directUid = regDirectBody.user.uid as string;
+
+    const directRefBefore = await fetch(`${baseUrl}/api/referrals/me`, {
+      headers: { Authorization: `Bearer ${directToken}` },
+    }).then((r) => r.json());
+    assert.equal(directRefBefore.referralSummary.hasReferrer, false);
+    assert.equal(directRefBefore.referralSummary.referredBy, null);
+
+    const manualBindRes = await fetch(`${baseUrl}/api/referrals/bind`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${directToken}`,
+      },
+      body: JSON.stringify({
+        referralCode: 'KDA11CE01',
+        deviceFingerprint: 'fp-direct-user-2',
+      }),
+    }).then((r) => r.json());
+    assert.equal(manualBindRes.bound, true);
+    assert.equal(manualBindRes.bindBonusAwarded, 200);
+
+    // Simulate 3,600s verified watch heartbeat -> Alice gets +5,000 Referral Bonus
+    const sess = await startWatchSessionInDb({
+      userId: directUid,
+      mediaKey: 'DramaBoxV2:d-ref-5000:ep1',
+      provider: 'DramaBoxV2',
+      dramaId: 'd-ref-5000',
+      episodeNumber: 1,
+      deviceHash: 'fp-direct-user-2',
+    });
+    const todayKey = getJakartaDateKey();
+    state.telemetry.set(directUid, {
+      user_id: directUid,
+      verified_watch_seconds: 3590,
+      today_watch_seconds: 3590,
+      today_date_key: todayKey,
+      active_stream_session_id: sess.sessionToken,
+      active_stream_media_key: 'DramaBoxV2:d-ref-5000:ep1',
+      last_heartbeat_at: new Date(Date.now() - 20_000),
+      last_video_time_sec: '100',
+      fast_delta_strikes: 0,
+      concurrent_tab_strikes: 0,
+      risk_flag: '',
+      suspicious_reason: '',
+      updated_at: new Date(),
+    });
+    const qual = await recordWatchHeartbeatInDb({
+      userId: directUid,
+      streamSessionId: sess.sessionToken,
+      mediaKey: 'DramaBoxV2:d-ref-5000:ep1',
+      currentTimeSec: 120,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 1,
+      ipHash: 'dir-ip',
+      subnetHash: 'dir-sub',
+      uaHash: 'dir-ua',
+      deviceHash: 'fp-direct-user-2',
+    });
+    assert.equal(qual.referralQualified, true);
+
+    const aliceSummary = await fetch(`${baseUrl}/api/points/me`, {
+      headers: { Authorization: `Bearer ${aliceToken}` },
+    }).then((r) => r.json());
+    assert.equal(aliceSummary.summary.balance, 5000);
+    assert.equal(aliceSummary.summary.ledger[0].eventCode, 'referral_qualify');
+  });
+
+  await t.test('17. Static /og-image.jpg and HTML og:image meta tags serve valid JPEG directly', async () => {
+    const { mockPool } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    const [ogGetRes, ogHeadRes, homeHtml, rewardsHtml] = await Promise.all([
+      fetch(`${baseUrl}/og-image.jpg`, { redirect: 'manual' }),
+      fetch(`${baseUrl}/og-image.jpg`, { method: 'HEAD', redirect: 'manual' }),
+      fetch(`${baseUrl}/`).then((r) => r.text()),
+      fetch(`${baseUrl}/rewards`).then((r) => r.text()),
+    ]);
+
+    assert.equal(ogGetRes.status, 200);
+    assert.equal(ogGetRes.headers.get('content-type'), 'image/jpeg');
+    const buf = new Uint8Array(await ogGetRes.arrayBuffer());
+    assert.ok(buf.length > 10_000, `Expected non-empty JPEG, got ${buf.length} bytes`);
+    assert.equal(buf[0], 0xff);
+    assert.equal(buf[1], 0xd8);
+
+    assert.equal(ogHeadRes.status, 200);
+    assert.equal(ogHeadRes.headers.get('content-type'), 'image/jpeg');
+
+    for (const html of [homeHtml, rewardsHtml]) {
+      assert.match(html, /property="og:image" content="https:\/\/kano-drama\.live\/og-image\.jpg"/);
+      assert.match(html, /property="og:image:secure_url" content="https:\/\/kano-drama\.live\/og-image\.jpg"/);
+      assert.match(html, /name="twitter:image" content="https:\/\/kano-drama\.live\/og-image\.jpg"/);
+    }
+  });
 });
-
-
-
-

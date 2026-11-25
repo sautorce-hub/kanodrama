@@ -635,7 +635,7 @@ const SCHEMA_STATEMENTS: string[] = [
     referee_uid TEXT UNIQUE NOT NULL,
     referral_code TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending_watch' CHECK (status IN ('pending_watch', 'qualified', 'rejected_fraud')),
-    bonus_points INTEGER NOT NULL DEFAULT 2000,
+    bonus_points INTEGER NOT NULL DEFAULT 5000,
     referee_ip_hash TEXT NOT NULL DEFAULT '',
     referee_subnet_hash TEXT NOT NULL DEFAULT '',
     referee_ua_hash TEXT NOT NULL DEFAULT '',
@@ -646,7 +646,7 @@ const SCHEMA_STATEMENTS: string[] = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
-  `ALTER TABLE referrals ALTER COLUMN bonus_points SET DEFAULT 2000`,
+  `ALTER TABLE referrals ALTER COLUMN bonus_points SET DEFAULT 5000`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_referrer_created ON referrals (referrer_uid, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_referrer_status ON referrals (referrer_uid, status, qualified_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_code ON referrals (referral_code)`,
@@ -3895,6 +3895,7 @@ export interface PayoutRuntimeConfig {
   watchMinutePoints: number;
   dailyMissionMaxWatchSeconds: number;
   dailyMissionMilestones: DailyMissionMilestoneConfig[];
+  dailySocialSharePoints: number;
   referralQualifySeconds: number;
   referralBonusPoints: number;
   maxDailyReferrals: number;
@@ -3909,6 +3910,7 @@ export interface PayoutRuntimeConfig {
 export type PointsLedgerEventCode =
   | 'welcome_login'
   | 'daily_checkin'
+  | 'daily_social_share'
   | 'watch_minute'
   | 'watch_milestone'
   | 'watch_episode'
@@ -3920,6 +3922,7 @@ export type PointsLedgerEventCode =
 
 export interface PointsLedgerEventMeta {
   streakDay?: number;
+  shareChannel?: string;
   minute?: number;
   maxMinutes?: number;
   milestoneMinutes?: number;
@@ -4002,6 +4005,9 @@ export interface UserPointsSummary {
   lastClaimAt: string | null;
   cooldownSecondsRemaining: number;
   dailyCheckinClaimedToday: boolean;
+  dailySocialShareClaimedToday: boolean;
+  dailySocialShareClaimedAt: string | null;
+  dailySocialShareChannel: string | null;
   checkinStreak: number;
   recentCheckins: string[];
   milestones: DailyMissionMilestoneStatus[];
@@ -4317,6 +4323,14 @@ export interface UserReferralSummary {
   referralCode: string;
   referralQualifySeconds: number;
   referralBonusPoints: number;
+  bindReferralBonusPoints: number;
+  hasReferrer: boolean;
+  referredBy: {
+    status: ReferralStatus;
+    referralCode: string;
+    bindBonusAwarded: boolean;
+    createdAt: string;
+  } | null;
   verifiedWatchSeconds: number;
   todayWatchSeconds: number;
   maxDailyVerifiedWatchSeconds: number;
@@ -4343,6 +4357,7 @@ export function buildReferralCodeForUser(userId: string): string {
 const VALID_LEDGER_EVENT_CODES: ReadonlySet<PointsLedgerEventCode> = new Set([
   'welcome_login',
   'daily_checkin',
+  'daily_social_share',
   'watch_minute',
   'watch_milestone',
   'watch_episode',
@@ -4406,6 +4421,17 @@ function inferLedgerEventFromLegacyRow(r: {
       eventMeta: {
         ...tierMeta,
         streakDay: parsedMeta.streakDay ?? (dayMatch ? Number(dayMatch[1]) : undefined),
+        ...parsedMeta,
+      },
+    };
+  }
+
+  if (ref.startsWith('social_share:') || /Share Media Sosial/i.test(desc)) {
+    const chMatch = /\(([^)]+)\)\s*$/.exec(desc);
+    return {
+      eventCode: 'daily_social_share',
+      eventMeta: {
+        shareChannel: parsedMeta.shareChannel ?? chMatch?.[1]?.trim(),
         ...parsedMeta,
       },
     };
@@ -4775,6 +4801,37 @@ async function queryUserPointsSummaryOnClient(
     }
   }
 
+  const socialShareRef = `social_share:${userId}:${todayKey}`;
+  const socialSharePrefix = `social_share:${userId}:%`;
+  const socialShareLedgerRes = await client.query<{
+    reference_id: string;
+    event_meta?: unknown;
+    created_at: Date;
+  }>(
+    `SELECT reference_id, event_meta, created_at
+     FROM points_ledger
+     WHERE user_id = $1
+       AND (
+         reference_id = ANY($2::text[])
+         OR (reference_id LIKE $3 AND created_at >= $4 AND created_at < $5)
+       )
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [userId, [socialShareRef], socialSharePrefix, periodStartAt, nextResetAt]
+  );
+  const socialShareRow = socialShareLedgerRes.rows[0] || null;
+  const socialShareMeta = socialShareRow ? parseEventMeta(socialShareRow.event_meta) : {};
+  const dailySocialShareClaimedToday = Boolean(socialShareRow);
+  const dailySocialShareClaimedAt = socialShareRow
+    ? socialShareRow.created_at instanceof Date
+      ? socialShareRow.created_at.toISOString()
+      : String(socialShareRow.created_at)
+    : null;
+  const dailySocialShareChannel =
+    typeof socialShareMeta.shareChannel === 'string' && socialShareMeta.shareChannel
+      ? socialShareMeta.shareChannel
+      : null;
+
   const agg = aggRes.rows[0];
   const payoutAgg = payoutAggRes.rows[0];
   const totalEarned = Math.max(0, Number(agg?.total_earned) || 0);
@@ -4920,6 +4977,9 @@ async function queryUserPointsSummaryOnClient(
     lastClaimAt: lastClaimDate ? lastClaimDate.toISOString() : null,
     cooldownSecondsRemaining,
     dailyCheckinClaimedToday,
+    dailySocialShareClaimedToday,
+    dailySocialShareClaimedAt,
+    dailySocialShareChannel,
     checkinStreak,
     recentCheckins,
     milestones,
@@ -5298,6 +5358,205 @@ export async function claimDailyCheckinInDb(input: {
     if (err instanceof DatabaseUnavailableError) throw err;
     console.warn(
       '[PostgreSQL] claimDailyCheckinInDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
+}
+
+export const ALLOWED_SOCIAL_SHARE_CHANNELS = new Set([
+  'whatsapp',
+  'telegram',
+  'x',
+  'facebook',
+  'copy_link',
+  'native_share',
+] as const);
+
+export type SocialShareChannel =
+  | 'whatsapp'
+  | 'telegram'
+  | 'x'
+  | 'facebook'
+  | 'copy_link'
+  | 'native_share';
+
+const SOCIAL_SHARE_CHANNEL_LABELS: Record<SocialShareChannel, string> = {
+  whatsapp: 'WhatsApp',
+  telegram: 'Telegram',
+  x: 'X',
+  facebook: 'Facebook',
+  copy_link: 'Copy Link',
+  native_share: 'Share',
+};
+
+export async function claimDailySocialShareInDb(input: {
+  userId: string;
+  channel: string;
+  displayName?: string;
+  timeZone?: string | null;
+}): Promise<{
+  ok: boolean;
+  reason?:
+    | 'duplicate_claim'
+    | 'daily_cap_reached'
+    | 'invalid_channel'
+    | 'anti_cheat_blocked';
+  channel?: SocialShareChannel;
+  entry?: PointsLedgerRecord;
+  summary: UserPointsSummary;
+}> {
+  const cfg = getPayoutRuntimeConfig();
+  const rawChannel = String(input.channel || '')
+    .trim()
+    .toLowerCase();
+  const normalizedChannel = rawChannel === 'twitter' ? 'x' : rawChannel;
+  if (!ALLOWED_SOCIAL_SHARE_CHANNELS.has(normalizedChannel as SocialShareChannel)) {
+    const summary = await getUserPointsSummaryFromDb(input.userId, input.timeZone);
+    return { ok: false, reason: 'invalid_channel', summary };
+  }
+  const channel = normalizedChannel as SocialShareChannel;
+
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    await client.query('BEGIN');
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `points:${input.userId}`,
+    ]);
+
+    const { timeZone, todayKey, periodStartAt, nextResetAt } =
+      await resolveUserTimeZonePg(client, input.userId, input.timeZone, true);
+
+    await client.query(
+      `INSERT INTO users (uid, email, display_name, updated_at)
+       VALUES ($1, '', $2, NOW())
+       ON CONFLICT (uid) DO NOTHING`,
+      [input.userId, (input.displayName || 'Kano Viewer').slice(0, 80)]
+    );
+
+    const secSigRes = await client.query<{ risk_flag: string }>(
+      `SELECT risk_flag FROM user_security_signals WHERE user_id = $1`,
+      [input.userId]
+    );
+    const telRiskRes = await client.query<{ risk_flag: string }>(
+      `SELECT risk_flag FROM watch_telemetry WHERE user_id = $1 LIMIT 1`,
+      [input.userId]
+    );
+    if (secSigRes.rows[0]?.risk_flag || telRiskRes.rows[0]?.risk_flag) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'anti_cheat_blocked', summary };
+    }
+
+    const referenceId = `social_share:${input.userId}:${todayKey}`;
+    const sharePrefix = `social_share:${input.userId}:%`;
+    const dupLedger = await client.query<{ id: string }>(
+      `SELECT id
+       FROM points_ledger
+       WHERE user_id = $1
+         AND (
+           reference_id = $2
+           OR (reference_id LIKE $3 AND created_at >= $4 AND created_at < $5)
+         )
+       LIMIT 1`,
+      [input.userId, referenceId, sharePrefix, periodStartAt, nextResetAt]
+    );
+
+    if (dupLedger.rows.length > 0) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'duplicate_claim', summary };
+    }
+
+    const statsRes = await client.query<{
+      balance: string;
+      today_earned: string;
+    }>(
+      `SELECT
+         (COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0) -
+          COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0))::text AS balance,
+         COALESCE(SUM(
+           CASE
+             WHEN type = 'earn'
+              AND reference_id NOT LIKE 'refund:payout:%'
+              AND reference_id NOT LIKE 'welcome_login:%'
+              AND created_at >= $2
+              AND created_at < $3
+             THEN points
+             ELSE 0
+           END
+         ), 0)::text AS today_earned
+       FROM points_ledger
+       WHERE user_id = $1`,
+      [input.userId, periodStartAt, nextResetAt]
+    );
+
+    const currentBalance = Math.max(0, Number(statsRes.rows[0]?.balance) || 0);
+    const todayEarned = Math.max(0, Number(statsRes.rows[0]?.today_earned) || 0);
+    const sharePoints = Math.max(1, Math.floor(cfg.dailySocialSharePoints || 500));
+
+    if (todayEarned + sharePoints > cfg.maxDailyEarnPoints) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'daily_cap_reached', summary };
+    }
+
+    const channelLabel = SOCIAL_SHARE_CHANNEL_LABELS[channel];
+    const shareMeta: PointsLedgerEventMeta = { shareChannel: channel };
+    const inserted = await client.query<{
+      id: string;
+      user_id: string;
+      type: string;
+      points: number;
+      description: string;
+      event_code: string;
+      event_meta: unknown;
+      reference_id: string;
+      balance_after: number | null;
+      created_at: Date;
+    }>(
+      `INSERT INTO points_ledger (id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, 'daily_social_share', $5::jsonb, $6, $7, NOW())
+       ON CONFLICT (reference_id) DO NOTHING
+       RETURNING id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at`,
+      [
+        crypto.randomUUID(),
+        input.userId,
+        sharePoints,
+        `Misi Share Media Sosial Harian (${channelLabel})`,
+        JSON.stringify(shareMeta),
+        referenceId,
+        currentBalance + sharePoints,
+      ]
+    );
+
+    if (inserted.rows.length === 0) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'duplicate_claim', summary };
+    }
+
+    const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      channel,
+      entry: inserted.rows[0] ? mapLedgerRow(inserted.rows[0]) : undefined,
+      summary,
+    };
+  } catch (err) {
+    try {
+      await client?.query('ROLLBACK');
+    } catch {
+      // Ignore rollback failure
+    }
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] claimDailySocialShareInDb failed:',
       err instanceof Error ? err.message : String(err)
     );
     throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
@@ -8133,11 +8392,45 @@ export async function getUserReferralSummaryFromDb(
           : new Date().toISOString(),
     }));
 
+    const selfReferredRes = await client.query<{
+      status: string;
+      referral_code: string;
+      created_at: Date | string;
+    }>(
+      `SELECT status, referral_code, created_at
+       FROM referrals
+       WHERE referee_uid = $1
+       LIMIT 1`,
+      [userId]
+    );
+    const selfRefRow = selfReferredRes.rows[0] || null;
+    const bindLedgerRes = selfRefRow
+      ? await client.query<{ id: string }>(
+          `SELECT id FROM points_ledger WHERE reference_id = $1 LIMIT 1`,
+          [`referral:bind:${userId}`]
+        )
+      : { rows: [] };
+
     const tRow = selfTel.rows[0];
     return {
       referralCode,
       referralQualifySeconds: cfg.referralQualifySeconds,
       referralBonusPoints: cfg.referralBonusPoints,
+      bindReferralBonusPoints: cfg.bindReferralBonusPoints,
+      hasReferrer: Boolean(selfRefRow),
+      referredBy: selfRefRow
+        ? {
+            status: (['pending_watch', 'qualified', 'rejected_fraud'].includes(selfRefRow.status)
+              ? selfRefRow.status
+              : 'pending_watch') as ReferralStatus,
+            referralCode: String(selfRefRow.referral_code || ''),
+            bindBonusAwarded: bindLedgerRes.rows.length > 0,
+            createdAt:
+              selfRefRow.created_at instanceof Date
+                ? selfRefRow.created_at.toISOString()
+                : new Date(String(selfRefRow.created_at || Date.now())).toISOString(),
+          }
+        : null,
       verifiedWatchSeconds: Math.max(0, Number(tRow?.verified_watch_seconds) || 0),
       todayWatchSeconds:
         tRow && tRow.today_date_key === todayKey

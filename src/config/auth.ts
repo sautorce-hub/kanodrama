@@ -27,6 +27,11 @@ export interface GoogleAuthResult {
   user: ServerAuthenticatedUser;
   gmailLoginCount: number;
   firstLoginBonusAwarded?: number;
+  referralBindResult?: {
+    bound: boolean;
+    bindBonusAwarded?: number;
+    reason?: string;
+  };
 }
 
 interface GoogleTokenClientResponse {
@@ -318,6 +323,11 @@ export async function exchangeGoogleCredentialWithBackend(payload: {
     user?: ServerAuthenticatedUser;
     gmailLoginCount?: number;
     firstLoginBonusAwarded?: number;
+    referralBindResult?: {
+      bound: boolean;
+      bindBonusAwarded?: number;
+      reason?: string;
+    };
   };
 
   if (!res.ok || !data.ok || !data.user) {
@@ -331,6 +341,7 @@ export async function exchangeGoogleCredentialWithBackend(payload: {
       typeof data.gmailLoginCount === 'number' ? data.gmailLoginCount : 0,
     firstLoginBonusAwarded:
       typeof data.firstLoginBonusAwarded === 'number' ? data.firstLoginBonusAwarded : 0,
+    referralBindResult: data.referralBindResult,
   };
 }
 
@@ -400,6 +411,11 @@ export async function loginWithEmail(payload: {
     user?: ServerAuthenticatedUser;
     gmailLoginCount?: number;
     firstLoginBonusAwarded?: number;
+    referralBindResult?: {
+      bound: boolean;
+      bindBonusAwarded?: number;
+      reason?: string;
+    };
   };
 
   if (!res.ok || !data.ok || !data.user) {
@@ -413,6 +429,7 @@ export async function loginWithEmail(payload: {
       typeof data.gmailLoginCount === 'number' ? data.gmailLoginCount : 0,
     firstLoginBonusAwarded:
       typeof data.firstLoginBonusAwarded === 'number' ? data.firstLoginBonusAwarded : 0,
+    referralBindResult: data.referralBindResult,
   };
 }
 
@@ -452,6 +469,11 @@ export async function registerWithEmail(payload: {
     user?: ServerAuthenticatedUser;
     gmailLoginCount?: number;
     firstLoginBonusAwarded?: number;
+    referralBindResult?: {
+      bound: boolean;
+      bindBonusAwarded?: number;
+      reason?: string;
+    };
   };
 
   if (!res.ok || !data.ok || !data.user) {
@@ -465,6 +487,7 @@ export async function registerWithEmail(payload: {
       typeof data.gmailLoginCount === 'number' ? data.gmailLoginCount : 0,
     firstLoginBonusAwarded:
       typeof data.firstLoginBonusAwarded === 'number' ? data.firstLoginBonusAwarded : 0,
+    referralBindResult: data.referralBindResult,
   };
 }
 

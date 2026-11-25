@@ -37,8 +37,7 @@ function formatMovieDisplayTitle(title: string, year?: string): string {
   return `${cleanBase} (${cleanYear})`;
 }
 
-export const DEFAULT_OG_IMAGE_PATH =
-  '/assets/aistudio/file_00000000f37c8211a740b95cbbe03886_b90a3ae0.png';
+export const DEFAULT_OG_IMAGE_PATH = '/og-image.jpg';
 export const BRAND_LOGO_ICON_PATH =
   '/assets/aistudio/file_000000005860821188dbaf696e0dbfa6_1a485403.png';
 
@@ -778,8 +777,8 @@ export function syncSectionDocumentSeo(
             '@type': 'Answer',
             text:
               lang === 'id'
-                ? 'Bagikan tautan undangan resmi kano-drama.live Anda. Teman yang mengikat kode referral Anda langsung menerima +200 poin, dan setelah menyelesaikan total 1 jam (3.600 detik) durasi menonton terverifikasi, +2.000 poin otomatis masuk ke saldo Anda.'
-                : 'Share your kano-drama.live referral link. Friends who bind your referral code receive +200 bonus points immediately, and once they complete 1 hour (3,600 seconds) of verified active watch time, +2,000 bonus points are credited automatically.',
+                ? 'KanoDrama memisahkan Bonus Bind Referral (+200 poin) dan Bonus Referral Utama (+5.000 poin). Jika mendaftar langsung lewat tautan ?ref= teman, bonus bind +200 poin otomatis masuk; jika belum lewat tautan, Anda dapat menautkan kode referral teman sekali untuk +200 poin. Setelah teman menyelesaikan minimal 1 jam (3.600 detik) tontonan aktif terverifikasi, pengundang menerima +5.000 poin. Tersedia juga misi share media sosial harian (+500 poin/hari, reset 00.00 WIB).'
+                : 'KanoDrama separates the Bind Referral Bonus (+200 pts) from the Main Referral Bonus (+5,000 pts). Signing up directly via a friend referral link grants +200 pts automatically (or bind a code once later if not registered via link). Once the invited friend completes 1 hour (3,600s) of verified active watching, the referrer earns +5,000 pts. A daily social share task (+500 pts/day, resets 17:00 UTC) is also available.',
           },
         },
       ],

@@ -21,10 +21,12 @@ import {
   Globe2,
   Link2,
   Lock,
+  MessageCircle,
   Play,
   PlayCircle,
   RefreshCw,
   Search,
+  Send,
   Share2,
   Shield,
   ShieldCheck,
@@ -35,7 +37,7 @@ import {
   X,
 } from 'lucide-react';
 import { useDramaContext } from '../context/DramaContext';
-import { getProductionReferralUrl } from '../config/auth';
+import { getClientDeviceFingerprint, getProductionReferralUrl } from '../config/auth';
 import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import { PaymentMethodLogo } from './PaymentMethodLogo';
 import { RewardsSeoContent } from './RewardsSeoContent';
@@ -271,6 +273,7 @@ interface PayoutConfig {
   claimCooldownSeconds: number;
   firstLoginBonusPoints?: number;
   bindReferralBonusPoints?: number;
+  dailySocialSharePoints?: number;
   dailyCheckinPoints: number;
   dailyCheckinDay7Points?: number;
   watchEpisodePoints: number;
@@ -306,6 +309,14 @@ interface UserReferralSummary {
   referralCode: string;
   referralQualifySeconds: number;
   referralBonusPoints: number;
+  bindReferralBonusPoints?: number;
+  hasReferrer?: boolean;
+  referredBy?: {
+    status: ReferralStatus;
+    referralCode: string;
+    bindBonusAwarded: boolean;
+    createdAt: string;
+  } | null;
   verifiedWatchSeconds: number;
   todayWatchSeconds: number;
   maxDailyVerifiedWatchSeconds: number;
@@ -376,6 +387,9 @@ interface UserPointsSummary {
   dailyCheckinClaimedToday: boolean;
   checkinStreak?: number;
   recentCheckins?: string[];
+  dailySocialShareClaimedToday?: boolean;
+  dailySocialShareClaimedAt?: string | null;
+  dailySocialShareChannel?: string | null;
   milestones?: DailyMissionMilestoneStatus[];
   ledgerTotal?: number;
   payoutsTotal?: number;
@@ -429,6 +443,7 @@ const DEFAULT_CONFIG: PayoutConfig = {
   claimCooldownSeconds: 45,
   firstLoginBonusPoints: 10000,
   bindReferralBonusPoints: 200,
+  dailySocialSharePoints: 500,
   dailyCheckinPoints: 500,
   dailyCheckinDay7Points: 2000,
   watchEpisodePoints: 50,
@@ -440,7 +455,7 @@ const DEFAULT_CONFIG: PayoutConfig = {
     { minutes: 60, bonusPoints: 600 },
   ],
   referralQualifySeconds: 3600,
-  referralBonusPoints: 2000,
+  referralBonusPoints: 5000,
   maxDailyReferrals: 5,
   maxWeeklyReferrals: 15,
   maxDailyVerifiedWatchSeconds: 28800,
@@ -594,6 +609,7 @@ function formatLedgerDescription(
     ledgerWatchEpisode: string;
     ledgerReferralBind: string;
     ledgerReferralQualify: string;
+    ledgerDailySocialShare: string;
     ledgerPayoutRequest: string;
     ledgerPayoutRefund: string;
     ledgerPayoutFailed: string;
@@ -612,6 +628,8 @@ function formatLedgerDescription(
       code = 'welcome_login';
     } else if (ref.startsWith('checkin:')) {
       code = 'daily_checkin';
+    } else if (ref.startsWith('social_share:')) {
+      code = 'daily_social_share';
     } else if (ref.startsWith('watch_min:')) {
       code = 'watch_minute';
     } else if (ref.startsWith('mission_')) {
@@ -680,6 +698,24 @@ function formatLedgerDescription(
     }
     case 'referral_qualify':
       return rewardsDict.ledgerReferralQualify;
+    case 'daily_social_share': {
+      const channelRaw =
+        (typeof meta.shareChannel === 'string' && meta.shareChannel.toLowerCase()) || '';
+      const channelNameMap: Record<string, string> = {
+        whatsapp: 'WhatsApp',
+        telegram: 'Telegram',
+        x: 'X',
+        twitter: 'X',
+        facebook: 'Facebook',
+        copy_link: 'Copy Link',
+        native_share: 'Share',
+      };
+      const channelLabel =
+        channelNameMap[channelRaw] ||
+        /\(([^)]+)\)/.exec(desc)?.[1] ||
+        'Social';
+      return rewardsDict.ledgerDailySocialShare.replace('{channel}', channelLabel);
+    }
     case 'payout_request': {
       const match = /^Penarikan\s+(.+?)\s+\(([A-Z]+)\)$/.exec(desc);
       const methodLabel =
@@ -933,6 +969,7 @@ export const RewardsPayoutSection: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [claimingCheckin, setClaimingCheckin] = useState(false);
   const [claimingMilestoneMinutes, setClaimingMilestoneMinutes] = useState<number | null>(null);
+  const [claimingSocialShare, setClaimingSocialShare] = useState<string | null>(null);
 
   // Ledger & Payout History pagination states
   const [ledgerRows, setLedgerRows] = useState<PointsLedgerItem[]>([]);
@@ -1505,6 +1542,114 @@ export const RewardsPayoutSection: React.FC = () => {
     }
   };
 
+  const handleClaimDailySocialShare = async (
+    channel: 'whatsapp' | 'telegram' | 'x' | 'facebook' | 'copy_link' | 'native_share'
+  ) => {
+    if (!user) {
+      openAuthModal();
+      return;
+    }
+    const shareTargetUrl = referralShareUrl || DEFAULT_SITE_ORIGIN;
+    if (channel === 'copy_link') {
+      try {
+        await navigator.clipboard?.writeText(shareTargetUrl);
+      } catch {
+        // Ignore clipboard errors; server still validates claim
+      }
+    } else if (
+      channel === 'native_share' &&
+      typeof navigator !== 'undefined' &&
+      typeof navigator.share === 'function'
+    ) {
+      try {
+        await navigator.share({
+          title: isId ? 'Nonton Drama Gratis di KanoDrama' : 'Watch Asian Dramas on KanoDrama',
+          text: isId
+            ? 'Nonton drama China & short drama sub Indo HD di KanoDrama!'
+            : 'Stream Asian & short dramas in HD on KanoDrama!',
+          url: shareTargetUrl,
+        });
+      } catch {
+        return;
+      }
+    }
+
+    if (summary?.dailySocialShareClaimedToday || claimingSocialShare !== null) {
+      if (channel === 'copy_link') {
+        pushToast(t.rewards.referralCopied, 'gold');
+      }
+      return;
+    }
+
+    setClaimingSocialShare(channel);
+    setFormFeedback(null);
+    try {
+      const res = await fetch('/api/points/claim', {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          action: 'daily_social_share',
+          channel,
+          lang: language,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        awardedPoints?: number;
+        error?: string;
+        summary?: UserPointsSummary;
+      };
+      if (res.status === 503) {
+        setDbAvailable(false);
+        setDbErrorMsg(data.error || 'Database PostgreSQL belum terhubung.');
+        return;
+      }
+      if (data.summary) {
+        setSummary(data.summary);
+        setLedgerRows(data.summary.ledger || []);
+        setLedgerTotal(Number(data.summary.ledgerTotal ?? (data.summary.ledger || []).length));
+      }
+      if (res.ok && data.ok) {
+        const awarded = Number(data.awardedPoints) || config.dailySocialSharePoints || 500;
+        const channelLabelMap: Record<string, string> = {
+          whatsapp: 'WhatsApp',
+          telegram: 'Telegram',
+          x: 'X',
+          facebook: 'Facebook',
+          copy_link: 'Copy Link',
+          native_share: 'Share',
+        };
+        pushToast(
+          `+${awarded.toLocaleString()} ${t.rewards.pointsUnit} · ${t.rewards.dailyShareSuccess.replace(
+            '{channel}',
+            channelLabelMap[channel] || channel
+          )}`,
+          'gold'
+        );
+        void refreshPointsBalance();
+      } else {
+        setFormFeedback({
+          type: 'error',
+          message:
+            data.error ||
+            (isId
+              ? 'Gagal mengklaim bonus share media sosial harian.'
+              : 'Unable to claim daily social share reward.'),
+        });
+      }
+    } catch {
+      setFormFeedback({
+        type: 'error',
+        message: isId
+          ? 'Gagal terhubung ke server saat klaim tugas share.'
+          : 'Network error while claiming daily social share reward.',
+      });
+    } finally {
+      setClaimingSocialShare(null);
+    }
+  };
+
   const handleRequestWithdrawConfirmation = (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
@@ -1686,7 +1831,10 @@ export const RewardsPayoutSection: React.FC = () => {
         method: 'POST',
         credentials: 'include',
         headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ referralCode: bindCodeInput.trim().toUpperCase() }),
+        body: JSON.stringify({
+          referralCode: bindCodeInput.trim().toUpperCase(),
+          deviceFingerprint: getClientDeviceFingerprint(),
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -1709,8 +1857,8 @@ export const RewardsPayoutSection: React.FC = () => {
         setBindFeedback({
           type: 'success',
           message: isId
-            ? `Kode referral berhasil terhubung!${bindBonus > 0 ? ` Bonus +${bindBonus.toLocaleString()} poin telah dikreditkan.` : ''} Tonton aktif 60 menit untuk mengaktifkan bonus pengundang.`
-            : `Referral code linked!${bindBonus > 0 ? ` +${bindBonus.toLocaleString()} pts bind bonus credited.` : ''} Watch 60 active minutes to qualify the full invite reward.`,
+            ? `Bind referral berhasil!${bindBonus > 0 ? ` Bonus Bind Referral +${bindBonus.toLocaleString()} poin langsung masuk.` : ''} Tonton aktif 60 menit untuk membuka Bonus Referral +${(referralSummary?.referralBonusPoints ?? config.referralBonusPoints).toLocaleString()} poin bagi pengundang.`
+            : `Referral bound!${bindBonus > 0 ? ` +${bindBonus.toLocaleString()} pts Bind Referral bonus credited.` : ''} Complete 60m verified watch time to unlock the +${(referralSummary?.referralBonusPoints ?? config.referralBonusPoints).toLocaleString()} pts Referral reward for your inviter.`,
         });
         if (bindBonus > 0) {
           pushToast(`+${bindBonus.toLocaleString()} ${t.rewards.pointsUnit}`, 'gold');
@@ -1734,6 +1882,12 @@ export const RewardsPayoutSection: React.FC = () => {
           duplicate_device: isId
             ? 'Perangkat yang sama terdeteksi pada akun pengundang.'
             : 'Shared device detected with referrer account.',
+          account_not_new: isId
+            ? 'Bind kode referral hanya tersedia untuk akun baru yang belum memiliki riwayat referral.'
+            : 'Referral binding is only available for newly registered accounts.',
+          fraud_signal_match: isId
+            ? 'Validasi anti-cheat mendeteksi aktivitas mencurigakan pada akun/jaringan ini.'
+            : 'Anti-cheat validation blocked this referral binding.',
           daily_limit: isId
             ? 'Batas harian undangan kode ini tercapai.'
             : 'Referrer daily invite limit reached.',
@@ -2781,6 +2935,196 @@ export const RewardsPayoutSection: React.FC = () => {
         </div>
       </section>
 
+      {/* 3B. Daily Social Media Share Task (+500 pts/day, synced to canonical server WIB/UTC reset) */}
+      <section className="rounded-3xl bg-[#121117] border border-white/10 p-4 sm:p-6 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="w-10 h-10 rounded-xl bg-[#1D243B] border border-sky-500/30 flex items-center justify-center text-sky-300 shrink-0">
+              <Share2 className="w-4 h-4" />
+            </span>
+            <div className="space-y-0.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base sm:text-lg font-extrabold text-white">
+                  {t.rewards.dailyShareTitle}
+                </h2>
+                <span className="px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/35 text-[11px] font-extrabold text-[#D4AF37] tabular-nums">
+                  +{(config.dailySocialSharePoints ?? 500).toLocaleString()} {t.rewards.pointsUnit} /{' '}
+                  {isId ? 'hari' : 'day'}
+                </span>
+              </div>
+              <p className="text-xs text-[#A1A1AA] leading-relaxed">
+                {t.rewards.dailyShareSubtitle}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center px-3 py-1 rounded-full border border-amber-500/40 bg-amber-500/10 text-[11px] font-semibold text-amber-200">
+              <ResetCountdown lang={language} nextResetAt={summary?.nextResetAt} />
+            </span>
+            {user && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] font-bold ${
+                  summary?.dailySocialShareClaimedToday
+                    ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
+                    : 'bg-sky-500/15 border-sky-500/35 text-sky-200'
+                }`}
+              >
+                {summary?.dailySocialShareClaimedToday ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>
+                      {t.rewards.dailyShareClaimedLabel}
+                      {summary.dailySocialShareChannel
+                        ? ` (${summary.dailySocialShareChannel.toUpperCase()})`
+                        : ''}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                    <span>{t.rewards.dailyShareReadyLabel}</span>
+                  </>
+                )}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {!user ? (
+          <div className="p-4 rounded-2xl bg-[#0B0B0F] border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <p className="text-xs text-[#A1A1AA]">{t.rewards.dailyShareHint}</p>
+            <button
+              type="button"
+              onClick={() => openAuthModal()}
+              className="px-4 py-2.5 min-h-[42px] rounded-xl bg-[#D4AF37] text-[#09090B] text-xs font-extrabold hover:brightness-110 transition-all whitespace-nowrap shrink-0"
+            >
+              {isId
+                ? `Masuk & Klaim +${(config.dailySocialSharePoints ?? 500).toLocaleString()} Poin`
+                : `Sign In & Claim +${(config.dailySocialSharePoints ?? 500).toLocaleString()} pts`}
+            </button>
+          </div>
+        ) : (() => {
+          const shareUrl = referralShareUrl || DEFAULT_SITE_ORIGIN;
+          const shareCaption = isId
+            ? `Nonton drama China & short drama HD gratis di KanoDrama + kumpulkan poin saldo! ${shareUrl}`
+            : `Stream Asian & short dramas in HD on KanoDrama and earn daily rewards! ${shareUrl}`;
+          const waHref = `https://wa.me/?text=${encodeURIComponent(shareCaption)}`;
+          const tgHref = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(
+            isId ? 'Nonton drama HD gratis di KanoDrama!' : 'Watch Asian dramas in HD on KanoDrama!'
+          )}`;
+          const xHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+            isId ? 'Nonton drama HD gratis di KanoDrama!' : 'Watch Asian dramas in HD on KanoDrama!'
+          )}&url=${encodeURIComponent(shareUrl)}`;
+          const fbHref = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
+          const claimedToday = Boolean(summary?.dailySocialShareClaimedToday);
+          const busy = claimingSocialShare !== null || !dbAvailable;
+
+          return (
+            <div className="space-y-3">
+              <p className="text-xs text-[#D4D4D8]">{t.rewards.dailyShareHint}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <a
+                  href={waHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    if (!claimedToday && !busy) void handleClaimDailySocialShare('whatsapp');
+                  }}
+                  aria-disabled={busy}
+                  className={`min-h-[42px] px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                    claimedToday
+                      ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200'
+                      : 'bg-[#181620] border-white/10 hover:border-emerald-400/60 text-white'
+                  }`}
+                >
+                  <MessageCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>{claimingSocialShare === 'whatsapp' ? '...' : 'WhatsApp'}</span>
+                </a>
+
+                <a
+                  href={tgHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    if (!claimedToday && !busy) void handleClaimDailySocialShare('telegram');
+                  }}
+                  aria-disabled={busy}
+                  className={`min-h-[42px] px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                    claimedToday
+                      ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200'
+                      : 'bg-[#181620] border-white/10 hover:border-sky-400/60 text-white'
+                  }`}
+                >
+                  <Send className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  <span>{claimingSocialShare === 'telegram' ? '...' : 'Telegram'}</span>
+                </a>
+
+                <a
+                  href={xHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    if (!claimedToday && !busy) void handleClaimDailySocialShare('x');
+                  }}
+                  aria-disabled={busy}
+                  className={`min-h-[42px] px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                    claimedToday
+                      ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200'
+                      : 'bg-[#181620] border-white/10 hover:border-white/40 text-white'
+                  }`}
+                >
+                  <span className="font-black text-xs leading-none">𝕏</span>
+                  <span>{claimingSocialShare === 'x' ? '...' : 'X / Twitter'}</span>
+                </a>
+
+                <a
+                  href={fbHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    if (!claimedToday && !busy) void handleClaimDailySocialShare('facebook');
+                  }}
+                  aria-disabled={busy}
+                  className={`min-h-[42px] px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                    claimedToday
+                      ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200'
+                      : 'bg-[#181620] border-white/10 hover:border-[#3B82F6]/60 text-white'
+                  }`}
+                >
+                  <span className="font-black text-xs text-[#3B82F6] leading-none">f</span>
+                  <span>{claimingSocialShare === 'facebook' ? '...' : 'Facebook'}</span>
+                </a>
+
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleClaimDailySocialShare('copy_link')}
+                  className={`col-span-2 sm:col-span-1 min-h-[42px] px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-60 ${
+                    claimedToday
+                      ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200'
+                      : 'bg-[#D4AF37]/15 border-[#D4AF37]/40 hover:bg-[#D4AF37]/25 text-[#FDE68A]'
+                  }`}
+                >
+                  {claimedToday ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">
+                    {claimingSocialShare === 'copy_link'
+                      ? '...'
+                      : claimedToday
+                      ? t.rewards.dailyShareClaimedLabel
+                      : t.rewards.dailyShareCopyBtn}
+                  </span>
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </section>
+
       {/* Referral Hub (Always Uses Production https://kano-drama.live/?ref=...) */}
       <section
         id="referral-program"
@@ -2799,9 +3143,63 @@ export const RewardsPayoutSection: React.FC = () => {
             </p>
           </div>
 
-          <div className="px-3 py-1.5 rounded-lg bg-[#D4AF37]/15 border border-[#D4AF37]/30 text-xs font-extrabold text-[#D4AF37] tabular-nums whitespace-nowrap">
-            +{(referralSummary?.referralBonusPoints ?? config.referralBonusPoints).toLocaleString()}{' '}
-            {t.rewards.pointsUnit} / {qualifyMinutes} {t.rewards.minutesUnit}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="px-3 py-1.5 rounded-lg bg-[#D4AF37]/15 border border-[#D4AF37]/30 text-xs font-extrabold text-[#D4AF37] tabular-nums whitespace-nowrap">
+              {isId ? 'Bonus Referral' : 'Referral Bonus'}: +
+              {(referralSummary?.referralBonusPoints ?? config.referralBonusPoints).toLocaleString()}{' '}
+              {t.rewards.pointsUnit} / {qualifyMinutes} {t.rewards.minutesUnit}
+            </span>
+            <span className="px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-xs font-extrabold text-emerald-300 tabular-nums whitespace-nowrap">
+              {isId ? 'Bonus Bind' : 'Bind Bonus'}: +
+              {(
+                referralSummary?.bindReferralBonusPoints ??
+                config.bindReferralBonusPoints ??
+                200
+              ).toLocaleString()}{' '}
+              {t.rewards.pointsUnit}
+            </span>
+          </div>
+        </div>
+
+        {/* Clear 2-Tier Referral vs Bind Referral Breakdown */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="p-3.5 rounded-xl bg-[#0B0B0F] border border-[#D4AF37]/25 space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-extrabold text-[#D4AF37]">
+                {isId ? '1. Bonus Referral Utama' : '1. Main Referral Bonus'}
+              </span>
+              <span className="text-xs font-extrabold text-white tabular-nums">
+                +{(referralSummary?.referralBonusPoints ?? config.referralBonusPoints).toLocaleString()}{' '}
+                {t.rewards.pointsUnit}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+              {isId
+                ? `Masuk ke akun pengundang setelah teman yang diundang menyelesaikan minimal ${qualifyMinutes} menit (1 jam) tonton aktif terverifikasi dan lolos validasi anti-cheat.`
+                : `Credited to the inviter once the invited friend completes at least ${qualifyMinutes} minutes (1 hour) of verified active watching and passes anti-cheat checks.`}
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#0B0B0F] border border-emerald-500/25 space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-extrabold text-emerald-300">
+                {isId ? '2. Bonus Bind Referral' : '2. Bind Referral Bonus'}
+              </span>
+              <span className="text-xs font-extrabold text-white tabular-nums">
+                +
+                {(
+                  referralSummary?.bindReferralBonusPoints ??
+                  config.bindReferralBonusPoints ??
+                  200
+                ).toLocaleString()}{' '}
+                {t.rewards.pointsUnit}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+              {isId
+                ? `Daftar langsung lewat tautan ?ref= teman → +${(referralSummary?.bindReferralBonusPoints ?? config.bindReferralBonusPoints ?? 200).toLocaleString()} poin masuk otomatis. Jika mendaftar tanpa tautan teman, masukkan kode referral sekali di bawah untuk klaim +${(referralSummary?.bindReferralBonusPoints ?? config.bindReferralBonusPoints ?? 200).toLocaleString()} poin.`
+                : `Sign up via a friend's ?ref= link → +${(referralSummary?.bindReferralBonusPoints ?? config.bindReferralBonusPoints ?? 200).toLocaleString()} pts auto-credited. If you registered without a link, bind a code once below to claim +${(referralSummary?.bindReferralBonusPoints ?? config.bindReferralBonusPoints ?? 200).toLocaleString()} pts.`}
+            </p>
           </div>
         </div>
 
@@ -2895,41 +3293,88 @@ export const RewardsPayoutSection: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Manual Referral Code Bind */}
-                <form onSubmit={handleBindReferralCode} className="pt-2 border-t border-white/10 space-y-2">
-                  <label className="block text-[11px] font-medium text-[#A1A1AA]">
-                    {isId
-                      ? `Punya kode referral teman? Masukkan sekali di sini (+${(config.bindReferralBonusPoints ?? 200).toLocaleString()} poin):`
-                      : `Have a friend referral code? Enter it once here (+${(config.bindReferralBonusPoints ?? 200).toLocaleString()} pts):`}
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={bindCodeInput}
-                      onChange={(e) => setBindCodeInput(e.target.value.toUpperCase())}
-                      placeholder="KDXXXXXXXX"
-                      maxLength={20}
-                      className="flex-1 min-w-0 min-h-[36px] px-3 py-1.5 rounded-lg bg-[#16151C] border border-white/10 text-xs font-mono text-white uppercase placeholder:text-[#71717A] focus:border-[#D4AF37] focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      disabled={bindingRef || !bindCodeInput.trim()}
-                      className="inline-flex items-center gap-1 px-3 min-h-[36px] rounded-lg bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-bold text-white disabled:opacity-45 whitespace-nowrap shrink-0"
-                    >
-                      <Link2 className="w-3.5 h-3.5" />
-                      <span>{bindingRef ? '...' : isId ? 'Tautkan' : 'Bind'}</span>
-                    </button>
-                  </div>
-                  {bindFeedback && (
-                    <p
-                      className={`text-[11px] font-medium ${
-                        bindFeedback.type === 'success' ? 'text-emerald-300' : 'text-rose-300'
-                      }`}
-                    >
-                      {bindFeedback.message}
+                {/* Bind Referral Status OR Manual Bind Code Form (200 pts) */}
+                {referralSummary.hasReferrer && referralSummary.referredBy ? (
+                  <div className="pt-2.5 border-t border-white/10 space-y-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                      <span className="inline-flex items-center gap-1.5 font-bold text-emerald-300">
+                        <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                        <span>
+                          {isId
+                            ? `Terhubung ke pengundang (${referralSummary.referredBy.referralCode})`
+                            : `Bound to referrer (${referralSummary.referredBy.referralCode})`}
+                        </span>
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-300 tabular-nums">
+                        {referralSummary.referredBy.bindBonusAwarded
+                          ? `+${(
+                              referralSummary.bindReferralBonusPoints ??
+                              config.bindReferralBonusPoints ??
+                              200
+                            ).toLocaleString()} ${t.rewards.pointsUnit}`
+                          : renderReferralStatusBadge(referralSummary.referredBy.status)}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+                      {referralSummary.referredBy.status === 'qualified'
+                        ? isId
+                          ? 'Syarat 60 menit tonton aktif Anda sudah terpenuhi dan Bonus Referral utama pengundang telah cair.'
+                          : 'Your 60-minute verified watch requirement is complete and your inviter received the main referral bonus.'
+                        : isId
+                        ? `Progress syarat 60 menit tonton aktif Anda: ${Math.min(
+                            qualifyMinutes,
+                            Math.floor(referralSummary.verifiedWatchSeconds / 60)
+                          )} / ${qualifyMinutes} menit.`
+                        : `Your 60-minute watch qualification progress: ${Math.min(
+                            qualifyMinutes,
+                            Math.floor(referralSummary.verifiedWatchSeconds / 60)
+                          )} / ${qualifyMinutes} min.`}
                     </p>
-                  )}
-                </form>
+                  </div>
+                ) : (
+                  <form onSubmit={handleBindReferralCode} className="pt-2 border-t border-white/10 space-y-2">
+                    <label className="block text-[11px] font-medium text-[#A1A1AA]">
+                      {isId
+                        ? `Tidak mendaftar lewat tautan teman? Masukkan kode referral sekali di sini untuk Bonus Bind +${(
+                            referralSummary.bindReferralBonusPoints ??
+                            config.bindReferralBonusPoints ??
+                            200
+                          ).toLocaleString()} poin:`
+                        : `Didn't sign up via a friend's link? Bind a referral code once here for +${(
+                            referralSummary.bindReferralBonusPoints ??
+                            config.bindReferralBonusPoints ??
+                            200
+                          ).toLocaleString()} pts:`}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={bindCodeInput}
+                        onChange={(e) => setBindCodeInput(e.target.value.toUpperCase())}
+                        placeholder="KDXXXXXXXX"
+                        maxLength={20}
+                        className="flex-1 min-w-0 min-h-[36px] px-3 py-1.5 rounded-lg bg-[#16151C] border border-white/10 text-xs font-mono text-white uppercase placeholder:text-[#71717A] focus:border-[#D4AF37] focus:outline-none"
+                      />
+                      <button
+                        type="submit"
+                        disabled={bindingRef || !bindCodeInput.trim()}
+                        className="inline-flex items-center gap-1 px-3 min-h-[36px] rounded-lg bg-white/10 hover:bg-white/15 border border-white/15 text-xs font-bold text-white disabled:opacity-45 whitespace-nowrap shrink-0"
+                      >
+                        <Link2 className="w-3.5 h-3.5" />
+                        <span>{bindingRef ? '...' : isId ? 'Bind Kode' : 'Bind'}</span>
+                      </button>
+                    </div>
+                    {bindFeedback && (
+                      <p
+                        className={`text-[11px] font-medium ${
+                          bindFeedback.type === 'success' ? 'text-emerald-300' : 'text-rose-300'
+                        }`}
+                      >
+                        {bindFeedback.message}
+                      </p>
+                    )}
+                  </form>
+                )}
               </div>
 
               <div className="lg:col-span-6 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -3858,6 +4303,7 @@ export const RewardsPayoutSection: React.FC = () => {
         dailyMissionMilestones={effectiveMilestoneConfigs}
         levelTiers={levelTiers}
         referralBonusPoints={config.referralBonusPoints}
+        dailySocialSharePoints={config.dailySocialSharePoints ?? 500}
         maxDailyEarnPoints={config.maxDailyEarnPoints}
         isSignedIn={Boolean(user)}
         onActionSignIn={() => openAuthModal()}
