@@ -6081,6 +6081,7 @@ export async function updateAdminPayoutStatusInDb(input: {
   reason?: 'not_found' | 'already_finalized' | 'invalid_transition';
   payout?: PayoutRequestRecord;
   refunded?: boolean;
+  idempotent?: boolean;
 }> {
   const cleanNote = String(input.adminNote || '').trim().slice(0, 300);
   const activePool = await requirePointsDbPool();
@@ -6134,6 +6135,16 @@ export async function updateAdminPayoutStatusInDb(input: {
         ok: true,
         payout: mapPayoutRow(row, false),
         refunded: false,
+        idempotent: true,
+      };
+    }
+
+    if (row.status === 'approved' && input.status === 'processing') {
+      await client.query('COMMIT');
+      return {
+        ok: false,
+        reason: 'invalid_transition',
+        payout: mapPayoutRow(row, false),
       };
     }
 

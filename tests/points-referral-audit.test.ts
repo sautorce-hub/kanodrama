@@ -17,6 +17,10 @@ import {
   startWatchSessionInDb,
 } from '../server/db';
 import { createServerApp, signAuthSessionToken } from '../server';
+import {
+  formatTelegramWithdrawMessage,
+  notifyAdminTelegramNewWithdrawal,
+} from '../server/telegramNotify';
 import { getProductionReferralUrl } from '../src/config/auth';
 
 interface MemUser {
@@ -1186,11 +1190,55 @@ function createStatefulPgMock() {
       return { rows: [p], rowCount: 1 };
     }
 
+    if (sql.startsWith('SELECT COUNT(*)::text AS cnt FROM payout_requests WHERE status = $1')) {
+      const targetStatus = String(params[0]);
+      return {
+        rows: [{ cnt: String(state.payouts.filter((p) => p.status === targetStatus).length) }],
+        rowCount: 1,
+      };
+    }
+
+    if (sql === 'SELECT COUNT(*)::text AS cnt FROM payout_requests') {
+      return {
+        rows: [{ cnt: String(state.payouts.length) }],
+        rowCount: 1,
+      };
+    }
+
     if (sql.includes('FROM payout_requests p LEFT JOIN users u')) {
+      if (sql.includes('SELECT p.*,')) {
+        const hasStatusFilter = sql.includes('WHERE p.status = $1');
+        const targetStatus = hasStatusFilter ? String(params[0]) : null;
+        const limit = Number(hasStatusFilter ? params[1] : params[0]) || 50;
+        const offset = Number(hasStatusFilter ? params[2] : params[1]) || 0;
+        const rows = state.payouts
+          .filter((p) => !targetStatus || p.status === targetStatus)
+          .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
+          .slice(offset, offset + limit)
+          .map((p) => {
+            const u = state.users.get(p.user_id);
+            const tel = state.telemetry.get(p.user_id);
+            const sig = state.securitySignals.get(p.user_id);
+            return {
+              ...p,
+              user_name: u?.display_name || null,
+              user_email: u?.email || null,
+              verified_watch_seconds: tel?.verified_watch_seconds ?? 0,
+              fast_delta_strikes: tel?.fast_delta_strikes ?? 0,
+              concurrent_tab_strikes: tel?.concurrent_tab_strikes ?? 0,
+              signal_risk_flag: sig?.risk_flag || tel?.risk_flag || '',
+              signal_suspicious_reason: sig?.suspicious_reason || tel?.suspicious_reason || '',
+            };
+          });
+        return { rows, rowCount: rows.length };
+      }
+
       const rows = state.payouts
         .filter((p) => ['approved', 'paid', 'completed'].includes(p.status))
+        .sort((a, b) => b.updated_at.getTime() - a.updated_at.getTime())
         .map((p) => ({
           ...p,
+          user_name: state.users.get(p.user_id)?.display_name || 'User',
           display_name: state.users.get(p.user_id)?.display_name || 'User',
         }));
       return { rows, rowCount: rows.length };
@@ -2875,7 +2923,358 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(syncSecond.ok, true);
     assert.equal(syncSecond.firstLoginBonusAwarded, 0);
   });
+
+  await t.test('14. Telegram Withdraw Notification & Admin Payout Queue (/api/admin/payouts, /approve, /reject) + Live Feed Privacy', async () => {
+    const { mockPool, state } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    // Seed Alice with 1,000,000 points
+    state.users.set('user-alice', {
+      uid: 'user-alice',
+      email: 'alice@example.com',
+      display_name: 'Alice Drama',
+      referral_code: 'KDA11CE01',
+      referred_by: null,
+      streak_count: 1,
+      last_visit_date: getJakartaDateKey(),
+      is_vip: false,
+    });
+    state.ledger.push({
+      id: 'seed-tg-1',
+      user_id: 'user-alice',
+      type: 'earn',
+      points: 1000000,
+      description: 'Seed earn for Telegram & Admin Queue test',
+      reference_id: 'seed:tg-admin:1',
+      balance_after: 1000000,
+      created_at: new Date(),
+    });
+
+    // A. Safe skip when TELEGRAM_BOT_TOKEN / TELEGRAM_ADMIN_CHAT_ID are empty
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TELEGRAM_ADMIN_CHAT_ID;
+    let telegramCalls = 0;
+    const skippedRes = await notifyAdminTelegramNewWithdrawal(
+      {
+        payout: {
+          id: 'payout-skip-1',
+          userId: 'user-alice',
+          pointsSpent: 300000,
+          usdAmount: 3,
+          idrAmount: 54600,
+          fxRateUsed: 18200,
+          currency: 'IDR',
+          method: 'dana',
+          bankCode: '',
+          network: '',
+          destinationAccount: '0812****890',
+          destinationMasked: '0812****890',
+          accountHolderName: 'Alice Drama',
+          status: 'pending',
+          adminNote: '',
+          idempotencyKey: '',
+          riskFlag: '',
+          suspiciousReason: '',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        destinationAccountRaw: '081234567890',
+        userId: 'user-alice',
+        userEmail: 'alice@example.com',
+        userDisplayName: 'Alice Drama',
+        levelInfo: { level: 2, tierName: 'Silver', multiplier: 1.2 },
+      },
+      {
+        fetchImpl: async () => {
+          telegramCalls += 1;
+          return new Response('{"ok":true}', { status: 200 });
+        },
+      }
+    );
+    assert.equal(skippedRes.sent, false);
+    assert.equal(skippedRes.skipped, true);
+    assert.equal(telegramCalls, 0);
+
+    // B. Sends formatted message via Telegram Bot API when configured & handles network errors safely
+    process.env.TELEGRAM_BOT_TOKEN = '123456:TEST_BOT_TOKEN';
+    process.env.TELEGRAM_ADMIN_CHAT_ID = '-10099887766';
+    let capturedEndpoint = '';
+    let capturedBody: Record<string, unknown> = {};
+    const sentRes = await notifyAdminTelegramNewWithdrawal(
+      {
+        payout: {
+          id: 'payout-msg-1',
+          userId: 'user-alice',
+          pointsSpent: 300000,
+          usdAmount: 3,
+          idrAmount: 54600,
+          fxRateUsed: 18200,
+          currency: 'IDR',
+          method: 'bank_transfer',
+          bankCode: 'BCA',
+          network: '',
+          destinationAccount: 'BCA ****890',
+          destinationMasked: 'BCA ****890',
+          accountHolderName: 'Alice <Drama> & Co',
+          status: 'pending',
+          adminNote: '',
+          idempotencyKey: '',
+          riskFlag: '',
+          suspiciousReason: '',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        destinationAccountRaw: 'BCA - 1234567890',
+        userId: 'user-alice',
+        userEmail: 'alice@example.com',
+        userDisplayName: 'Alice Drama',
+        levelInfo: { level: 3, tierName: 'Gold', multiplier: 1.4 },
+      },
+      {
+        fetchImpl: async (url, init) => {
+          capturedEndpoint = String(url);
+          capturedBody = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+          return new Response('{"ok":true}', { status: 200 });
+        },
+      }
+    );
+    assert.equal(sentRes.sent, true);
+    assert.equal(
+      capturedEndpoint,
+      'https://api.telegram.org/bot123456%3ATEST_BOT_TOKEN/sendMessage'
+    );
+    assert.equal(capturedBody.chat_id, '-10099887766');
+    assert.equal(capturedBody.parse_mode, 'HTML');
+    const msgText = String(capturedBody.text || '');
+    assert.match(msgText, /KanoDrama — Pengajuan Withdraw Baru/);
+    assert.match(msgText, /payout-msg-1/);
+    assert.match(msgText, /user-alice/);
+    assert.match(msgText, /alice@example\.com/);
+    assert.match(msgText, /Lv\.3 Gold \(1\.4x\)/);
+    assert.match(msgText, /300\.000 poin/);
+    assert.match(msgText, /Rp 54\.600/);
+    assert.match(msgText, /BCA - 1234567890/);
+    assert.match(msgText, /Alice &lt;Drama&gt; &amp; Co/);
+
+    // Network/API error from Telegram must never throw
+    const failedTg = await notifyAdminTelegramNewWithdrawal(
+      {
+        payout: {
+          id: 'payout-err-1',
+          userId: 'user-alice',
+          pointsSpent: 500000,
+          usdAmount: 5,
+          idrAmount: 91000,
+          fxRateUsed: 18200,
+          currency: 'USD',
+          method: 'usdt_trc20',
+          bankCode: '',
+          network: 'TRC20',
+          destinationAccount: 'T9yD14****789a',
+          destinationMasked: 'T9yD14****789a',
+          accountHolderName: 'Alice Drama',
+          status: 'pending',
+          adminNote: '',
+          idempotencyKey: '',
+          riskFlag: '',
+          suspiciousReason: '',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        userId: 'user-alice',
+        userEmail: 'alice@example.com',
+        userDisplayName: 'Alice Drama',
+        levelInfo: { level: 1, tierName: 'Bronze', multiplier: 1 },
+      },
+      {
+        fetchImpl: async () => {
+          throw new Error('Simulated Telegram outage');
+        },
+      }
+    );
+    assert.equal(failedTg.sent, false);
+
+    // Restore empty Telegram env before E2E HTTP withdraw tests (must work silently)
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TELEGRAM_ADMIN_CHAT_ID;
+
+    // C. Submit two withdrawals (1 for approve flow, 1 for reject + refund flow)
+    const wd1 = await fetch(`${baseUrl}/api/points/redeem`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${aliceToken}`,
+      },
+      body: JSON.stringify({
+        method: 'dana',
+        pointsSpent: 300000,
+        destinationAccount: '081234567890',
+        accountHolderName: 'Alice Drama',
+        idempotencyKey: 'tg-wd-1',
+      }),
+    });
+    assert.equal(wd1.status, 201);
+    const wd1Json = await wd1.json();
+    const payoutApproveId = wd1Json.payout.id as string;
+
+    const wd2 = await fetch(`${baseUrl}/api/points/redeem`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${aliceToken}`,
+      },
+      body: JSON.stringify({
+        method: 'paypal',
+        pointsSpent: 500000,
+        destinationAccount: 'alice.secret@example.com',
+        accountHolderName: 'Alice Secret',
+        idempotencyKey: 'tg-wd-2',
+      }),
+    });
+    assert.equal(wd2.status, 201);
+    const wd2Json = await wd2.json();
+    const payoutRejectId = wd2Json.payout.id as string;
+
+    // D. Admin endpoints strictly enforce ADMIN_PAYOUT_SECRET
+    const unauthQueue = await fetch(`${baseUrl}/api/admin/payouts`);
+    assert.equal(unauthQueue.status, 401);
+    assert.equal(unauthQueue.headers.get('x-robots-tag'), 'noindex, nofollow');
+
+    const badSecretApprove = await fetch(
+      `${baseUrl}/api/admin/payouts/${payoutApproveId}/approve`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': 'wrong-secret',
+        },
+        body: JSON.stringify({}),
+      }
+    );
+    assert.equal(badSecretApprove.status, 401);
+
+    // E. Admin lists pending queue with full details
+    const queueRes = await fetch(`${baseUrl}/api/admin/payouts?status=pending`, {
+      headers: { Authorization: 'Bearer test-admin-secret-999' },
+    });
+    assert.equal(queueRes.status, 200);
+    const queueJson = await queueRes.json();
+    assert.equal(queueJson.ok, true);
+    assert.ok(queueJson.items.some((p: { id: string }) => p.id === payoutApproveId));
+    assert.ok(queueJson.items.some((p: { id: string }) => p.id === payoutRejectId));
+
+    // F. Approve endpoint transitions pending -> approved and is idempotent on repeat
+    const approve1 = await fetch(
+      `${baseUrl}/api/admin/payouts/${payoutApproveId}/approve`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': 'test-admin-secret-999',
+        },
+        body: JSON.stringify({ adminNote: 'Verified & approved' }),
+      }
+    );
+    assert.equal(approve1.status, 200);
+    const approve1Json = await approve1.json();
+    assert.equal(approve1Json.ok, true);
+    assert.equal(approve1Json.payout.status, 'approved');
+    assert.equal(approve1Json.refunded, false);
+
+    const approveRepeat = await fetch(
+      `${baseUrl}/api/admin/payouts/${payoutApproveId}/approve`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': 'test-admin-secret-999',
+        },
+        body: JSON.stringify({}),
+      }
+    );
+    assert.equal(approveRepeat.status, 200);
+    const approveRepeatJson = await approveRepeat.json();
+    assert.equal(approveRepeatJson.idempotent, true);
+    assert.equal(approveRepeatJson.payout.status, 'approved');
+
+    // Backwards transition approved -> processing is blocked (409)
+    const regressRes = await fetch(`${baseUrl}/api/admin/payouts/${payoutApproveId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-secret': 'test-admin-secret-999',
+      },
+      body: JSON.stringify({ status: 'processing' }),
+    });
+    assert.equal(regressRes.status, 409);
+
+    // G. Live Payout History exposes approved payout with masked display name and ZERO sensitive PII
+    const liveFeedRes = await fetch(`${baseUrl}/api/payouts/live?limit=12`);
+    assert.equal(liveFeedRes.status, 200);
+    const liveFeedJson = await liveFeedRes.json();
+    assert.equal(liveFeedJson.ok, true);
+    const liveEntry = liveFeedJson.items.find(
+      (item: { id: string }) => item.id === payoutApproveId
+    );
+    assert.ok(liveEntry);
+    assert.equal(liveEntry.maskedUser, 'A***e');
+    assert.equal(liveEntry.status, 'approved');
+    assert.equal(liveEntry.userId, undefined);
+    assert.equal(liveEntry.userEmail, undefined);
+    assert.equal(liveEntry.destinationAccount, undefined);
+    assert.equal(liveEntry.accountHolderName, undefined);
+
+    // H. Reject endpoint transitions pending -> rejected, refunds 500,000 points once, and blocks repeat (409)
+    const reject1 = await fetch(
+      `${baseUrl}/api/admin/payouts/${payoutRejectId}/reject`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': 'test-admin-secret-999',
+        },
+        body: JSON.stringify({ reason: 'Invalid beneficiary details' }),
+      }
+    );
+    assert.equal(reject1.status, 200);
+    const reject1Json = await reject1.json();
+    assert.equal(reject1Json.ok, true);
+    assert.equal(reject1Json.payout.status, 'rejected');
+    assert.equal(reject1Json.refunded, true);
+
+    const rejectRepeat = await fetch(
+      `${baseUrl}/api/admin/payouts/${payoutRejectId}/reject`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': 'test-admin-secret-999',
+        },
+        body: JSON.stringify({ reason: 'Retry reject' }),
+      }
+    );
+    assert.equal(rejectRepeat.status, 409);
+
+    // Alice started with 1,000,000, spent 300,000 (approved) + 500,000 (rejected & refunded) -> balance 700,000
+    const aliceSummary = await fetch(`${baseUrl}/api/points/me`, {
+      headers: { Authorization: `Bearer ${aliceToken}` },
+    }).then((r) => r.json());
+    assert.equal(aliceSummary.summary.balance, 700000);
+    assert.equal(aliceSummary.summary.totalHeld, 300000);
+
+    // Ensure formatTelegramWithdrawMessage is usable directly
+    const formattedSample = formatTelegramWithdrawMessage({
+      payout: wd1Json.payout,
+      destinationAccountRaw: '081234567890',
+      userId: 'user-alice',
+      userEmail: 'alice@example.com',
+      userDisplayName: 'Alice Drama',
+      levelInfo: { level: 1, tierName: 'Bronze', multiplier: 1 },
+    });
+    assert.match(formattedSample, /KanoDrama — Pengajuan Withdraw Baru/);
+  });
 });
+
 
 
 

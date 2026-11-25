@@ -148,6 +148,7 @@ import {
   getStreamSigningSecret,
   resolveServerPort,
 } from './server/config.ts';
+import { notifyAdminTelegramNewWithdrawal } from './server/telegramNotify.ts';
 import type {
   LanguageCode,
   LanguagePreference,
@@ -5079,6 +5080,9 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   }
 
   function verifyAdminPayoutAuth(req: Request, res: Response): boolean {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+
     const configuredSecret = getAdminPayoutSecret();
     if (!configuredSecret) {
       res.status(503).json({
@@ -5088,6 +5092,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       return false;
     }
 
+    const { ipHash } = extractClientSecurityHashes(req);
     const headerSecret = cleanText(req.headers['x-admin-secret']);
     const authHeader = cleanText(req.headers.authorization);
     const bearerSecret = authHeader.toLowerCase().startsWith('bearer ')
@@ -5096,6 +5101,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     const candidate = headerSecret || bearerSecret;
 
     if (!candidate) {
+      if (ipHash && isEndpointRateLimited(`admin_auth_fail:${ipHash}`, 30, 60_000)) {
+        res.status(429).json({ ok: false, error: 'Too many unauthorized admin attempts' });
+        return false;
+      }
       res.status(401).json({ ok: false, error: 'Missing admin authorization' });
       return false;
     }
@@ -5110,6 +5119,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       .digest();
 
     if (!crypto.timingSafeEqual(expectedDigest, candidateDigest)) {
+      if (ipHash && isEndpointRateLimited(`admin_auth_fail:${ipHash}`, 30, 60_000)) {
+        res.status(429).json({ ok: false, error: 'Too many unauthorized admin attempts' });
+        return false;
+      }
       res.status(401).json({ ok: false, error: 'Invalid admin secret' });
       return false;
     }
@@ -5509,6 +5522,17 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         return;
       }
 
+      if (!result.deduplicated && result.payout) {
+        void notifyAdminTelegramNewWithdrawal({
+          payout: result.payout,
+          destinationAccountRaw: destCheck.normalized,
+          userId: session.uid,
+          userEmail: session.email,
+          userDisplayName: session.displayName,
+          levelInfo: result.summary?.levelInfo,
+        }).catch(() => {});
+      }
+
       res.status(result.deduplicated ? 200 : 201).json({
         ok: true,
         deduplicated: Boolean(result.deduplicated),
@@ -5755,21 +5779,31 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     }
   });
 
-  app.get('/api/admin/payouts', async (req: Request, res: Response) => {
-    if (!verifyAdminPayoutAuth(req, res)) return;
-    try {
-      const status = cleanText(req.query.status, 'all').toLowerCase();
-      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
-      const offset = Math.max(0, Number(req.query.offset) || 0);
-      const data = await listAdminPayoutRequestsFromDb({ status, limit, offset });
-      res.setHeader('Cache-Control', 'no-store');
-      res.json({ ok: true, items: data.items, total: data.total });
-    } catch (err) {
-      handlePointsDbError(res, err, 'Failed to list payout requests');
-    }
-  });
+  type AdminAllowedPayoutStatus =
+    | 'processing'
+    | 'approved'
+    | 'paid'
+    | 'completed'
+    | 'rejected'
+    | 'failed';
 
-  app.patch('/api/admin/payouts/:id', async (req: Request, res: Response) => {
+  const ADMIN_ALLOWED_STATUSES: ReadonlySet<AdminAllowedPayoutStatus> = new Set([
+    'processing',
+    'approved',
+    'paid',
+    'completed',
+    'rejected',
+    'failed',
+  ]);
+
+  async function handleAdminPayoutStatusUpdate(
+    req: Request,
+    res: Response,
+    options?: {
+      defaultStatus?: AdminAllowedPayoutStatus;
+      allowedStatuses?: ReadonlySet<AdminAllowedPayoutStatus>;
+    }
+  ): Promise<void> {
     if (!verifyAdminPayoutAuth(req, res)) return;
     try {
       const payoutId = cleanText(String(req.params.id || ''));
@@ -5778,15 +5812,15 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         return;
       }
 
-      const nextStatus = cleanText(req.body?.status).toLowerCase();
-      if (
-        !['processing', 'approved', 'paid', 'completed', 'rejected', 'failed'].includes(
-          nextStatus
-        )
-      ) {
+      const requestedStatus = cleanText(
+        req.body?.status,
+        options?.defaultStatus || ''
+      ).toLowerCase() as AdminAllowedPayoutStatus;
+      const allowedSet = options?.allowedStatuses || ADMIN_ALLOWED_STATUSES;
+      if (!allowedSet.has(requestedStatus)) {
         res.status(400).json({
           ok: false,
-          error: 'status must be processing, approved, paid, completed, rejected, or failed',
+          error: `status must be one of: ${Array.from(allowedSet).join(', ')}`,
         });
         return;
       }
@@ -5796,26 +5830,23 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           ? req.body.adminNote
           : typeof req.body?.admin_note === 'string'
           ? req.body.admin_note
+          : typeof req.body?.reason === 'string'
+          ? req.body.reason
           : '';
 
       const result = await updateAdminPayoutStatusInDb({
         payoutId,
-        status: nextStatus as
-          | 'processing'
-          | 'approved'
-          | 'paid'
-          | 'completed'
-          | 'rejected'
-          | 'failed',
+        status: requestedStatus,
         adminNote,
       });
 
       res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
       if (!result.ok) {
         const statusCode =
           result.reason === 'not_found'
             ? 404
-            : result.reason === 'already_finalized'
+            : result.reason === 'already_finalized' || result.reason === 'invalid_transition'
             ? 409
             : 400;
         res.status(statusCode).json({
@@ -5827,6 +5858,8 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               ? 'Payout request not found'
               : result.reason === 'already_finalized'
               ? 'Payout request is already finalized (completed, paid, rejected, or failed)'
+              : result.reason === 'invalid_transition'
+              ? 'Invalid payout status transition'
               : 'Unable to update payout request',
         });
         return;
@@ -5836,10 +5869,44 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         ok: true,
         payout: result.payout,
         refunded: Boolean(result.refunded),
+        idempotent: Boolean(result.idempotent),
       });
     } catch (err) {
       handlePointsDbError(res, err, 'Failed to update payout status');
     }
+  }
+
+  app.get('/api/admin/payouts', async (req: Request, res: Response) => {
+    if (!verifyAdminPayoutAuth(req, res)) return;
+    try {
+      const status = cleanText(req.query.status, 'all').toLowerCase();
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
+      const data = await listAdminPayoutRequestsFromDb({ status, limit, offset });
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      res.json({ ok: true, items: data.items, total: data.total });
+    } catch (err) {
+      handlePointsDbError(res, err, 'Failed to list payout requests');
+    }
+  });
+
+  app.patch('/api/admin/payouts/:id', async (req: Request, res: Response) => {
+    await handleAdminPayoutStatusUpdate(req, res);
+  });
+
+  app.post('/api/admin/payouts/:id/approve', async (req: Request, res: Response) => {
+    await handleAdminPayoutStatusUpdate(req, res, {
+      defaultStatus: 'approved',
+      allowedStatuses: new Set<AdminAllowedPayoutStatus>(['approved', 'paid', 'completed']),
+    });
+  });
+
+  app.post('/api/admin/payouts/:id/reject', async (req: Request, res: Response) => {
+    await handleAdminPayoutStatusUpdate(req, res, {
+      defaultStatus: 'rejected',
+      allowedStatuses: new Set<AdminAllowedPayoutStatus>(['rejected', 'failed']),
+    });
   });
 
   // --- Watch History Cloud Sync ---

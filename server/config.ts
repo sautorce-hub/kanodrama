@@ -119,6 +119,14 @@ export function getAdminPayoutSecret(): string {
   return (process.env.ADMIN_PAYOUT_SECRET || '').trim();
 }
 
+export function getTelegramBotToken(): string {
+  return (process.env.TELEGRAM_BOT_TOKEN || '').trim();
+}
+
+export function getTelegramAdminChatId(): string {
+  return (process.env.TELEGRAM_ADMIN_CHAT_ID || '').trim();
+}
+
 export function getStreamSigningSecret(): string {
   const explicit = (process.env.STREAM_SIGNING_SECRET || '').trim();
   if (explicit) return explicit;
