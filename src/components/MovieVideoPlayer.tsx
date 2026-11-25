@@ -345,6 +345,8 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
   const pendingQualitySeekRef = useRef<number | null>(null);
   const rawSelectedUrlRef = useRef<string>('');
   const triedStreamUrlsRef = useRef<Set<string>>(new Set());
+  const retriedForceRefreshRef = useRef<string>('');
+  const embedWatchTimeRef = useRef<number>(0);
 
   // Touch, Pinch-to-Zoom & Double-Tap Gesture Refs
   const lastTapRef = useRef<{ time: number; x: number }>({ time: 0, x: 0 });
@@ -886,6 +888,14 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
       return true;
     }
 
+    const forceRefreshKey = `${drama.bookId}:${drama.provider}:${episodeNumber}`;
+    if (retriedForceRefreshRef.current !== forceRefreshKey) {
+      retriedForceRefreshRef.current = forceRefreshKey;
+      setStreamError(null);
+      void loadMovieStream(drama.bookId, episodeNumber, true);
+      return true;
+    }
+
     return false;
   };
 
@@ -898,6 +908,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
     forceRefresh = false
   ) => {
     const reqId = ++streamReqIdRef.current;
+    embedWatchTimeRef.current = initialTime > 0 ? initialTime : 0;
     setLoadingStream(true);
     setStreamError(null);
     setStreamData(null);
@@ -1023,6 +1034,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
     if (!drama) return;
     lastSavedTickRef.current = 0;
     retriedWithEpisodesRef.current = '';
+    retriedForceRefreshRef.current = '';
     void loadMovieStream(drama.bookId, episodeNumber);
   }, [drama?.bookId, drama?.provider, episodeNumber]);
 
@@ -1073,14 +1085,37 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
     hlsProgressTick,
   ]);
 
-  // Fallback timeout for iframe loading spinner
+  // Fallback timeout for iframe loading spinner & mark active playback
   useEffect(() => {
     if (!embedUrl || !iframeLoading) return;
     const timer = window.setTimeout(() => {
       setIframeLoading(false);
+      setVideoReady(true);
+      setIsPlaying(true);
     }, 3500);
     return () => window.clearTimeout(timer);
   }, [embedUrl, iframeLoading]);
+
+  // Synchronize verified active-watch heartbeat when playing an embed iframe server
+  useEffect(() => {
+    if (!drama || !embedUrl || iframeLoading || streamError || !isPlaying) {
+      return;
+    }
+    const tickSec = 5;
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      embedWatchTimeRef.current += tickSec;
+      const elapsed = embedWatchTimeRef.current;
+      setCurrentTime(elapsed);
+      const effectiveDur = duration > elapsed ? duration : Math.max(3600, elapsed + 60);
+      onProgressUpdate?.(episodeNumber, elapsed, effectiveDur, false, {
+        isPlaying: true,
+        isBuffering: false,
+        playbackRate: 1,
+      });
+    }, tickSec * 1000);
+    return () => window.clearInterval(timer);
+  }, [drama, embedUrl, iframeLoading, streamError, isPlaying, episodeNumber, duration, onProgressUpdate]);
 
   // Attach HLS or direct MP4 source
   useEffect(() => {
@@ -1466,13 +1501,14 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
   const flushProgress = (timeOverride?: number, immediate = true) => {
     if (!drama || !onProgressUpdate) return;
     const v = videoRef.current;
-    const tNow = timeOverride ?? v?.currentTime ?? currentTime;
+    const isEmbed = Boolean(embedUrl);
+    const tNow = timeOverride ?? (isEmbed ? embedWatchTimeRef.current : v?.currentTime) ?? currentTime;
     const dNow =
       v?.duration && Number.isFinite(v.duration) ? v.duration : duration;
     onProgressUpdate(episodeNumber, tNow, dNow, immediate, {
-      isPlaying: Boolean(v && !v.paused && !v.ended),
-      isBuffering,
-      playbackRate: v ? Number(v.playbackRate) || playbackSpeed : playbackSpeed,
+      isPlaying: isEmbed ? isPlaying : Boolean(v && !v.paused && !v.ended),
+      isBuffering: isEmbed ? iframeLoading : isBuffering,
+      playbackRate: isEmbed ? 1 : v ? Number(v.playbackRate) || playbackSpeed : playbackSpeed,
     });
   };
 
@@ -2536,6 +2572,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
                 onLoad={() => {
                   setIframeLoading(false);
                   setVideoReady(true);
+                  setIsPlaying(true);
                 }}
                 className="w-full h-full border-0 bg-black"
               />

@@ -26,6 +26,7 @@ export interface GoogleAuthResult {
   sessionToken: string | null;
   user: ServerAuthenticatedUser;
   gmailLoginCount: number;
+  firstLoginBonusAwarded?: number;
 }
 
 interface GoogleTokenClientResponse {
@@ -316,6 +317,7 @@ export async function exchangeGoogleCredentialWithBackend(payload: {
     sessionToken?: string;
     user?: ServerAuthenticatedUser;
     gmailLoginCount?: number;
+    firstLoginBonusAwarded?: number;
   };
 
   if (!res.ok || !data.ok || !data.user) {
@@ -327,6 +329,8 @@ export async function exchangeGoogleCredentialWithBackend(payload: {
     user: data.user,
     gmailLoginCount:
       typeof data.gmailLoginCount === 'number' ? data.gmailLoginCount : 0,
+    firstLoginBonusAwarded:
+      typeof data.firstLoginBonusAwarded === 'number' ? data.firstLoginBonusAwarded : 0,
   };
 }
 
@@ -395,6 +399,7 @@ export async function loginWithEmail(payload: {
     sessionToken?: string;
     user?: ServerAuthenticatedUser;
     gmailLoginCount?: number;
+    firstLoginBonusAwarded?: number;
   };
 
   if (!res.ok || !data.ok || !data.user) {
@@ -406,6 +411,8 @@ export async function loginWithEmail(payload: {
     user: data.user,
     gmailLoginCount:
       typeof data.gmailLoginCount === 'number' ? data.gmailLoginCount : 0,
+    firstLoginBonusAwarded:
+      typeof data.firstLoginBonusAwarded === 'number' ? data.firstLoginBonusAwarded : 0,
   };
 }
 
@@ -444,6 +451,7 @@ export async function registerWithEmail(payload: {
     sessionToken?: string;
     user?: ServerAuthenticatedUser;
     gmailLoginCount?: number;
+    firstLoginBonusAwarded?: number;
   };
 
   if (!res.ok || !data.ok || !data.user) {
@@ -455,6 +463,8 @@ export async function registerWithEmail(payload: {
     user: data.user,
     gmailLoginCount:
       typeof data.gmailLoginCount === 'number' ? data.gmailLoginCount : 0,
+    firstLoginBonusAwarded:
+      typeof data.firstLoginBonusAwarded === 'number' ? data.firstLoginBonusAwarded : 0,
   };
 }
 

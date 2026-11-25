@@ -748,11 +748,20 @@ function parseDramaRouteFromLocation(): {
   }
 
   // Match /drama/{provider}/{bookId}/{slug} or clean /drama/{slug}
-  const providerMatch = window.location.pathname.match(
-    /^\/drama\/(dramabox|netshort|anyreel|melolo|dramaora|meloshort|petadrama|radreels|dramaverse|kalostv|stardusttv|stardust|starshort|dramabite|loveshots|mydrama|shotshort|moboreels|blinkdrama|wetv|cubetv|microdrama|flareflow|fundrama|freeshort|toonshort|happyshort|dramadash|storyreel_v2|storyreelv2|storyreel|vibeshort_v2|vibeshortv2|vibeshort|flickreels|dramawave|freereels|pinedrama|shortmax_v2|shortmaxv2|shortmax|flextv|vigloo|dotdrama|idrama_v2|idramav2|idrama|goodshort|reelshort_v2|reelshortv2|reelshort|joyreels|sodareels|bonustv|iqiyi)\/([^/]+)/i
+  const legacyProvMatch = window.location.pathname.match(
+    /^\/drama\/([a-z0-9_]+)\/([^/]+)/i
   );
+  const providerMatch =
+    legacyProvMatch &&
+    isKnownProviderRouteSlug(legacyProvMatch[1]) &&
+    !/^(lk21|lookseries|movie|movies)$/i.test(legacyProvMatch[1])
+      ? legacyProvMatch
+      : null;
   if (providerMatch) {
-    const prov: ProviderName = parseProviderName(providerMatch[1]) ?? 'DramaBoxV2';
+    const prov: ProviderName =
+      (parseProviderFromRouteSlug(providerMatch[1]) as ProviderName | undefined) ??
+      parseProviderName(providerMatch[1]) ??
+      'DramaBoxV2';
     const bookId = decodeURIComponent(providerMatch[2]);
     const ssr = window.__INITIAL_DRAMA__;
     if (ssr && ssr.bookId === bookId) {

@@ -17,14 +17,16 @@ export const isStreamCached = (
 export const getStreamUrl = (
   bookId: string,
   episode: number,
-  provider: ProviderName = 'DramaBoxV2'
-) => unifiedGetStreamUrl(bookId, episode, provider);
+  provider: ProviderName = 'DramaBoxV2',
+  extra?: { eid?: string; chapterId?: string; chapterIndex0?: number }
+) => unifiedGetStreamUrl(bookId, episode, provider, extra);
 
 export const prefetchStreamUrl = (
   bookId: string,
   episode: number,
-  provider: ProviderName = 'DramaBoxV2'
-) => unifiedPrefetchStreamUrl(bookId, episode, provider);
+  provider: ProviderName = 'DramaBoxV2',
+  extra?: { eid?: string; chapterId?: string; chapterIndex0?: number }
+) => unifiedPrefetchStreamUrl(bookId, episode, provider, extra);
 
 export const setLanguage = (lang: LanguageCode) =>
   dramaBoxV2Provider.setLanguage(lang);

@@ -1849,14 +1849,36 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       void bindPendingReferralIfAny();
       void hydrateUserLibraryFromPostgres(mapped.uid);
       void refreshPointsBalance();
-      pushToast(`Signed in as ${mapped.displayName}`, 'gold');
+      if (
+        typeof result.firstLoginBonusAwarded === 'number' &&
+        result.firstLoginBonusAwarded > 0
+      ) {
+        const formattedBonus = result.firstLoginBonusAwarded.toLocaleString(
+          language === 'id' ? 'id-ID' : 'en-US'
+        );
+        pushToast(
+          language === 'id'
+            ? `Masuk sebagai ${mapped.displayName} · Bonus login pertama +${formattedBonus} poin!`
+            : `Signed in as ${mapped.displayName} · First login bonus +${formattedBonus} pts!`,
+          'gold'
+        );
+      } else {
+        pushToast(`Signed in as ${mapped.displayName}`, 'gold');
+      }
 
       const cb = pendingAuthCallbackRef.current;
       pendingAuthCallbackRef.current = null;
       if (cb) cb(mapped);
       return mapped;
     },
-    [pushToast, refreshGmailLoginCount, bindPendingReferralIfAny, hydrateUserLibraryFromPostgres, refreshPointsBalance]
+    [
+      language,
+      pushToast,
+      refreshGmailLoginCount,
+      bindPendingReferralIfAny,
+      hydrateUserLibraryFromPostgres,
+      refreshPointsBalance,
+    ]
   );
 
   const signInWithGoogle = useCallback(async (): Promise<GoogleUser | null> => {

@@ -235,12 +235,17 @@ export const AuthProfileModal: React.FC = () => {
             {/* Contextual Reason Banner (e.g. triggered by Movie Watchlist / Heart / Comment gate) */}
             <div className="p-3.5 rounded-2xl bg-[var(--cd-accent-soft)] border border-[var(--cd-accent)]/40 flex items-start gap-2.5">
               <Sparkles className="w-4 h-4 cd-accent-text shrink-0 mt-0.5" />
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 <p className="text-xs font-bold text-white">
                   {isId ? 'Masuk dengan Email atau Google' : 'Sign in with Email or Google'}
                 </p>
                 <p className="text-[11px] text-[#E4E4E7] leading-relaxed">
                   {authPromptReason || t.auth.gateReasonDefault}
+                </p>
+                <p className="text-[11px] font-bold text-[#FDE68A] tabular-nums">
+                  {isId
+                    ? 'Bonus login pertama akun baru: +5.000 poin otomatis'
+                    : 'New account first login bonus: +5,000 pts automatically'}
                 </p>
               </div>
             </div>

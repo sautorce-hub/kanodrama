@@ -756,8 +756,8 @@ export function syncSectionDocumentSeo(
             '@type': 'Answer',
             text:
               lang === 'id'
-                ? 'Masuk ke akun KanoDrama lalu tonton drama pendek atau film secara aktif pada kecepatan normal (1x). Anda mendapatkan +20 poin/menit otomatis hingga 60 menit/hari (dikalikan multiplier level akun hingga 1,6x), +200 poin episode baru (minimal 15 detik), check-in harian +500 poin, serta bonus milestone 15, 30, dan 60 menit yang dapat diklaim setelah target tercapai.'
-                : 'Sign in and actively watch short dramas or movies at normal playback speed. You earn +20 pts/min automatically up to 60 min/day (scaled by account level multiplier up to 1.6x), +200 pts per new episode (min 15s watch), daily check-in +500 pts, and claimable 15/30/60 minute milestone bonuses.',
+                ? 'Masuk ke akun KanoDrama untuk langsung mendapatkan bonus login pertama +5.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan normal (1x). Anda mendapatkan +20 poin/menit otomatis hingga 60 menit/hari (dikalikan multiplier level akun hingga 1,6x), +200 poin episode baru (minimal 15 detik), check-in harian +500 poin, serta bonus milestone 15, 30, dan 60 menit yang dapat diklaim setelah target tercapai.'
+                : 'Sign in to claim a +5,000 pts first-login bonus (once per account) and actively watch short dramas or movies at normal playback speed. You earn +20 pts/min automatically up to 60 min/day (scaled by account level multiplier up to 1.6x), +200 pts per new episode (min 15s watch), daily check-in +500 pts, and claimable 15/30/60 minute milestone bonuses.',
           },
         },
         {

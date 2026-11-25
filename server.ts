@@ -34,6 +34,7 @@ import {
   getUserFromDb,
   getUserPointsSummaryFromDb,
   getUserReferralSummaryFromDb,
+  grantFirstLoginBonusIfEligibleInDb,
   isDatabaseEnabled,
   listAdminPayoutRequestsFromDb,
   listCatalogForSitemapFromDb,
@@ -1596,123 +1597,181 @@ async function fetchDramaForSsr(
   const langSuffix = langParam ? `&lang=${encodeURIComponent(langParam)}` : '';
 
   try {
-    const detailUrl = `${baseUrl}${canonicalProvider === 'iQIYI' ? '/allepisode' : '/detail'}?${idParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`;
-    const epUrl = `${baseUrl}${epPath || '/allepisode'}?${idParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`;
-    const [detailRes, epRes] = await Promise.allSettled([
-      fetch(detailUrl, { signal: AbortSignal.timeout(7000) }),
-      epUrl === detailUrl
-        ? Promise.resolve(null)
-        : fetch(epUrl, { signal: AbortSignal.timeout(7000) }),
-    ]);
-
-    if (detailRes.status === 'fulfilled' && detailRes.value.ok) {
-      const json = (await detailRes.value.json()) as Record<string, unknown>;
-      const raw =
-        json?.data && typeof json.data === 'object'
-          ? (json.data as Record<string, unknown>)
-          : json;
-      const title = cleanText(raw.bookName ?? raw.title ?? raw.name ?? raw.dramaName ?? raw.book_name);
-      if (title) {
-        const tags = Array.isArray(raw.tags)
-          ? raw.tags
-              .map((t) => cleanText(t))
-              .filter((t): t is string => Boolean(t))
-          : [];
-        const rawCover = cleanText(
-          raw.cover ?? raw.coverUrl ?? raw.bookCover ?? raw.book_cover ?? raw.coverWap ?? raw.poster ?? raw.image
-        );
-        const normalizedCover =
-          rawCover &&
-          (rawCover.startsWith('http://') ||
-            (canonicalProvider === 'MeloLoV2' &&
-              (rawCover.toLowerCase().includes('.heic') ||
-                rawCover.toLowerCase().includes('fizzopic.org'))))
-            ? `/api/proxy?url=${encodeURIComponent(rawCover)}`
-            : rawCover;
-        const rawUpdatedAt =
-          raw.updatedAt ?? raw.updateTime ?? raw.utime ?? raw.createdAt;
-        drama = {
-          bookId,
-          title,
-          cover: normalizedCover,
-          description: cleanText(
-            raw.description ?? raw.introduction ?? raw.synopsis ?? raw.intro ?? raw.summary,
-            `Watch free ${title} full episodes in HD on KanoDrama.`
-          ),
-          chapterCount:
-            Number(raw.chapterCount ?? raw.totalEpisodes ?? raw.episodeCount ?? 1) || 1,
-          tags,
-          playCount: cleanText(raw.playCount) || undefined,
-          protagonist: cleanText(raw.protagonist) || undefined,
-          isVip: Boolean(raw.isVip),
-          provider: canonicalProvider,
-          updatedAt:
-            typeof rawUpdatedAt === 'number' || typeof rawUpdatedAt === 'string'
-              ? rawUpdatedAt
-              : undefined,
-        };
-      }
-      if (epUrl === detailUrl) {
-        const rawEps = Array.isArray(json.episodes)
-          ? (json.episodes as Record<string, unknown>[])
-          : Array.isArray(raw.episodes)
-          ? (raw.episodes as Record<string, unknown>[])
-          : Array.isArray(raw.chapterList)
-          ? (raw.chapterList as Record<string, unknown>[])
-          : [];
-        episodes = rawEps.map((ep, idx) => {
-          const num =
-            Number(ep.chapterIndex ?? ep.episodeIndex ?? ep.episode ?? idx + 1) ||
-            idx + 1;
-          return {
-            chapterId: cleanText(
-              String(ep.chapterId ?? ep.episodeId ?? ep.episode_id ?? `ep-${num}`)
-            ),
-            episodeNumber: num,
-            title: cleanText(ep.chapterName ?? ep.title, `EP ${num}`),
-            isVipLocked: num > 10 && num === 11,
-          };
-        });
-      }
-    }
-
-    if (epRes.status === 'fulfilled' && epRes.value && epRes.value.ok) {
-      const json = (await epRes.value.json()) as Record<string, unknown>;
+    const parseEpisodesArray = (
+      jsonObj: Record<string, unknown>,
+      rawObj?: Record<string, unknown>
+    ): SsrEpisode[] => {
       const dataObj =
-        json.data && !Array.isArray(json.data) && typeof json.data === 'object'
-          ? (json.data as Record<string, unknown>)
+        jsonObj.data && !Array.isArray(jsonObj.data) && typeof jsonObj.data === 'object'
+          ? (jsonObj.data as Record<string, unknown>)
           : null;
-      const rawEps = Array.isArray(json.episodes)
-        ? (json.episodes as Record<string, unknown>[])
-        : Array.isArray(json.chapterList)
-        ? (json.chapterList as Record<string, unknown>[])
+      const rawEps = Array.isArray(jsonObj.episodes)
+        ? (jsonObj.episodes as Record<string, unknown>[])
+        : Array.isArray(jsonObj.chapterList)
+        ? (jsonObj.chapterList as Record<string, unknown>[])
         : Array.isArray(dataObj?.chapterList)
         ? (dataObj.chapterList as Record<string, unknown>[])
         : Array.isArray(dataObj?.episodes)
         ? (dataObj.episodes as Record<string, unknown>[])
         : Array.isArray(dataObj?.data)
         ? (dataObj.data as Record<string, unknown>[])
-        : Array.isArray(json.data)
-        ? (json.data as Record<string, unknown>[])
+        : Array.isArray(jsonObj.data)
+        ? (jsonObj.data as Record<string, unknown>[])
+        : rawObj && Array.isArray(rawObj.episodes)
+        ? (rawObj.episodes as Record<string, unknown>[])
+        : rawObj && Array.isArray(rawObj.chapterList)
+        ? (rawObj.chapterList as Record<string, unknown>[])
         : [];
-      episodes = rawEps.map((ep, idx) => {
-        const num =
-          Number(ep.chapterIndex ?? ep.episodeIndex ?? ep.episode ?? idx + 1) ||
-          idx + 1;
-        const providerLocked =
-          Number(ep.isCharge ?? 0) === 1 ||
-          Number(ep.isPay ?? 0) === 1 ||
-          Boolean(ep.isVip) ||
-          Boolean(ep.isLocked);
-        return {
-          chapterId: cleanText(
-            String(ep.chapterId ?? ep.episodeId ?? ep.episode_id ?? ep.chapter_id ?? `ep-${num}`)
-          ),
-          episodeNumber: num,
-          title: cleanText(ep.chapterName ?? ep.title, `EP ${num}`),
-          isVipLocked: num <= 10 ? false : providerLocked || num === 11,
-        };
-      });
+      if (rawEps.length === 0) return [];
+
+      const rawIndices = rawEps
+        .map((ep) => {
+          const rawVal = ep.chapterIndex ?? ep.episodeIndex ?? ep.episode;
+          if (rawVal === null || rawVal === undefined || rawVal === '') return -1;
+          const n = Number(rawVal);
+          return Number.isFinite(n) && n >= 0 ? Math.floor(n) : -1;
+        })
+        .filter((n) => n >= 0);
+      const hasZeroBased = rawIndices.length > 0 && Math.min(...rawIndices) === 0;
+      const seenNums = new Set<number>();
+
+      return rawEps
+        .map((ep, idx) => {
+          const rawVal = ep.chapterIndex ?? ep.episodeIndex ?? ep.episode;
+          const parsedVal =
+            rawVal !== null && rawVal !== undefined && rawVal !== ''
+              ? Number(rawVal)
+              : NaN;
+          let num =
+            Number.isFinite(parsedVal) && parsedVal >= 0
+              ? hasZeroBased
+                ? Math.floor(parsedVal) + 1
+                : Math.max(1, Math.floor(parsedVal))
+              : idx + 1;
+          while (seenNums.has(num)) num += 1;
+          seenNums.add(num);
+          const providerLocked =
+            Number(ep.isCharge ?? 0) === 1 ||
+            Number(ep.isPay ?? 0) === 1 ||
+            Boolean(ep.isVip) ||
+            Boolean(ep.isLocked);
+          return {
+            chapterId: cleanText(
+              String(
+                ep.chapterId ??
+                  ep.episodeId ??
+                  ep.episode_id ??
+                  ep.chapter_id ??
+                  `ep-${num}`
+              )
+            ),
+            episodeNumber: num,
+            title: cleanText(ep.chapterName ?? ep.title, `EP ${num}`),
+            isVipLocked: num <= 10 ? false : providerLocked || num === 11,
+          };
+        })
+        .sort((a, b) => a.episodeNumber - b.episodeNumber);
+    };
+
+    const idCandidates = Array.from(
+      new Set([idParam, 'book_id', 'drama_id', 'playlet_id', 'album_id', 'vid', 'bookId', 'id'])
+    );
+    const primaryDetailPath = canonicalProvider === 'iQIYI' ? '/allepisode' : '/detail';
+    const primaryEpPath = epPath || '/allepisode';
+
+    for (const candidateIdParam of idCandidates.slice(0, 3)) {
+      const detailUrl = `${baseUrl}${primaryDetailPath}?${candidateIdParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`;
+      const epUrl = `${baseUrl}${primaryEpPath}?${candidateIdParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`;
+      const [detailRes, epRes] = await Promise.allSettled([
+        fetch(detailUrl, { signal: AbortSignal.timeout(7000) }),
+        epUrl === detailUrl
+          ? Promise.resolve(null)
+          : fetch(epUrl, { signal: AbortSignal.timeout(7000) }),
+      ]);
+
+      if (detailRes.status === 'fulfilled' && detailRes.value.ok) {
+        const json = (await detailRes.value.json()) as Record<string, unknown>;
+        const raw =
+          json?.data && typeof json.data === 'object'
+            ? (json.data as Record<string, unknown>)
+            : json;
+        const title = cleanText(raw.bookName ?? raw.title ?? raw.name ?? raw.dramaName ?? raw.book_name);
+        if (title) {
+          const tags = Array.isArray(raw.tags)
+            ? raw.tags
+                .map((t) => cleanText(t))
+                .filter((t): t is string => Boolean(t))
+            : [];
+          const rawCover = cleanText(
+            raw.cover ?? raw.coverUrl ?? raw.bookCover ?? raw.book_cover ?? raw.coverWap ?? raw.poster ?? raw.image
+          );
+          const normalizedCover =
+            rawCover &&
+            (rawCover.startsWith('http://') ||
+              (canonicalProvider === 'MeloLoV2' &&
+                (rawCover.toLowerCase().includes('.heic') ||
+                  rawCover.toLowerCase().includes('fizzopic.org'))))
+              ? `/api/proxy?url=${encodeURIComponent(rawCover)}`
+              : rawCover;
+          const rawUpdatedAt =
+            raw.updatedAt ?? raw.updateTime ?? raw.utime ?? raw.createdAt;
+          drama = {
+            bookId,
+            title,
+            cover: normalizedCover,
+            description: cleanText(
+              raw.description ?? raw.introduction ?? raw.synopsis ?? raw.intro ?? raw.summary,
+              `Watch free ${title} full episodes in HD on KanoDrama.`
+            ),
+            chapterCount:
+              Number(raw.chapterCount ?? raw.totalEpisodes ?? raw.episodeCount ?? 1) || 1,
+            tags,
+            playCount: cleanText(raw.playCount) || undefined,
+            protagonist: cleanText(raw.protagonist) || undefined,
+            isVip: Boolean(raw.isVip),
+            provider: canonicalProvider,
+            updatedAt:
+              typeof rawUpdatedAt === 'number' || typeof rawUpdatedAt === 'string'
+                ? rawUpdatedAt
+                : undefined,
+          };
+        }
+        if (epUrl === detailUrl) {
+          episodes = parseEpisodesArray(json, raw);
+        }
+      }
+
+      if (epRes.status === 'fulfilled' && epRes.value && epRes.value.ok) {
+        const json = (await epRes.value.json()) as Record<string, unknown>;
+        const parsedEps = parseEpisodesArray(json);
+        if (parsedEps.length > 0) {
+          episodes = parsedEps;
+        }
+      }
+
+      if (drama && episodes.length === 0) {
+        for (const altEpPath of ['/episodes', '/allepisode', '/detail']) {
+          if (altEpPath === primaryEpPath) continue;
+          const altRes = await fetch(
+            `${baseUrl}${altEpPath}?${candidateIdParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`,
+            { signal: AbortSignal.timeout(5000) }
+          ).catch(() => null);
+          if (altRes && altRes.ok) {
+            const altJson = (await altRes.json().catch(() => null)) as Record<string, unknown> | null;
+            if (altJson) {
+              const parsedEps = parseEpisodesArray(altJson);
+              if (parsedEps.length > 0) {
+                episodes = parsedEps;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      if (drama || episodes.length > 0) break;
+      const detailStatus = detailRes.status === 'fulfilled' ? detailRes.value.status : 0;
+      if (detailStatus === 401 || detailStatus === 403 || detailStatus === 503) break;
     }
   } catch {
     // Graceful SSR fallback
@@ -2704,7 +2763,7 @@ function injectPageMetadataIntoHtml(
                 name: 'Bagaimana cara nonton drama dapat poin di KanoDrama?',
                 acceptedAnswer: {
                   '@type': 'Answer',
-                  text: 'Daftar atau masuk dengan akun Anda, lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +20 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), +200 poin episode baru (minimal 15 detik), check-in harian +500 poin, dan bonus milestone 15, 30, dan 60 menit yang dapat diklaim setelah target tercapai (reset otomatis setiap pukul 00.00 WIB / 17.00 UTC).',
+                  text: 'Daftar atau masuk dengan akun Anda untuk langsung memperoleh bonus login pertama +5.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +20 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), +200 poin episode baru (minimal 15 detik), check-in harian +500 poin, dan bonus milestone 15, 30, dan 60 menit yang dapat diklaim setelah target tercapai (reset otomatis setiap pukul 00.00 WIB / 17.00 UTC).',
                 },
               },
               {
@@ -2849,6 +2908,7 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
       <section>
         <h2>Cara Mengumpulkan Poin KanoDrama</h2>
         <ul>
+          <li>Bonus login pertama akun baru: +5.000 poin otomatis saat pertama kali masuk (1x per akun).</li>
           <li>Tonton drama pendek &amp; film aktif (kecepatan normal): +20 poin per menit otomatis (maksimal 60 menit/hari) × multiplier level akun (Bronze 1.0x hingga Platinum 1.6x).</li>
           <li>Bonus episode baru: +200 poin per episode setelah minimal 15 detik menonton terverifikasi.</li>
           <li>Check-in harian &amp; streak beruntun: +500 poin/hari (reset pukul 00.00 WIB / 17.00 UTC).</li>
@@ -3406,7 +3466,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
             /(allepisode|episodes|chapter)/i.test(upstreamUrl.pathname)
           ) {
             const bookIdCand = cleanText(
-              upstreamUrl.searchParams.get('bookId') ??
+              upstreamUrl.searchParams.get('book_id') ??
+                upstreamUrl.searchParams.get('drama_id') ??
+                upstreamUrl.searchParams.get('playlet_id') ??
+                upstreamUrl.searchParams.get('album_id') ??
+                upstreamUrl.searchParams.get('vid') ??
+                upstreamUrl.searchParams.get('bookId') ??
                 upstreamUrl.searchParams.get('dramaId') ??
                 upstreamUrl.searchParams.get('id')
             );
@@ -3532,7 +3597,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   });
 
   const ALLOWED_PROXY_HOSTS =
-    /(^|\.)(molatv\.id|assetsy\.de|playcdn\.de|videonode\.de|netshort\.com|dramaboxdb\.com|dramabox\.com|hwztchapter\.com|anyreel\.app|fizzopic\.org|melolostatic\.com|vidivo\.me|shortswave\.com|meloshort\.com|petadrama\.com|wolftv\.online|ibyteimg\.com|bytedrama\.com|bytedance\.com|kalostv\.com|stardusttv\.cc|stardust-tv\.com|miniepisode\.media|aliyuncs\.com|ydstatic\.com|cloudfront\.net|my-drama\.tv|kjcdn\.com|drt768\.com|cdreader\.com|blinkdrama\.life|shorttv\.live|wetvinfo\.com|cubetv\.cc|janzhoutec\.com|flareflow\.tv|nsstorage\.space|freeshort\.xyz|toonshort\.com|tqshort\.com|dramadash\.app|cloudflarestream\.com|storyreel\.life|vibeshort\.live|farsunpteltd\.com|mydramawave\.com|tiktokcdn\.com|flextv\.cc|vigloo\.com|idrama\.video|goodshort\.com|crazymaplestudios\.com|joyreels\.com|jinchuanlingyun\.com|cloudonward\.net|iqiyipic\.com|iqiyi\.com)$/i;
+    /(^|\.)(molatv\.id|assetsy\.de|playcdn\.de|videonode\.de|netshort\.com|dramaboxdb\.com|dramabox\.com|hwztchapter\.com|anyreel\.app|fizzopic\.org|melolostatic\.com|vidivo\.me|shortswave\.com|meloshort\.com|petadrama\.com|wolftv\.online|ibyteimg\.com|bytedrama\.com|bytedance\.com|byteoversea\.com|ibytedtos\.com|toutiaovod\.com|snssdk\.com|kalostv\.com|stardusttv\.cc|stardust-tv\.com|miniepisode\.media|aliyuncs\.com|aliyundrive\.com|ydstatic\.com|cloudfront\.net|my-drama\.tv|kjcdn\.com|drt768\.com|cdreader\.com|blinkdrama\.life|shorttv\.live|wetvinfo\.com|cubetv\.cc|janzhoutec\.com|flareflow\.tv|nsstorage\.space|freeshort\.xyz|toonshort\.com|tqshort\.com|dramadash\.app|cloudflarestream\.com|storyreel\.life|vibeshort\.live|farsunpteltd\.com|mydramawave\.com|tiktokcdn\.com|flextv\.cc|vigloo\.com|idrama\.video|goodshort\.com|crazymaplestudios\.com|joyreels\.com|jinchuanlingyun\.com|cloudonward\.net|iqiyipic\.com|iqiyi\.com|akamaized\.net|b-cdn\.net|bunnycdn\.com|fastly\.net|vimeocdn\.com|googleapis\.com)$/i;
   const ALLOWED_HTTP_HOSTS =
     /(^|\.)(bytedrama\.com|bytedance\.com|iqiyipic\.com|iqiyi\.com)$/i;
 
@@ -4328,6 +4393,11 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         }).catch(() => null);
       }
 
+      const firstLoginBonus = await grantFirstLoginBonusIfEligibleInDb({
+        userId: uid,
+        displayName: synced?.displayName || displayName,
+      }).catch(() => ({ granted: false, points: 0, dbConnected: false }));
+
       const sessionToken = signAuthSessionToken({
         uid,
         email,
@@ -4340,6 +4410,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         ok: true,
         sessionToken,
         gmailLoginCount,
+        firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
         user: {
           uid,
           email,
@@ -4438,6 +4509,11 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       const gmailLoginCount =
         dbCount !== null ? Math.max(dbCount, memoryGmailTotalLogins) : memoryGmailTotalLogins;
 
+      const firstLoginBonus = await grantFirstLoginBonusIfEligibleInDb({
+        userId: dbUser.uid,
+        displayName: dbUser.displayName,
+      }).catch(() => ({ granted: false, points: 0, dbConnected: false }));
+
       const sessionToken = signAuthSessionToken({
         uid: dbUser.uid,
         email: dbUser.email,
@@ -4450,6 +4526,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         ok: true,
         sessionToken,
         gmailLoginCount,
+        firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
         user: {
           uid: dbUser.uid,
           email: dbUser.email,
@@ -4532,6 +4609,11 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       const gmailLoginCount =
         dbCount !== null ? Math.max(dbCount, memoryGmailTotalLogins) : memoryGmailTotalLogins;
 
+      const firstLoginBonus = await grantFirstLoginBonusIfEligibleInDb({
+        userId: dbUser.uid,
+        displayName: dbUser.displayName,
+      }).catch(() => ({ granted: false, points: 0, dbConnected: false }));
+
       const sessionToken = signAuthSessionToken({
         uid: dbUser.uid,
         email: dbUser.email,
@@ -4544,6 +4626,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         ok: true,
         sessionToken,
         gmailLoginCount,
+        firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
         user: {
           uid: dbUser.uid,
           email: dbUser.email,
@@ -4673,6 +4756,11 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           displayName: synced?.displayName || displayName,
         }).catch(() => null);
 
+        const firstLoginBonus = await grantFirstLoginBonusIfEligibleInDb({
+          userId: uid,
+          displayName: synced?.displayName || displayName,
+        }).catch(() => ({ granted: false, points: 0, dbConnected: false }));
+
         const sessionToken = signAuthSessionToken({
           uid,
           email,
@@ -4685,6 +4773,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           type: 'KD_GOOGLE_AUTH_SUCCESS',
           sessionToken,
           gmailLoginCount,
+          firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
           user: {
             uid,
             email,
@@ -4775,8 +4864,20 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         }).catch(() => null);
       }
 
+      const firstLoginBonus = isLoginEvent
+        ? await grantFirstLoginBonusIfEligibleInDb({
+            userId: uid,
+            displayName: synced?.displayName || displayName,
+          }).catch(() => ({ granted: false, points: 0, dbConnected: false }))
+        : { granted: false, points: 0, dbConnected: false };
+
       res.setHeader('Cache-Control', 'no-store');
-      res.json({ ok: true, user: synced, gmailLoginCount });
+      res.json({
+        ok: true,
+        user: synced,
+        gmailLoginCount,
+        firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+      });
     } catch (err) {
       res.status(500).json({
         ok: false,
@@ -6125,8 +6226,8 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         }
 
         const homeHit =
-          (await findDramaBySlugInHomeCache(slug)) ||
-          (await findDramaBySlugInApiCache(slug));
+          (await findDramaBySlugInHomeCache(slug, providerHint)) ||
+          (await findDramaBySlugInApiCache(slug, providerHint));
 
         if (homeHit) {
           res.json({
@@ -7512,6 +7613,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       const rawScopedMatch = cleanPath.match(
         /^\/([a-z0-9_]+)\/(detail|watch)\/([^/]+)(?:\/(\d+))?$/i
       );
+      const isUnknownScopedProviderRoute = Boolean(
+        (rawScopedMatch && !isKnownProviderRouteSlug(rawScopedMatch[1])) ||
+          (emptySlugScopedMatch && !isKnownProviderRouteSlug(emptySlugScopedMatch[1]))
+      );
       const scopedMatch =
         rawScopedMatch && isKnownProviderRouteSlug(rawScopedMatch[1])
           ? rawScopedMatch
@@ -7592,8 +7697,11 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       let isNotFoundResponse = false;
       let isPrivateResponse = false;
 
-      if (isEmptyDramaOrMovieRoute && !queryBookId) {
-        const emptyProvSlug = emptySlugScopedMatch?.[1]?.toLowerCase() || '';
+      if ((isEmptyDramaOrMovieRoute && !queryBookId) || isUnknownScopedProviderRoute) {
+        const emptyProvSlug =
+          emptySlugScopedMatch?.[1]?.toLowerCase() ||
+          rawScopedMatch?.[1]?.toLowerCase() ||
+          '';
         const isMovieKind =
           lowerCleanPath === '/movie' ||
           emptyProvSlug === 'movie' ||
@@ -7712,8 +7820,8 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
                 };
           } else {
             const homeItem =
-              (await findDramaBySlugInHomeCache(segment)) ||
-              (await findDramaBySlugInApiCache(segment)) ||
+              (await findDramaBySlugInHomeCache(segment, providerHint)) ||
+              (await findDramaBySlugInApiCache(segment, providerHint)) ||
               (await searchUpstreamDramaBySlug(
                 getMolaToken(),
                 segment,

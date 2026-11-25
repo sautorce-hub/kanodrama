@@ -38,6 +38,8 @@ import {
   ArrowUp,
   Maximize2,
   Flame,
+  Music,
+  Server,
 } from 'lucide-react';
 import {
   ensureMeloloDecryptedUrl,
@@ -66,6 +68,7 @@ import type {
   DramaItem,
   EpisodeItem,
   ReactionKey,
+  StreamServerOption,
   StreamSource,
   SubtitleStyleConfig,
   SubtitleTrackItem,
@@ -263,6 +266,12 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
 
   const [streamData, setStreamData] = useState<StreamSource | null>(null);
   const [selectedUrl, setSelectedUrl] = useState<string>('');
+  const [embedUrl, setEmbedUrl] = useState<string>('');
+  const [activeServerId, setActiveServerId] = useState<string>('');
+  const [activeServerType, setActiveServerType] = useState<'hls' | 'mp4' | 'embed'>('hls');
+  const [videoReady, setVideoReady] = useState<boolean>(false);
+  const [iframeLoading, setIframeLoading] = useState<boolean>(false);
+  const [hlsProgressTick, setHlsProgressTick] = useState<number>(0);
   const [selectedQuality, setSelectedQuality] = useState<string>('HD');
   const [hlsLevels, setHlsLevels] = useState<
     { index: number; label: string }[]
@@ -330,7 +339,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
 
   const [drawerBatchIdx, setDrawerBatchIdx] = useState(0);
   const [openMenu, setOpenMenu] = useState<
-    'speed' | 'quality' | 'subtitles' | 'shortcuts' | null
+    'speed' | 'quality' | 'subtitles' | 'shortcuts' | 'servers' | null
   >(null);
   const [qualityAnchor, setQualityAnchor] = useState<{
     top: number;
@@ -369,6 +378,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
   const appliedInitialSeekRef = useRef<boolean>(false);
   const pendingQualitySeekRef = useRef<number | null>(null);
   const rawSelectedUrlRef = useRef<string>('');
+  const embedWatchTimeRef = useRef<number>(0);
 
   // Dynamic watermark movement & timestamp refresh every 12 seconds
   useEffect(() => {
@@ -775,27 +785,131 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     return rawUrl;
   };
 
+  const availableServers = useMemo<StreamServerOption[]>(() => {
+    if (!streamData) return [];
+    if (Array.isArray(streamData.servers) && streamData.servers.length > 0) {
+      return streamData.servers;
+    }
+    const list: StreamServerOption[] = [];
+    if (streamData.streamUrl && streamData.sourceType !== 'embed') {
+      list.push({
+        id: 'primary-stream',
+        name: 'Server Utama (HD)',
+        url: streamData.streamUrl,
+        type: streamData.isHls ? 'hls' : 'mp4',
+        quality: streamData.qualities?.[0]?.quality || 'HD',
+      });
+    }
+    if (streamData.embedUrl) {
+      list.push({
+        id: 'primary-embed',
+        name: 'Server Embed',
+        url: streamData.embedUrl,
+        type: 'embed',
+        quality: 'HD',
+      });
+    }
+    return list;
+  }, [streamData]);
+
+  const isAudioOnly = useMemo(() => {
+    const checkUrl = rawSelectedUrlRef.current || selectedUrl;
+    return Boolean(
+      !embedUrl &&
+        checkUrl &&
+        (drama?.provider === 'AudioToon' ||
+          /\.(mp3|m4a|aac|ogg|wav)(\?|$)/i.test(checkUrl))
+    );
+  }, [drama?.provider, embedUrl, selectedUrl]);
+
+  const isSafeEmbedHref = (rawUrl: string): boolean => {
+    const trimmed = (rawUrl || '').trim();
+    if (!trimmed) return false;
+    if (trimmed.startsWith('/api/')) return true;
+    try {
+      const parsed = new URL(trimmed);
+      return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+    } catch {
+      return false;
+    }
+  };
+
+  const resetVideoElement = () => {
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+    const video = videoRef.current;
+    if (video) {
+      try {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      } catch {
+        // Ignore media reset errors
+      }
+    }
+    setIsPlaying(false);
+    setVideoReady(false);
+  };
+
+  const handleSelectServer = async (srv: StreamServerOption) => {
+    if (!srv.url || !isSafeEmbedHref(srv.url)) return;
+    setOpenMenu(null);
+    setStreamError(null);
+    resetVideoElement();
+
+    if (srv.type === 'embed') {
+      triedStreamUrlsRef.current.add(srv.url);
+      rawSelectedUrlRef.current = srv.url;
+      setActiveServerId(srv.id);
+      setActiveServerType('embed');
+      setSelectedUrl('');
+      setEmbedUrl(srv.url);
+      setIframeLoading(true);
+      setHlsLevels([]);
+      return;
+    }
+
+    setEmbedUrl('');
+    setIframeLoading(false);
+    setActiveServerId(srv.id);
+    setActiveServerType(srv.type);
+    rawSelectedUrlRef.current = srv.url;
+    triedStreamUrlsRef.current.add(srv.url);
+    const secured = await signPlaybackUrl(srv.url);
+    triedStreamUrlsRef.current.add(secured);
+    setSelectedQuality(srv.quality || 'HD');
+    setSelectedUrl(secured);
+  };
+
   const tryNextStreamFallback = (failedUrl: string): boolean => {
     if (!drama) return false;
 
     if (
+      failedUrl &&
       failedUrl.includes('/api/stream?st=') &&
       rawSelectedUrlRef.current &&
       !triedStreamUrlsRef.current.has(rawSelectedUrlRef.current)
     ) {
       const directUrl = rawSelectedUrlRef.current;
       triedStreamUrlsRef.current.add(directUrl);
+      setStreamError(null);
+      setVideoReady(false);
       setSelectedUrl(directUrl);
       return true;
     }
 
     if (
       drama.provider === 'MeloLoV2' &&
+      failedUrl &&
       !failedUrl.includes('/decrypt')
     ) {
       const decrypted = ensureMeloloDecryptedUrl(failedUrl, '/api/mola/melolov2');
       if (decrypted && !triedStreamUrlsRef.current.has(decrypted)) {
         triedStreamUrlsRef.current.add(decrypted);
+        setStreamError(null);
+        setVideoReady(false);
         setSelectedUrl(decrypted);
         return true;
       }
@@ -805,9 +919,26 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
       const proxied = `/api/proxy?url=${encodeURIComponent(failedUrl)}`;
       if (!triedStreamUrlsRef.current.has(proxied)) {
         triedStreamUrlsRef.current.add(proxied);
+        setStreamError(null);
+        setVideoReady(false);
         setSelectedUrl(proxied);
         return true;
       }
+    }
+
+    const untriedDirectServer = availableServers.find(
+      (s) => s.type !== 'embed' && Boolean(s.url) && !triedStreamUrlsRef.current.has(s.url)
+    );
+    if (untriedDirectServer) {
+      rawSelectedUrlRef.current = untriedDirectServer.url;
+      triedStreamUrlsRef.current.add(untriedDirectServer.url);
+      setStreamError(null);
+      setActiveServerId(untriedDirectServer.id);
+      setActiveServerType(untriedDirectServer.type);
+      setSelectedQuality(untriedDirectServer.quality || 'HD');
+      setVideoReady(false);
+      setSelectedUrl(untriedDirectServer.url);
+      return true;
     }
 
     const candidates = [
@@ -830,8 +961,29 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
         : fallback.url;
       rawSelectedUrlRef.current = fallbackUrl;
       triedStreamUrlsRef.current.add(fallbackUrl);
+      setStreamError(null);
+      setVideoReady(false);
       setSelectedUrl(fallbackUrl);
       setSelectedQuality(fallback.quality);
+      return true;
+    }
+
+    const untriedEmbed = availableServers.find(
+      (s) =>
+        s.type === 'embed' &&
+        Boolean(s.url) &&
+        isSafeEmbedHref(s.url) &&
+        !triedStreamUrlsRef.current.has(s.url)
+    );
+    if (untriedEmbed) {
+      triedStreamUrlsRef.current.add(untriedEmbed.url);
+      resetVideoElement();
+      setActiveServerId(untriedEmbed.id);
+      setActiveServerType('embed');
+      setSelectedUrl('');
+      setEmbedUrl(untriedEmbed.url);
+      setIframeLoading(true);
+      setStreamError(null);
       return true;
     }
 
@@ -847,6 +999,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     provider: DramaItem['provider']
   ) => {
     const reqId = ++streamReqIdRef.current;
+    embedWatchTimeRef.current = initialTime > 0 ? initialTime : 0;
     const cachedAlready =
       provider !== 'LK21' &&
       provider !== 'LookSeries' &&
@@ -856,7 +1009,13 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     }
     setStreamError(null);
     setStreamData(null);
+    setHlsProgressTick(0);
+    resetVideoElement();
     setSelectedUrl('');
+    setEmbedUrl('');
+    setIframeLoading(false);
+    setActiveServerId('');
+    setActiveServerType('hls');
     setHlsLevels([]);
     setSelectedHlsLevel(-1);
     setHlsSubtitleTracks([]);
@@ -888,41 +1047,67 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
           : await getStreamUrl(bookId, ep, provider, {
               eid: epMeta?.eid,
               chapterId: epMeta?.chapterId,
+              chapterIndex0: epMeta?.chapterIndex0,
             });
       if (reqId !== streamReqIdRef.current) return;
       setStreamData(data);
-      void cacheEpisodeForOffline({
-        bookId,
-        provider,
-        episodeNumber: ep,
-        title: drama?.title,
-        streamSource: data,
-        episodes: episodeItems,
-      }).then((saved) => {
-        if (saved) setIsOfflineReady(true);
-      });
-      const preferred =
-        data.qualities.find((q) => q.quality.includes('H.264') && q.quality.includes('720')) ??
-        data.qualities.find((q) => q.quality.includes('1080')) ??
-        data.qualities.find((q) => q.quality.includes('720')) ??
-        data.qualities[0];
-      const isMeloloProv = provider === 'MeloLoV2';
-      const decryptBase = '/api/mola/melolov2';
-      const rawChosenUrl = isMeloloProv
-        ? ensureMeloloDecryptedUrl(data.streamUrl || preferred?.url || '', decryptBase)
-        : (preferred?.url ?? data.streamUrl);
-      rawSelectedUrlRef.current = rawChosenUrl;
-      const securedUrl = await signPlaybackUrl(rawChosenUrl);
-      if (reqId !== streamReqIdRef.current) return;
-      if (securedUrl) {
-        triedStreamUrlsRef.current.add(securedUrl);
+
+      const serverList = data.servers ?? [];
+      const firstDirect = serverList.find((s) => s.type !== 'embed');
+      const firstEmbed = serverList.find((s) => s.type === 'embed');
+
+      if (data.sourceType === 'embed' && (data.embedUrl || firstEmbed?.url)) {
+        const chosenEmbed = firstEmbed?.url || data.embedUrl || data.streamUrl;
+        if (!chosenEmbed || !isSafeEmbedHref(chosenEmbed)) {
+          throw new Error(t.player.streamUnavailable);
+        }
+        triedStreamUrlsRef.current.add(chosenEmbed);
+        rawSelectedUrlRef.current = chosenEmbed;
+        setActiveServerId(firstEmbed?.id || 'srv-embed');
+        setActiveServerType('embed');
+        setEmbedUrl(chosenEmbed);
+        setIframeLoading(true);
+      } else {
+        void cacheEpisodeForOffline({
+          bookId,
+          provider,
+          episodeNumber: ep,
+          title: drama?.title,
+          streamSource: data,
+          episodes: episodeItems,
+        }).then((saved) => {
+          if (saved) setIsOfflineReady(true);
+        });
+        const preferred =
+          data.qualities.find((q) => q.quality.includes('H.264') && q.quality.includes('720')) ??
+          data.qualities.find((q) => q.quality.includes('1080')) ??
+          data.qualities.find((q) => q.quality.includes('720')) ??
+          data.qualities[0];
+        const isMeloloProv = provider === 'MeloLoV2';
+        const decryptBase = '/api/mola/melolov2';
+        const rawChosenUrl = isMeloloProv
+          ? ensureMeloloDecryptedUrl(data.streamUrl || preferred?.url || '', decryptBase)
+          : (preferred?.url ?? firstDirect?.url ?? data.streamUrl);
+        rawSelectedUrlRef.current = rawChosenUrl;
+        const resolvedDirectType: 'hls' | 'mp4' =
+          firstDirect?.type === 'mp4' && !data.isHls
+            ? 'mp4'
+            : data.isHls || rawChosenUrl.toLowerCase().includes('.m3u8')
+            ? 'hls'
+            : 'mp4';
+        const securedUrl = await signPlaybackUrl(rawChosenUrl);
+        if (reqId !== streamReqIdRef.current) return;
+        if (rawChosenUrl) triedStreamUrlsRef.current.add(rawChosenUrl);
+        if (securedUrl) triedStreamUrlsRef.current.add(securedUrl);
+        setActiveServerId(firstDirect?.id || 'srv-0');
+        setActiveServerType(resolvedDirectType);
+        setSelectedUrl(securedUrl);
+        setSelectedQuality(
+          isMeloloProv && data.streamUrl === rawChosenUrl
+            ? 'HD'
+            : (preferred?.quality ?? firstDirect?.quality ?? 'HD')
+        );
       }
-      setSelectedUrl(securedUrl);
-      setSelectedQuality(
-        isMeloloProv && data.streamUrl === rawChosenUrl
-          ? 'HD'
-          : (preferred?.quality ?? 'HD')
-      );
     } catch (err) {
       if (reqId !== streamReqIdRef.current) return;
       const offlineCached = await readOfflineCachedEpisode(bookId, provider, ep);
@@ -930,6 +1115,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
       if (offlineCached?.streamSource?.streamUrl) {
         const cachedData = offlineCached.streamSource;
         setStreamData(cachedData);
+        setActiveServerType(cachedData.isHls ? 'hls' : 'mp4');
         setSelectedUrl(cachedData.streamUrl);
         setSelectedQuality(cachedData.qualities[0]?.quality ?? 'HD');
         setIsOfflineReady(true);
@@ -967,22 +1153,103 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     const retryKey = `${drama.bookId}:${drama.provider}:${episodeNumber}`;
     if (retriedWithEpisodesRef.current === retryKey) return;
     const epMeta = episodes.find((item) => item.episodeNumber === episodeNumber);
-    if (epMeta?.eid || epMeta?.chapterId) {
+    if (
+      epMeta?.eid ||
+      epMeta?.chapterId ||
+      typeof epMeta?.chapterIndex0 === 'number'
+    ) {
       retriedWithEpisodesRef.current = retryKey;
       void loadStream(drama.bookId, episodeNumber, drama.provider);
     }
   }, [drama?.bookId, drama?.provider, episodeNumber, episodes, streamError, loadingStream]);
 
+  // Safety timeout: never leave player stuck if direct video/HLS stream stalls indefinitely
+  useEffect(() => {
+    if (
+      !drama ||
+      loadingStream ||
+      streamError ||
+      Boolean(embedUrl) ||
+      !selectedUrl ||
+      videoReady ||
+      isAudioOnly
+    ) {
+      return;
+    }
+    const isProxiedOrHls =
+      activeServerType === 'hls' ||
+      selectedUrl.includes('/proxy') ||
+      selectedUrl.toLowerCase().includes('.m3u8');
+    const stallMs = isProxiedOrHls ? 24000 : 16000;
+    const stallTimer = window.setTimeout(() => {
+      if (!tryNextStreamFallback(selectedUrl)) {
+        setStreamError(t.player.streamUnavailable);
+      }
+    }, stallMs);
+    return () => window.clearTimeout(stallTimer);
+  }, [
+    drama?.bookId,
+    loadingStream,
+    streamError,
+    embedUrl,
+    selectedUrl,
+    activeServerType,
+    videoReady,
+    isAudioOnly,
+    hlsProgressTick,
+  ]);
+
+  // Fallback timeout for iframe loading spinner & mark active playback
+  useEffect(() => {
+    if (!embedUrl || !iframeLoading) return;
+    const timer = window.setTimeout(() => {
+      setIframeLoading(false);
+      setVideoReady(true);
+      setIsPlaying(true);
+    }, 3500);
+    return () => window.clearTimeout(timer);
+  }, [embedUrl, iframeLoading]);
+
+  // Synchronize verified active-watch heartbeat when playing an embed iframe server
+  useEffect(() => {
+    if (!drama || !embedUrl || iframeLoading || streamError || !isPlaying) {
+      return;
+    }
+    const tickSec = 5;
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      embedWatchTimeRef.current += tickSec;
+      const elapsed = embedWatchTimeRef.current;
+      setCurrentTime(elapsed);
+      const effectiveDur = duration > elapsed ? duration : Math.max(180, elapsed + 60);
+      onProgressUpdate?.(episodeNumber, elapsed, effectiveDur, false, {
+        isPlaying: true,
+        isBuffering: false,
+        playbackRate: 1,
+      });
+    }, tickSec * 1000);
+    return () => window.clearInterval(timer);
+  }, [drama, embedUrl, iframeLoading, streamError, isPlaying, episodeNumber, duration, onProgressUpdate]);
+
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !selectedUrl) return;
+    if (!video || !selectedUrl || embedUrl) {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      return;
+    }
 
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
     }
+    setVideoReady(false);
 
-    const isM3u8 = selectedUrl.toLowerCase().includes('.m3u8');
+    const isM3u8 =
+      activeServerType === 'hls' ||
+      selectedUrl.toLowerCase().includes('.m3u8');
 
     const startPlayback = () => {
       video.playbackRate = playbackSpeed;
@@ -1021,12 +1288,25 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
       }
     };
 
+    let mediaRecoveryAttempted = false;
+    let nonFatalNetErrors = 0;
+    let attachedNativeMetaListener = false;
+
     if (isM3u8 && Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true });
+      const hls = new Hls({
+        enableWorker: true,
+        manifestLoadingTimeOut: 20000,
+        manifestLoadingMaxRetry: 2,
+        levelLoadingTimeOut: 20000,
+        levelLoadingMaxRetry: 2,
+        fragLoadingTimeOut: 25000,
+        fragLoadingMaxRetry: 3,
+      });
       hlsRef.current = hls;
       hls.loadSource(selectedUrl);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, (_evt, data) => {
+        setHlsProgressTick((tick) => tick + 1);
         if (Array.isArray(data.levels) && data.levels.length > 0) {
           const parsedLevels = data.levels
             .map((lvl, idx) => ({
@@ -1046,6 +1326,18 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
         syncHlsAudioTracks(hls);
         startPlayback();
       });
+      hls.on(Hls.Events.LEVEL_LOADED, () => {
+        setHlsProgressTick((tick) => tick + 1);
+      });
+      hls.on(Hls.Events.FRAG_LOADING, () => {
+        setHlsProgressTick((tick) => tick + 1);
+      });
+      hls.on(Hls.Events.FRAG_LOADED, () => {
+        setHlsProgressTick((tick) => tick + 1);
+      });
+      hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        setVideoReady(true);
+      });
       hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
         syncHlsSubtitles(hls);
       });
@@ -1061,15 +1353,31 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
         }
       });
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          hls.destroy();
-          if (!tryNextStreamFallback(selectedUrl)) {
-            setStreamError(t.player.streamUnavailable);
+        if (!data.fatal) {
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            nonFatalNetErrors += 1;
+            if (nonFatalNetErrors >= 4) {
+              hls.destroy();
+              if (!tryNextStreamFallback(selectedUrl)) {
+                setStreamError(t.player.streamUnavailable);
+              }
+            }
           }
+          return;
+        }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !mediaRecoveryAttempted) {
+          mediaRecoveryAttempted = true;
+          hls.recoverMediaError();
+          return;
+        }
+        hls.destroy();
+        if (!tryNextStreamFallback(selectedUrl)) {
+          setStreamError(t.player.streamUnavailable);
         }
       });
     } else if (isM3u8 && video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = selectedUrl;
+      attachedNativeMetaListener = true;
       video.addEventListener('loadedmetadata', startPlayback, { once: true });
     } else {
       video.src = selectedUrl;
@@ -1077,12 +1385,22 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     }
 
     return () => {
+      if (attachedNativeMetaListener) {
+        video.removeEventListener('loadedmetadata', startPlayback);
+      }
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
       }
+      try {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      } catch {
+        // Ignore cleanup errors
+      }
     };
-  }, [selectedUrl]);
+  }, [selectedUrl, activeServerType, embedUrl]);
 
   // Auto-select subtitle track matching active app language when tracks arrive (unless user manually toggled)
   useEffect(() => {
@@ -1292,6 +1610,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
         prefetchStreamUrl(drama.bookId, episodeNumber + 1, drama.provider, {
           eid: nextEpMeta?.eid,
           chapterId: nextEpMeta?.chapterId,
+          chapterIndex0: nextEpMeta?.chapterIndex0,
         });
       }
       setNextPrefetched(true);
@@ -1301,13 +1620,14 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
   const flushProgress = (timeOverride?: number, immediate = true) => {
     if (!drama || !onProgressUpdate) return;
     const v = videoRef.current;
-    const tNow = timeOverride ?? v?.currentTime ?? currentTime;
+    const isEmbed = Boolean(embedUrl);
+    const tNow = timeOverride ?? (isEmbed ? embedWatchTimeRef.current : v?.currentTime) ?? currentTime;
     const dNow =
       v?.duration && Number.isFinite(v.duration) ? v.duration : duration;
     onProgressUpdate(episodeNumber, tNow, dNow, immediate, {
-      isPlaying: Boolean(v && !v.paused && !v.ended),
-      isBuffering,
-      playbackRate: v ? Number(v.playbackRate) || playbackSpeed : playbackSpeed,
+      isPlaying: isEmbed ? isPlaying : Boolean(v && !v.paused && !v.ended),
+      isBuffering: isEmbed ? iframeLoading : isBuffering,
+      playbackRate: isEmbed ? 1 : v ? Number(v.playbackRate) || playbackSpeed : playbackSpeed,
     });
   };
 
@@ -1987,8 +2307,72 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
           </div>
         </div>
 
-        {/* Top Right Quick Controls (PiP + Theater Mode + Fullscreen on Mobile + Aspect/Actions on Desktop) */}
+        {/* Top Right Quick Controls (Server + PiP + Theater Mode + Fullscreen on Mobile + Aspect/Actions on Desktop) */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {availableServers.length > 1 && (
+            <div className="relative" data-hud-control="true">
+              <button
+                type="button"
+                {...hudButtonTouchProps}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  bumpHudActivity();
+                  setOpenMenu((prev) => (prev === 'servers' ? null : 'servers'));
+                }}
+                aria-label="Pilih Server"
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors ${
+                  openMenu === 'servers' || embedUrl
+                    ? 'cd-accent-bg border-[var(--cd-accent)] text-white shadow-lg'
+                    : 'bg-[#141418]/90 border-white/15 text-[#E4E4E7] hover:border-white/35'
+                }`}
+              >
+                <Server className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">
+                  {availableServers.find((s) => s.id === activeServerId)?.name || 'Server'}
+                </span>
+              </button>
+
+              {openMenu === 'servers' && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="absolute right-0 mt-2 w-60 rounded-2xl bg-[#111116]/95 backdrop-blur-xl border border-white/15 shadow-2xl p-2 z-50 space-y-1"
+                >
+                  <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#A1A1AA]">
+                    Server Pemutaran
+                  </div>
+                  {availableServers.map((srv) => {
+                    const active =
+                      srv.id === activeServerId ||
+                      (embedUrl ? srv.url === embedUrl : srv.url === rawSelectedUrlRef.current);
+                    return (
+                      <button
+                        key={srv.id}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleSelectServer(srv);
+                        }}
+                        className={`w-full px-3 py-2 rounded-xl text-left text-xs flex items-center justify-between gap-2 transition-colors ${
+                          active
+                            ? 'bg-[var(--cd-accent-soft)] border border-[var(--cd-accent)] text-white font-semibold'
+                            : 'hover:bg-white/5 text-[#E4E4E7] border border-transparent'
+                        }`}
+                      >
+                        <span className="truncate">{srv.name}</span>
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          <span className="px-1.5 py-0.5 rounded bg-white/10 text-[9px] font-bold uppercase text-[#D4AF37]">
+                            {srv.type === 'embed' ? 'Embed' : srv.type.toUpperCase()}
+                          </span>
+                          {active && <Check className="w-3.5 h-3.5 cd-accent-text" />}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Mobile Theater Mode Toggle */}
           <button
             type="button"
@@ -2349,6 +2733,51 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
               : 'relative overflow-hidden bg-black touch-none transition-all duration-300 flex items-center justify-center w-full h-full max-w-full max-h-full rounded-none border-0'
           }
         >
+          {embedUrl && isSafeEmbedHref(embedUrl) && (
+            <iframe
+              key={embedUrl}
+              src={embedUrl}
+              title={drama.title}
+              allow="autoplay; fullscreen; picture-in-picture; encrypted-media; accelerometer; gyroscope"
+              allowFullScreen
+              referrerPolicy="no-referrer"
+              onLoad={() => {
+                setIframeLoading(false);
+                setVideoReady(true);
+                setIsPlaying(true);
+              }}
+              className="w-full h-full border-0 bg-black"
+            />
+          )}
+
+          {isAudioOnly && !embedUrl && !loadingStream && !streamError && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 text-center bg-gradient-to-b from-[#161412]/90 via-[#09090B]/95 to-black pointer-events-none">
+              <div className="relative mb-4">
+                {drama.cover ? (
+                  <img
+                    src={drama.cover}
+                    alt={drama.title}
+                    referrerPolicy="no-referrer"
+                    className={`w-40 sm:w-48 aspect-[3/4] rounded-2xl object-cover border border-white/15 shadow-2xl ${
+                      isPlaying ? 'scale-[1.02]' : ''
+                    } transition-transform duration-500`}
+                  />
+                ) : (
+                  <div className="w-40 sm:w-48 aspect-[3/4] rounded-2xl bg-[#18181B] border border-white/15 flex items-center justify-center">
+                    <Music className="w-12 h-12 text-[#D4AF37]" />
+                  </div>
+                )}
+                <span className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/85 border border-[#D4AF37]/40 text-[11px] font-bold text-[#D4AF37] whitespace-nowrap shadow-lg">
+                  <Music className={`w-3.5 h-3.5 ${isPlaying ? 'animate-pulse' : ''}`} />
+                  Audio Drama · EP {episodeNumber}
+                </span>
+              </div>
+              <p className="text-sm font-semibold text-white line-clamp-1 max-w-xs mt-1">
+                {drama.title}
+              </p>
+            </div>
+          )}
+
           <video
             ref={videoRef}
             playsInline
@@ -2358,6 +2787,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
             controlsList="nodownload"
             onContextMenu={(e) => e.preventDefault()}
             poster={drama.cover || undefined}
+            onLoadedData={() => setVideoReady(true)}
             onProgress={() => {
               const v = videoRef.current;
               if (!v || !Number.isFinite(v.duration) || v.duration <= 0) return;
@@ -2371,6 +2801,9 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
               if (!v) return;
               if (isBuffering && v.readyState >= 3 && !v.paused) {
                 setIsBuffering(false);
+              }
+              if (v.currentTime > 0 && !videoReady) {
+                setVideoReady(true);
               }
               setCurrentTime(v.currentTime);
               const now = Date.now();
@@ -2392,6 +2825,9 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
             onLoadedMetadata={() => {
               const v = videoRef.current;
               if (!v) return;
+              if (v.videoWidth > 0) {
+                setVideoReady(true);
+              }
               if (Number.isFinite(v.duration)) {
                 setDuration(v.duration);
                 if (pendingQualitySeekRef.current !== null) {
@@ -2413,9 +2849,13 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
             onStalled={() => setIsBuffering(true)}
             onSeeking={() => setIsBuffering(true)}
             onSeeked={() => setIsBuffering(false)}
-            onCanPlay={() => setIsBuffering(false)}
+            onCanPlay={() => {
+              setIsBuffering(false);
+              setVideoReady(true);
+            }}
             onPlaying={() => {
               setIsBuffering(false);
+              setVideoReady(true);
               setIsPlaying(true);
               const v = videoRef.current;
               const now = Date.now();
@@ -2454,15 +2894,19 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
               }
             }}
             onError={() => {
-              if (!loadingStream && selectedUrl) {
+              if (!embedUrl && !loadingStream && selectedUrl) {
                 if (!tryNextStreamFallback(selectedUrl)) {
                   setStreamError(t.player.streamUnavailable);
                 }
               }
             }}
-            className={`w-full h-full max-w-full max-h-full bg-black transition-all duration-300 ${
-              videoFitMode === 'fill' ? 'object-cover' : 'object-contain'
-            }`}
+            className={
+              embedUrl
+                ? 'hidden'
+                : `w-full h-full max-w-full max-h-full bg-black transition-all duration-300 ${
+                    videoFitMode === 'fill' ? 'object-cover' : 'object-contain'
+                  }`
+            }
           />
 
           {/* Dynamic Moving Translucent Watermark Overlay (Stream Security — hidden in compact corner mini-player) */}
@@ -2689,6 +3133,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
 
           {/* Netflix-Style Center Overlay Transport Controls: Rewind 10s, Play/Pause, Forward 10s */}
           {!isFloatingMiniActive &&
+            !embedUrl &&
             !loadingStream &&
             !streamError &&
             selectedUrl &&

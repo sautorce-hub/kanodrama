@@ -1288,7 +1288,7 @@ export async function getLk21Stream(
   let targetVid = cleanStr(opts.vid).toLowerCase();
   let resolvedEpNumber = requestedEp;
 
-  // If no explicit vid provided and episode > 1 (or stored episodes exist), resolve episode's vid from DB or episodes API
+  // If no explicit vid provided, resolve episode's vid from DB or episodes API (including EP 1 of multi-episode series)
   if (!targetVid && cleanSlug) {
     const dbEps = await getMovieEpisodesFromDb(cleanSlug);
     if (dbEps.length > 0) {
@@ -1298,18 +1298,29 @@ export async function getLk21Stream(
         targetVid = (match.vid || cleanSlug).toLowerCase();
         resolvedEpNumber = match.episodeNumber;
       }
-    } else if (requestedEp > 1) {
-      const fetchedEps = await getLk21Episodes(getToken, cleanSlug).catch(() => null);
-      const match = fetchedEps?.episodes.find((e) => e.order === requestedEp);
-      if (match) {
-        targetVid = (match.vid || match.id || cleanSlug).toLowerCase();
-        resolvedEpNumber = match.order;
+    } else {
+      const dbMoviePre = await getMovieBySlugFromDb(cleanSlug);
+      const isSeriesHint =
+        requestedEp > 1 ||
+        dbMoviePre?.movieType === 'series' ||
+        Number(dbMoviePre?.movieJson?.chapterCount ?? 0) > 1;
+      if (isSeriesHint) {
+        const fetchedEps = await getLk21Episodes(getToken, cleanSlug).catch(() => null);
+        const match =
+          fetchedEps?.episodes.find((e) => e.order === requestedEp) ||
+          (requestedEp <= 1 ? fetchedEps?.episodes[0] : undefined);
+        if (match) {
+          targetVid = (match.vid || match.id || cleanSlug).toLowerCase();
+          resolvedEpNumber = match.order;
+        }
       }
     }
   }
 
   const upstreamSlug = targetVid || cleanSlug;
-  const cacheKey = `lk21:stream:v2:${upstreamSlug}`;
+  const cacheKey = targetVid
+    ? `lk21:stream:v2:${targetVid}`
+    : `lk21:stream:v2:${cleanSlug}:ep${resolvedEpNumber}`;
   const cached = await readCache<Lk21StreamPayload>(cacheKey);
   if (
     !forceRefresh &&
@@ -1448,7 +1459,7 @@ export async function getLk21Stream(
         isHls,
         title: dbEp.title || dbMovie?.title || cleanSlug,
         poster: dbMovie?.poster || dbMovie?.cover || '',
-        subtitles: [],
+        subtitles: (dbEp.subtitles as Lk21StreamPayload['subtitles']) || [],
         qualities: [{ quality: 'HD', url: wrapped.url }],
         servers,
         episodeNumber: dbEp.episodeNumber || resolvedEpNumber,

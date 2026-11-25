@@ -149,6 +149,14 @@ interface MemReferral {
 function createStatefulPgMock() {
   const state = {
     users: new Map<string, MemUser>(),
+    emailCredentials: new Map<
+      string,
+      { email: string; uid: string; password_hash: string; display_name: string }
+    >(),
+    gmailLogins: new Map<
+      string,
+      { account_key: string; uid: string; email: string; login_count: number }
+    >(),
     ledger: [] as MemLedger[],
     payouts: [] as MemPayout[],
     checkins: [] as MemCheckin[],
@@ -341,6 +349,121 @@ function createStatefulPgMock() {
       const u = state.users.get(uid);
       if (u) u.referred_by = refUid;
       return { rows: [], rowCount: 1 };
+    }
+
+    if (sql === 'SELECT streak_count, last_visit_date FROM users WHERE uid = $1') {
+      const u = state.users.get(String(params[0]));
+      return {
+        rows: u ? [{ streak_count: u.streak_count, last_visit_date: u.last_visit_date }] : [],
+        rowCount: u ? 1 : 0,
+      };
+    }
+
+    if (sql.startsWith('INSERT INTO users (')) {
+      const uid = String(params[0]);
+      const email = String(params[1] || '');
+      const displayName = String(params[2] || 'Kano Viewer');
+      const streakCount = Number(params[6] || 1);
+      const lastVisitDate = String(params[7] || '');
+      const isVip = Boolean(params[8]);
+      const referralCode = String(params[9] || '');
+      const existing = state.users.get(uid);
+      const nextDisplay =
+        existing && existing.display_name && existing.display_name !== 'Kano Viewer'
+          ? existing.display_name
+          : displayName;
+      const nextEmail = email || existing?.email || '';
+      const nextRefCode = existing?.referral_code || referralCode;
+      const nextUser: MemUser = {
+        uid,
+        email: nextEmail,
+        display_name: nextDisplay,
+        referral_code: nextRefCode,
+        referred_by: existing?.referred_by ?? null,
+        streak_count: streakCount,
+        last_visit_date: lastVisitDate,
+        is_vip: isVip,
+      };
+      state.users.set(uid, nextUser);
+      return {
+        rows: [
+          {
+            uid: nextUser.uid,
+            email: nextUser.email,
+            display_name: nextUser.display_name,
+            photo_url: params[3] ? String(params[3]) : null,
+            avatar_initials: String(params[4] || 'KD'),
+            avatar_color: String(params[5] || '#EF4444'),
+            streak_count: nextUser.streak_count,
+            last_visit_date: nextUser.last_visit_date,
+            is_vip: nextUser.is_vip,
+            bio: '',
+            preferred_language: 'en',
+            preferences_json: {},
+          },
+        ],
+        rowCount: 1,
+      };
+    }
+
+    if (sql === 'SELECT email FROM email_credentials WHERE email = $1 LIMIT 1') {
+      const hit = state.emailCredentials.get(String(params[0]).toLowerCase());
+      return { rows: hit ? [{ email: hit.email }] : [], rowCount: hit ? 1 : 0 };
+    }
+
+    if (sql.startsWith('INSERT INTO email_credentials')) {
+      const email = String(params[0]).toLowerCase();
+      if (state.emailCredentials.has(email)) {
+        const err = new Error('duplicate key') as Error & { code?: string };
+        err.code = '23505';
+        throw err;
+      }
+      state.emailCredentials.set(email, {
+        email,
+        uid: String(params[1]),
+        password_hash: String(params[2]),
+        display_name: String(params[3]),
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql === 'SELECT uid, password_hash, display_name FROM email_credentials WHERE email = $1 LIMIT 1') {
+      const hit = state.emailCredentials.get(String(params[0]).toLowerCase());
+      return {
+        rows: hit
+          ? [{ uid: hit.uid, password_hash: hit.password_hash, display_name: hit.display_name }]
+          : [],
+        rowCount: hit ? 1 : 0,
+      };
+    }
+
+    if (sql.startsWith('INSERT INTO gmail_login_accounts')) {
+      const accountKey = String(params[0]);
+      const uid = String(params[1]);
+      const email = String(params[2] || '');
+      const existing = state.gmailLogins.get(accountKey);
+      const isIncrement = sql.includes('login_count, 1) + 1');
+      if (!existing) {
+        state.gmailLogins.set(accountKey, {
+          account_key: accountKey,
+          uid,
+          email,
+          login_count: 1,
+        });
+      } else {
+        existing.uid = uid;
+        if (email) existing.email = email;
+        existing.login_count = isIncrement ? existing.login_count + 1 : Math.max(1, existing.login_count);
+      }
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes('FROM gmail_login_accounts')) {
+      let sum = 0;
+      for (const g of state.gmailLogins.values()) {
+        sum += Math.max(1, g.login_count);
+      }
+      return { rows: [{ cnt: String(sum) }], rowCount: 1 };
     }
 
     // 3. Account age / watch check during bindReferral
@@ -833,7 +956,7 @@ function createStatefulPgMock() {
           totalEarn += l.points;
           if (!l.reference_id.startsWith('refund:payout:')) {
             lifetimeEarnedForLevel += l.points;
-            if (inCurrentPeriod) {
+            if (inCurrentPeriod && !l.reference_id.startsWith('welcome_login:')) {
               todayEarned += l.points;
             }
           }
@@ -2666,6 +2789,93 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.equal(commPostIdor.status, 403);
   });
+
+  await t.test('13. First-login bonus awards +5,000 points once per account without consuming daily earn cap', async () => {
+    const { mockPool } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    const cfgRes = await fetch(`${baseUrl}/api/points/config`).then((r) => r.json());
+    assert.equal(cfgRes.config.firstLoginBonusPoints, 5000);
+    assert.equal(cfgRes.config.dailyCheckinPoints, 500);
+
+    // 1. First registration via email grants +5,000 first-login bonus
+    const regRes = await fetch(`${baseUrl}/api/auth/email/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'newbie@example.com',
+        password: 'password123',
+        displayName: 'Newbie Viewer',
+      }),
+    });
+    assert.equal(regRes.status, 201);
+    const regBody = await regRes.json();
+    assert.equal(regBody.ok, true);
+    assert.equal(regBody.firstLoginBonusAwarded, 5000);
+    const newbieToken = regBody.sessionToken as string;
+    assert.ok(newbieToken);
+
+    // 2. Subsequent login for the same account must NOT re-award first-login bonus
+    const loginRes = await fetch(`${baseUrl}/api/auth/email/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'newbie@example.com',
+        password: 'password123',
+      }),
+    });
+    assert.equal(loginRes.status, 200);
+    const loginBody = await loginRes.json();
+    assert.equal(loginBody.ok, true);
+    assert.equal(loginBody.firstLoginBonusAwarded, 0);
+
+    // 3. Points summary reflects 5,000 balance and 0 todayEarned before daily actions
+    const meBefore = await fetch(`${baseUrl}/api/points/me`, {
+      headers: { Authorization: `Bearer ${newbieToken}` },
+    }).then((r) => r.json());
+    assert.equal(meBefore.ok, true);
+    assert.equal(meBefore.summary.balance, 5000);
+    assert.equal(meBefore.summary.totalEarned, 5000);
+    assert.equal(meBefore.summary.todayEarned, 0);
+
+    // 4. Daily check-in still awards +500 points cleanly -> total balance 5,500
+    const checkinRes = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${newbieToken}`,
+      },
+      body: JSON.stringify({ action: 'daily_checkin' }),
+    }).then((r) => r.json());
+    assert.equal(checkinRes.ok, true);
+    assert.equal(checkinRes.awardedPoints, 500);
+    assert.equal(checkinRes.summary.balance, 5500);
+    assert.equal(checkinRes.summary.todayEarned, 500);
+
+    // 5. /api/users/sync with isLoginEvent=true grants +5,000 once for first-time OAuth sync and 0 on repeat
+    const syncFirst = await fetch(`${baseUrl}/api/users/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bobToken}`,
+      },
+      body: JSON.stringify({ isLoginEvent: true, displayName: 'Bob Viewer' }),
+    }).then((r) => r.json());
+    assert.equal(syncFirst.ok, true);
+    assert.equal(syncFirst.firstLoginBonusAwarded, 5000);
+
+    const syncSecond = await fetch(`${baseUrl}/api/users/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bobToken}`,
+      },
+      body: JSON.stringify({ isLoginEvent: true, displayName: 'Bob Viewer' }),
+    }).then((r) => r.json());
+    assert.equal(syncSecond.ok, true);
+    assert.equal(syncSecond.firstLoginBonusAwarded, 0);
+  });
 });
+
 
 

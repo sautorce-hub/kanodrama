@@ -265,6 +265,7 @@ interface PayoutConfig {
   maxDailyEarnPoints: number;
   maxDailyWatchPoints?: number;
   claimCooldownSeconds: number;
+  firstLoginBonusPoints?: number;
   dailyCheckinPoints: number;
   watchEpisodePoints: number;
   watchMinutePoints: number;
@@ -418,6 +419,7 @@ const DEFAULT_CONFIG: PayoutConfig = {
   maxDailyEarnPoints: 25000,
   maxDailyWatchPoints: 10000,
   claimCooldownSeconds: 45,
+  firstLoginBonusPoints: 5000,
   dailyCheckinPoints: 500,
   watchEpisodePoints: 200,
   watchMinutePoints: 20,
@@ -1744,6 +1746,7 @@ export const RewardsPayoutSection: React.FC = () => {
     };
   }, [summary?.levelInfo, levelTiers, config]);
 
+  const effectiveFirstLoginBonusPoints = Math.max(0, config.firstLoginBonusPoints ?? 5000);
   const effectiveWatchMinutePoints = activeLevelInfo.watchMinutePoints || config.watchMinutePoints || 20;
   const effectiveDailyCheckinPoints = activeLevelInfo.dailyCheckinPoints || config.dailyCheckinPoints || 500;
   const effectiveWatchEpisodePoints = activeLevelInfo.watchEpisodePoints || config.watchEpisodePoints || 200;
@@ -1926,7 +1929,12 @@ export const RewardsPayoutSection: React.FC = () => {
             </div>
 
             {!user && (
-              <div className="pt-0.5">
+              <div className="pt-0.5 space-y-2">
+                <p className="text-xs font-bold text-[#FDE68A] tabular-nums">
+                  {isId
+                    ? `Bonus login pertama: +${effectiveFirstLoginBonusPoints.toLocaleString()} poin (otomatis 1x per akun)`
+                    : `First login bonus: +${effectiveFirstLoginBonusPoints.toLocaleString()} pts (auto 1x per account)`}
+                </p>
                 <button
                   type="button"
                   onClick={() => openAuthModal()}
@@ -3511,6 +3519,7 @@ export const RewardsPayoutSection: React.FC = () => {
         minPayoutUsd={config.minPayoutUsd}
         minPayoutPointsIdr={config.minPayoutPointsIdr}
         minPayoutPointsUsd={config.minPayoutPointsUsd}
+        firstLoginBonusPoints={effectiveFirstLoginBonusPoints}
         dailyCheckinPoints={effectiveDailyCheckinPoints}
         watchEpisodePoints={effectiveWatchEpisodePoints}
         watchMinutePoints={effectiveWatchMinutePoints}

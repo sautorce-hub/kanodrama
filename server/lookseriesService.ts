@@ -782,17 +782,47 @@ export async function getLookSeriesEpisodes(
       ? (raw.list as Record<string, unknown>[])
       : [];
 
+    const rawNumericOrders = rawList
+      .map((ep) => {
+        const raw = ep.chapterIndex ?? ep.episodeNo ?? ep.episode ?? ep.order;
+        if (raw === null || raw === undefined || raw === '') return -1;
+        const n = Number(raw);
+        return Number.isFinite(n) && n >= 0 ? Math.floor(n) : -1;
+      })
+      .filter((n) => n >= 0);
+    const hasZeroBasedIndex =
+      rawNumericOrders.length > 0 && Math.min(...rawNumericOrders) === 0;
+    const seenOrders = new Set<number>();
+
     const episodes: LookSeriesEpisodePayloadItem[] = rawList
       .map((ep, idx) => {
-        const order =
-          Number(ep.chapterIndex ?? ep.episodeNo ?? ep.episode ?? ep.order) ||
-          idx + 1;
+        const rawOrderField =
+          ep.chapterIndex ?? ep.episodeNo ?? ep.episode ?? ep.order;
+        const parsedOrder =
+          rawOrderField !== null &&
+          rawOrderField !== undefined &&
+          rawOrderField !== ''
+            ? Number(rawOrderField)
+            : NaN;
+        let order =
+          Number.isFinite(parsedOrder) && parsedOrder >= 0
+            ? hasZeroBasedIndex
+              ? Math.floor(parsedOrder) + 1
+              : Math.max(1, Math.floor(parsedOrder))
+            : idx + 1;
+        while (seenOrders.has(order)) {
+          order += 1;
+        }
+        seenOrders.add(order);
+
         const rawIdx0 = ep.chapterIndex0;
         const chapterIndex0 =
           typeof rawIdx0 === 'number' && Number.isFinite(rawIdx0) && rawIdx0 >= 0
             ? Math.floor(rawIdx0)
             : typeof rawIdx0 === 'string' && /^\d+$/.test(rawIdx0.trim())
             ? Number(rawIdx0.trim())
+            : hasZeroBasedIndex && Number.isFinite(parsedOrder) && parsedOrder >= 0
+            ? Math.floor(parsedOrder)
             : Math.max(0, order - 1);
         const chapterId = cleanStr(
           ep.chapterId ?? ep.id ?? ep.vid,
@@ -1498,6 +1528,20 @@ export async function getLookSeriesStream(
         : Array.isArray(epsRaw.list)
         ? (epsRaw.list as Record<string, unknown>[])
         : [];
+      const rawEpsNumericOrders = epsList
+        .map((epItem) => {
+          const raw =
+            epItem.chapterIndex ??
+            epItem.episodeNo ??
+            epItem.episode ??
+            epItem.order;
+          if (raw === null || raw === undefined || raw === '') return -1;
+          const n = Number(raw);
+          return Number.isFinite(n) && n >= 0 ? Math.floor(n) : -1;
+        })
+        .filter((n) => n >= 0);
+      const epsAreZeroBased =
+        rawEpsNumericOrders.length > 0 && Math.min(...rawEpsNumericOrders) === 0;
       const matchedEp =
         (resolvedChapterId
           ? epsList.find(
@@ -1506,11 +1550,33 @@ export async function getLookSeriesStream(
                 resolvedChapterId
             )
           : undefined) ||
-        epsList.find(
-          (epItem, idx) =>
-            (Number(epItem.chapterIndex ?? epItem.episodeNo ?? epItem.episode ?? epItem.order) ||
-              idx + 1) === displayEpisode
-        ) ||
+        epsList.find((epItem, idx) => {
+          const rawOrderField =
+            epItem.chapterIndex ??
+            epItem.episodeNo ??
+            epItem.episode ??
+            epItem.order;
+          const parsedOrder =
+            rawOrderField !== null &&
+            rawOrderField !== undefined &&
+            rawOrderField !== ''
+              ? Number(rawOrderField)
+              : NaN;
+          if (
+            resolvedIndex0 !== undefined &&
+            Number.isFinite(parsedOrder) &&
+            Math.floor(parsedOrder) === resolvedIndex0
+          ) {
+            return true;
+          }
+          const normalizedOrder =
+            Number.isFinite(parsedOrder) && parsedOrder >= 0
+              ? epsAreZeroBased
+                ? Math.floor(parsedOrder) + 1
+                : Math.max(1, Math.floor(parsedOrder))
+              : idx + 1;
+          return normalizedOrder === displayEpisode;
+        }) ||
         (displayEpisode <= 1 ? epsList[0] : undefined);
       if (matchedEp) {
         candidates.push(...extractStreamCandidatesFromNode(matchedEp, 'LookSeries HD'));

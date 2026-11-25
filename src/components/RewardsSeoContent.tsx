@@ -10,6 +10,7 @@ interface RewardsSeoContentProps {
   minPayoutUsd?: number;
   minPayoutPointsIdr?: number;
   minPayoutPointsUsd?: number;
+  firstLoginBonusPoints?: number;
   dailyCheckinPoints?: number;
   watchEpisodePoints?: number;
   watchMinutePoints?: number;
@@ -66,6 +67,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
   minPayoutUsd = 5,
   minPayoutPointsIdr = 274726,
   minPayoutPointsUsd = 500000,
+  firstLoginBonusPoints = 5000,
   dailyCheckinPoints = 500,
   watchEpisodePoints = 200,
   watchMinutePoints = 20,
@@ -101,7 +103,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
     ? [
         {
           q: 'Bagaimana cara mendapatkan poin dari nonton drama di KanoDrama?',
-          a: `Login ke akun KanoDrama Anda lalu tonton drama Asia, short drama China, atau film secara aktif pada kecepatan 1x dengan tab browser tetap terlihat. Server memverifikasi durasi menonton setiap 15 detik dan memberikan +${watchMinutePoints} poin/menit otomatis (maksimal 60 menit/hari), bonus episode baru +${watchEpisodePoints} poin sekali per episode, check-in harian +${dailyCheckinPoints} poin, serta bonus milestone 15m/30m/60m yang dapat diklaim setelah target tercapai hingga batas ${maxDailyEarnPoints.toLocaleString()} poin/hari.`,
+          a: `Login ke akun KanoDrama untuk langsung memperoleh bonus login pertama +${firstLoginBonusPoints.toLocaleString()} poin (1x per akun), lalu tonton drama Asia, short drama China, atau film secara aktif pada kecepatan 1x dengan tab browser tetap terlihat. Server memverifikasi durasi menonton setiap 15 detik dan memberikan +${watchMinutePoints} poin/menit otomatis (maksimal 60 menit/hari), bonus episode baru +${watchEpisodePoints} poin sekali per episode, check-in harian +${dailyCheckinPoints} poin, serta bonus milestone 15m/30m/60m yang dapat diklaim setelah target tercapai hingga batas ${maxDailyEarnPoints.toLocaleString()} poin/hari.`,
         },
         {
           q: 'Berapa nilai tukar poin KanoDrama ke saldo DANA, bank lokal, atau USD?',
@@ -119,7 +121,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
     : [
         {
           q: 'How do I earn watch points on KanoDrama?',
-          a: `Sign in and stream dramas or movies actively at 1x speed with the browser tab visible. Our backend watch session verifies active playback and awards +${watchMinutePoints} pts/min automatically (up to 60 min/day), +${watchEpisodePoints} pts per new episode, +${dailyCheckinPoints} pts daily check-in, and claimable 15m/30m/60m mission milestones up to ${maxDailyEarnPoints.toLocaleString()} pts/day.`,
+          a: `Sign in to receive a +${firstLoginBonusPoints.toLocaleString()} pts first-login bonus (once per account) and stream dramas or movies actively at 1x speed with the browser tab visible. Our backend watch session verifies active playback and awards +${watchMinutePoints} pts/min automatically (up to 60 min/day), +${watchEpisodePoints} pts per new episode, +${dailyCheckinPoints} pts daily check-in, and claimable 15m/30m/60m mission milestones up to ${maxDailyEarnPoints.toLocaleString()} pts/day.`,
         },
         {
           q: 'What is the points conversion rate and minimum withdrawal?',
@@ -201,6 +203,19 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10 text-[#E4E4E7]">
+              <tr>
+                <td className="py-2.5 pr-4 font-medium">
+                  {isId ? 'Bonus Login Pertama' : 'First Login Bonus'}
+                </td>
+                <td className="py-2.5 pr-4 font-bold text-[#FDE68A] tabular-nums">
+                  +{firstLoginBonusPoints.toLocaleString()} {isId ? 'poin' : 'pts'}
+                </td>
+                <td className="py-2.5 text-[#A1A1AA]">
+                  {isId
+                    ? 'Otomatis 1x per akun saat pertama kali masuk'
+                    : 'Automatically credited once per account on first login'}
+                </td>
+              </tr>
               <tr>
                 <td className="py-2.5 pr-4 font-medium">
                   {isId ? 'Nonton Drama / Film Aktif' : 'Active Drama / Movie Watch'}

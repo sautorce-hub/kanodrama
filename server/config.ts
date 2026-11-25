@@ -15,6 +15,7 @@ export const REWARDS_DEFAULTS = {
   maxDailyEarnPoints: 25_000,
   maxDailyWatchPoints: 10_000, // Batas poin nonton harian (per-menit + milestone, cukup hingga Platinum 1.6x = 9.120 poin)
   claimCooldownSeconds: 45,
+  firstLoginBonusPoints: 5_000,
   dailyCheckinPoints: 500,
   watchEpisodePoints: 200,
   watchMinutePoints: 20, // WATCH_POINTS_PER_MINUTE default +20 poin / menit nonton aktif
@@ -269,6 +270,7 @@ export interface RewardsRuntimeValues {
   maxDailyEarnPoints: number;
   maxDailyWatchPoints: number;
   claimCooldownSeconds: number;
+  firstLoginBonusPoints: number;
   dailyCheckinPoints: number;
   watchEpisodePoints: number;
   watchMinutePoints: number;
@@ -290,6 +292,7 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     maxDailyEarnPoints,
     maxDailyWatchPoints,
     claimCooldownSeconds,
+    firstLoginBonusPoints,
     dailyCheckinPoints,
     watchEpisodePoints,
     watchMinutePoints,
@@ -317,6 +320,7 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     maxDailyEarnPoints,
     maxDailyWatchPoints,
     claimCooldownSeconds,
+    firstLoginBonusPoints,
     dailyCheckinPoints,
     watchEpisodePoints,
     watchMinutePoints,

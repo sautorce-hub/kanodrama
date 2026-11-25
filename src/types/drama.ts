@@ -406,7 +406,7 @@ export interface DramaProviderAdapter {
   fetchStream: (
     bookId: string,
     episode: number,
-    extra?: { eid?: string; chapterId?: string }
+    extra?: { eid?: string; chapterId?: string; chapterIndex0?: number }
   ) => Promise<StreamSource>;
 }
 

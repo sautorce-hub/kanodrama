@@ -3880,6 +3880,7 @@ export interface PayoutRuntimeConfig {
   maxDailyEarnPoints: number;
   maxDailyWatchPoints: number;
   claimCooldownSeconds: number;
+  firstLoginBonusPoints: number;
   dailyCheckinPoints: number;
   watchEpisodePoints: number;
   watchMinutePoints: number;
@@ -4459,6 +4460,7 @@ async function queryUserPointsSummaryOnClient(
          CASE
            WHEN type = 'earn'
             AND reference_id NOT LIKE 'refund:payout:%'
+            AND reference_id NOT LIKE 'welcome_login:%'
             AND created_at >= $4
             AND created_at < $5
            THEN points
@@ -4936,6 +4938,7 @@ export async function claimDailyCheckinInDb(input: {
            CASE
              WHEN type = 'earn'
               AND reference_id NOT LIKE 'refund:payout:%'
+              AND reference_id NOT LIKE 'welcome_login:%'
               AND created_at >= $2
               AND created_at < $3
              THEN points
@@ -5202,6 +5205,7 @@ export async function claimWatchEpisodeInDb(input: {
            CASE
              WHEN type = 'earn'
               AND reference_id NOT LIKE 'refund:payout:%'
+              AND reference_id NOT LIKE 'welcome_login:%'
               AND created_at >= $2
               AND created_at < $3
              THEN points
@@ -5513,6 +5517,101 @@ export async function claimWatchMilestoneInDb(input: {
       err instanceof Error ? err.message : String(err)
     );
     throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
+}
+
+export async function grantFirstLoginBonusIfEligibleInDb(input: {
+  userId: string;
+  displayName?: string;
+}): Promise<{
+  granted: boolean;
+  points: number;
+  dbConnected: boolean;
+  entry?: PointsLedgerRecord;
+}> {
+  const cleanUserId = String(input.userId || '').trim();
+  if (!cleanUserId) {
+    return { granted: false, points: 0, dbConnected: false };
+  }
+
+  const activePool = getPool();
+  if (!activePool || !(await ensureDatabaseReady()) || !dbAvailable) {
+    return { granted: false, points: 0, dbConnected: false };
+  }
+
+  const cfg = getPayoutRuntimeConfig();
+  const bonusPoints = Math.max(0, Math.floor(cfg.firstLoginBonusPoints || 0));
+  if (bonusPoints <= 0) {
+    return { granted: false, points: 0, dbConnected: true };
+  }
+
+  const referenceId = `welcome_login:${cleanUserId}`;
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    await client.query('BEGIN');
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `points:${cleanUserId}`,
+    ]);
+
+    const existing = await client.query<{ id: string }>(
+      `SELECT id FROM points_ledger WHERE reference_id = $1 LIMIT 1`,
+      [referenceId]
+    );
+    if (existing.rows.length > 0) {
+      await client.query('COMMIT');
+      return { granted: false, points: 0, dbConnected: true };
+    }
+
+    const balRes = await client.query<{ balance: string }>(
+      `SELECT (COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0) - COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0))::text AS balance FROM points_ledger WHERE user_id = $1`,
+      [cleanUserId]
+    );
+    const currentBalance = Math.max(0, Number(balRes.rows[0]?.balance) || 0);
+    const balanceAfter = currentBalance + bonusPoints;
+    const ledgerId = crypto.randomUUID();
+    const description = `Bonus Login Pertama (+${bonusPoints.toLocaleString('id-ID')} Poin)`;
+
+    const inserted = await client.query<{
+      id: string;
+      user_id: string;
+      type: string;
+      points: number;
+      description: string;
+      reference_id: string;
+      balance_after: number | null;
+      created_at: Date;
+    }>(
+      `INSERT INTO points_ledger (id, user_id, type, points, description, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, $5, $6, NOW())
+       ON CONFLICT (reference_id) DO NOTHING
+       RETURNING id, user_id, type, points, description, reference_id, balance_after, created_at`,
+      [ledgerId, cleanUserId, bonusPoints, description, referenceId, balanceAfter]
+    );
+
+    await client.query('COMMIT');
+    if (inserted.rows.length === 0) {
+      return { granted: false, points: 0, dbConnected: true };
+    }
+    return {
+      granted: true,
+      points: bonusPoints,
+      dbConnected: true,
+      entry: mapLedgerRow(inserted.rows[0]),
+    };
+  } catch (err) {
+    try {
+      await client?.query('ROLLBACK');
+    } catch {
+      // Ignore rollback failure
+    }
+    console.warn(
+      '[PostgreSQL] grantFirstLoginBonusIfEligibleInDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    return { granted: false, points: 0, dbConnected: false };
   } finally {
     client?.release();
   }
@@ -6563,6 +6662,7 @@ async function getQuickPointsStatePg(
          CASE
            WHEN type = 'earn'
             AND reference_id NOT LIKE 'refund:payout:%'
+            AND reference_id NOT LIKE 'welcome_login:%'
             AND created_at >= $2
             AND created_at < $3
            THEN points

@@ -687,6 +687,246 @@ function getEndpointsForProvider(rawProvider: string): ProviderFeedTarget {
           { path: '/new_release', role: 'new', extraQuery: { page_size: 12 } },
         ],
       };
+    case 'DramaOra':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/category_dramas', role: 'rank', extraQuery: { category_id: 57819, page_size: 20 } },
+          { path: '/foryou', role: 'foryou', extraQuery: { page_size: 20 } },
+        ],
+      };
+    case 'MeloShort':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/ranking', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/recommend', role: 'new', extraQuery: { reset: 1 } },
+        ],
+      };
+    case 'PetaDrama':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/category_dramas', role: 'rank', extraQuery: { category_id: 57819, page_size: 20 } },
+          { path: '/alldrama', role: 'foryou', extraQuery: { pageSize: 30 } },
+        ],
+      };
+    case 'RadReels':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/trending', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/baru', role: 'new' },
+        ],
+      };
+    case 'DramaVerse':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/hot', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/new', role: 'new' },
+        ],
+      };
+    case 'StardustTV':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/hot', role: 'rank', extraQuery: { page_size: 15 } },
+          { path: '/foryou', role: 'foryou', extraQuery: { page_size: 15 } },
+          { path: '/terbaru', role: 'new', extraQuery: { page_size: 15 } },
+        ],
+      };
+    case 'StarShort':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/trending', role: 'rank', extraQuery: { pageSize: 20 } },
+          { path: '/foryou', role: 'foryou', extraQuery: { pageSize: 20 } },
+          { path: '/baru', role: 'new', extraQuery: { pageSize: 20 } },
+        ],
+      };
+    case 'LoveShots':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/trending', role: 'rank', extraQuery: { page_size: 20 } },
+          { path: '/foryou', role: 'foryou', extraQuery: { page_size: 20 } },
+          { path: '/new', role: 'new', extraQuery: { page_size: 20 } },
+        ],
+      };
+    case 'ShotShort':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/alldrama', role: 'rank', extraQuery: { limit: 20, sort_type: 1 } },
+          { path: '/terbaru', role: 'foryou', extraQuery: { limit: 20 } },
+        ],
+      };
+    case 'MoboReels':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/original', role: 'rank', extraQuery: { page_size: 20 } },
+          { path: '/foryou', role: 'foryou', extraQuery: { page_size: 20 } },
+          { path: '/baru', role: 'new', extraQuery: { page_size: 20 } },
+        ],
+      };
+    case 'BlinkDrama':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/alldrama', role: 'rank', extraQuery: { page_size: 20, class_id: 0 } },
+          { path: '/foryou', role: 'foryou', extraQuery: { page_size: 20 } },
+          { path: '/new', role: 'new', extraQuery: { page_size: 20 } },
+        ],
+      };
+    case 'CubeTV':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/hot', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/newrelease', role: 'new' },
+        ],
+      };
+    case 'FlareFlow':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/alldrama', role: 'rank', extraQuery: { page_size: 20 } },
+          { path: '/foryou', role: 'foryou', extraQuery: { page_size: 20 } },
+        ],
+      };
+    case 'FreeShort':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/ranking', role: 'rank', extraQuery: { limit: 20 } },
+          { path: '/foryou', role: 'foryou', extraQuery: { limit: 20 } },
+          { path: '/new', role: 'new', extraQuery: { limit: 20 } },
+        ],
+      };
+    case 'ToonShort':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/popular', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+        ],
+      };
+    case 'HappyShort':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/ranking', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/terbaru', role: 'new' },
+        ],
+      };
+    case 'DramaDash':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/trending', role: 'rank', extraQuery: { pageSize: 10 } },
+          { path: '/foryou', role: 'foryou', extraQuery: { pageSize: 10 } },
+        ],
+      };
+    case 'StoryReelV2':
+    case 'VibeShortV2':
+    case 'ShortMaxV2':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/all', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/terbaru', role: 'new' },
+        ],
+      };
+    case 'FlickReels':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/alldrama', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+        ],
+      };
+    case 'DramaWave':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/exclusive', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+        ],
+      };
+    case 'FreeReels':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/popular', role: 'rank' },
+          { path: '/foryou', role: 'foryou' },
+          { path: '/terbaru', role: 'new' },
+        ],
+      };
+    case 'Vigloo':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/ranking', role: 'rank', extraQuery: { per_page: 20 } },
+          { path: '/foryou', role: 'foryou' },
+        ],
+      };
+    case 'GoodShort':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/tren', role: 'rank', extraQuery: { page_size: 20 } },
+          { path: '/foryou', role: 'foryou' },
+        ],
+      };
+    case 'JoyReels':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/hot', role: 'rank' },
+          { path: '/new', role: 'new' },
+        ],
+      };
+    case 'iQIYI':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/recomendasi', role: 'rank', extraQuery: { per_page: 20 } },
+          { path: '/drama', role: 'foryou', extraQuery: { per_page: 20 } },
+        ],
+      };
     case 'Bstation':
       return {
         provider,
@@ -719,62 +959,6 @@ function getEndpointsForProvider(rawProvider: string): ProviderFeedTarget {
           { path: '/popular', role: 'rank' },
         ],
       };
-    case 'CubeTV':
-      return {
-        provider,
-        apiSegment,
-        endpoints: [
-          { path: '/hot', role: 'rank' },
-          { path: '/foryou', role: 'foryou' },
-          { path: '/newrelease', role: 'new' },
-        ],
-      };
-    case 'DramaWave':
-      return {
-        provider,
-        apiSegment,
-        endpoints: [
-          { path: '/exclusive', role: 'rank' },
-          { path: '/foryou', role: 'foryou' },
-        ],
-      };
-    case 'FreeReels':
-      return {
-        provider,
-        apiSegment,
-        endpoints: [
-          { path: '/popular', role: 'rank' },
-          { path: '/foryou', role: 'foryou' },
-          { path: '/terbaru', role: 'new' },
-        ],
-      };
-    case 'GoodShort':
-      return {
-        provider,
-        apiSegment,
-        endpoints: [
-          { path: '/tren', role: 'rank', extraQuery: { page_size: 20 } },
-          { path: '/foryou', role: 'foryou' },
-        ],
-      };
-    case 'JoyReels':
-      return {
-        provider,
-        apiSegment,
-        endpoints: [
-          { path: '/hot', role: 'rank' },
-          { path: '/new', role: 'new' },
-        ],
-      };
-    case 'iQIYI':
-      return {
-        provider,
-        apiSegment,
-        endpoints: [
-          { path: '/recomendasi', role: 'rank', extraQuery: { per_page: 20 } },
-          { path: '/drama', role: 'foryou', extraQuery: { per_page: 20 } },
-        ],
-      };
     default:
       return {
         provider,
@@ -782,6 +966,8 @@ function getEndpointsForProvider(rawProvider: string): ProviderFeedTarget {
         endpoints: [
           { path: '/foryou', role: 'foryou' },
           { path: '/ranking', role: 'rank' },
+          { path: '/terbaru', role: 'new' },
+          { path: '/popular', role: 'rank' },
         ],
       };
   }
@@ -797,7 +983,22 @@ async function fetchUpstreamFeed(
   extraQuery?: Record<string, string | number>
 ): Promise<CachedDramaItem[]> {
   const candidates = Array.from(
-    new Set([endpointPath, '/foryou', '/hot', '/popular', '/latest', '/anime', '/donghua'])
+    new Set([
+      endpointPath,
+      '/foryou',
+      '/hot',
+      '/popular',
+      '/trending',
+      '/ranking',
+      '/rank',
+      '/terbaru',
+      '/new',
+      '/latest',
+      '/alldrama',
+      '/all',
+      '/anime',
+      '/donghua',
+    ])
   );
 
   for (const pathCandidate of candidates) {
@@ -805,7 +1006,7 @@ async function fetchUpstreamFeed(
     url.searchParams.set('page', '1');
     const langParam = mapLangForProvider(provider, lang);
     if (langParam) url.searchParams.set('lang', langParam);
-    if (extraQuery) {
+    if (extraQuery && pathCandidate === endpointPath) {
       for (const [k, v] of Object.entries(extraQuery)) {
         url.searchParams.set(k, String(v));
       }
@@ -819,8 +1020,10 @@ async function fetchUpstreamFeed(
         signal: AbortSignal.timeout(7500),
       });
       if (!res.ok) {
-        if (res.status === 404 || res.status === 400) continue;
-        return [];
+        if (res.status === 401 || res.status === 403 || res.status === 503) {
+          return [];
+        }
+        continue;
       }
       const rawText = await res.text();
       let json: unknown;
@@ -840,13 +1043,11 @@ async function fetchUpstreamFeed(
           out.push(item);
         }
       });
-      if (out.length > 0 || pathCandidate !== endpointPath) {
-        if (out.length > 0) return out;
-      } else {
+      if (out.length > 0) {
         return out;
       }
     } catch {
-      return [];
+      continue;
     }
   }
   return [];
@@ -1312,6 +1513,19 @@ const CACHEABLE_MOLA_LIST_SUFFIXES = [
   '/anime',
   '/dubbing',
   '/all',
+  '/alldrama',
+  '/category_dramas',
+  '/baru',
+  '/animasi',
+  '/asia',
+  '/original',
+  '/latest',
+  '/ongoing',
+  '/donghua',
+  '/film',
+  '/kdrama',
+  '/overdo',
+  '/update',
   '/new_release',
   '/asian',
   '/rank',
@@ -1480,7 +1694,7 @@ const MOLA_SEGMENT_TO_PROVIDER: Record<string, string> = {
 };
 
 export function resolveProviderFromMolaSegment(segment: string): string {
-  return MOLA_SEGMENT_TO_PROVIDER[segment.toLowerCase()] || 'DramaBoxV2';
+  return MOLA_SEGMENT_TO_PROVIDER[segment.toLowerCase()] || '';
 }
 
 export function indexMolaPayloadToCatalog(
@@ -1495,6 +1709,7 @@ export function indexMolaPayloadToCatalog(
     const seg = (segMatch?.[1] || '').toLowerCase();
     if (!seg || seg === 'lk21') return;
     const provider = resolveProviderFromMolaSegment(seg);
+    if (!provider) return;
     const parsed = JSON.parse(payloadJson) as unknown;
     let books = extractBookArray(parsed);
     if (
@@ -1672,20 +1887,39 @@ export async function seedCatalogFromExistingCacheIfEmpty(): Promise<number> {
 }
 
 export async function findDramaBySlugInHomeCache(
-  slug: string
+  slug: string,
+  providerHint?: string
 ): Promise<CachedDramaItem | null> {
   const target = slugifyTitle(slug);
   if (!target) return null;
+  const normHint = providerHint ? normalizeMediaProviderName(providerHint) : '';
 
   const recentHit = recentIndexedBySlug.get(target);
-  if (recentHit) return recentHit;
+  if (
+    recentHit &&
+    (!normHint || normalizeMediaProviderName(recentHit.provider) === normHint)
+  ) {
+    return recentHit;
+  }
+
+  let fallbackMatch: CachedDramaItem | null =
+    recentHit && (!normHint || normalizeMediaProviderName(recentHit.provider) !== normHint)
+      ? recentHit
+      : null;
 
   const inspectList = (list?: CachedDramaItem[]): CachedDramaItem | null => {
     if (!Array.isArray(list)) return null;
     for (const item of list) {
       if (!item?.title) continue;
       if (slugifyTitle(item.slug || item.title) === target) {
-        return { ...item, slug: slugifyTitle(item.slug || item.title) };
+        const normalized: CachedDramaItem = {
+          ...item,
+          slug: slugifyTitle(item.slug || item.title),
+        };
+        if (!normHint || normalizeMediaProviderName(item.provider) === normHint) {
+          return normalized;
+        }
+        if (!fallbackMatch) fallbackMatch = normalized;
       }
     }
     return null;
@@ -1722,7 +1956,7 @@ export async function findDramaBySlugInHomeCache(
     // Ignore
   }
 
-  return null;
+  return fallbackMatch;
 }
 
 /**
@@ -1731,10 +1965,13 @@ export async function findDramaBySlugInHomeCache(
  * present in drama_catalog or the homepage cache.
  */
 export async function findDramaBySlugInApiCache(
-  slug: string
+  slug: string,
+  providerHint?: string
 ): Promise<CachedDramaItem | null> {
   const target = slugifyTitle(slug);
   if (!target) return null;
+  const normHint = providerHint ? normalizeMediaProviderName(providerHint) : '';
+  let fallbackMatch: CachedDramaItem | null = null;
 
   const inspectPayload = (
     cacheKey: string,
@@ -1744,6 +1981,7 @@ export async function findDramaBySlugInApiCache(
     if (!segment || segment === 'lk21') return null;
 
     const provider = resolveProviderFromMolaSegment(segment);
+    if (!provider) return null;
     try {
       const books = extractBookArray(JSON.parse(payloadJson));
       for (let index = 0; index < books.length; index += 1) {
@@ -1754,7 +1992,10 @@ export async function findDramaBySlugInApiCache(
           slugifyTitle(item.slug || '') === target ||
           slugifyTitle(item.title) === target
         ) {
-          return item;
+          if (!normHint || normalizeMediaProviderName(provider) === normHint) {
+            return item;
+          }
+          if (!fallbackMatch) fallbackMatch = item;
         }
       }
     } catch {
@@ -1787,7 +2028,7 @@ export async function findDramaBySlugInApiCache(
     if (found) return found;
   }
 
-  return null;
+  return fallbackMatch;
 }
 
 export async function searchUpstreamDramaBySlug(
@@ -1798,8 +2039,14 @@ export async function searchUpstreamDramaBySlug(
   const target = slugifyTitle(slug);
   if (!token || !target) return null;
 
+  const normHint = providerHint ? normalizeMediaProviderName(providerHint) : '';
   const recentHit = recentIndexedBySlug.get(target);
-  if (recentHit) return recentHit;
+  if (
+    recentHit &&
+    (!normHint || normalizeMediaProviderName(recentHit.provider) === normHint)
+  ) {
+    return recentHit;
+  }
 
   const keyword = target
     .split('-')
@@ -1827,57 +2074,73 @@ export async function searchUpstreamDramaBySlug(
   const searchSpecs: Array<{
     provider: string;
     segment: string;
-    buildUrl: (kw: string) => string;
+    buildUrls: (kw: string) => string[];
   }> = candidateProviders.map((prov) => {
     const segment = resolveProviderApiSegment(prov);
-    if (prov === 'DramaOra' || prov === 'iQIYI') {
+    const langVal = mapLangForProvider(prov, 'en');
+    const langQs = langVal ? `&lang=${encodeURIComponent(langVal)}` : '';
+    if (prov === 'PetaDrama') {
       return {
         provider: prov,
         segment,
-        buildUrl: (kw) =>
-          `${MOLATV_API_BASE}/${segment}/search?keyword=${encodeURIComponent(kw)}&lang=${encodeURIComponent(mapLangForProvider(prov, 'en') || 'en')}&token=${token}`,
+        buildUrls: (kw) => [
+          `${MOLATV_API_BASE}/${segment}/search?q=${encodeURIComponent(kw)}${langQs}&token=${token}`,
+        ],
       };
     }
-    if (prov === 'FreeReels' || prov === 'DramaWave' || prov === 'ReelShortV2' || prov === 'GoodShort') {
+    if (prov === 'StarShort' || prov === 'ShotShort' || prov === 'DramaDash') {
       return {
         provider: prov,
         segment,
-        buildUrl: (kw) =>
-          `${MOLATV_API_BASE}/${segment}/search?keyword=${encodeURIComponent(kw)}&lang=${encodeURIComponent(mapLangForProvider(prov, 'en') || 'en-US')}&token=${token}`,
+        buildUrls: (kw) => [
+          `${MOLATV_API_BASE}/${segment}/search?query=${encodeURIComponent(kw)}${langQs}&token=${token}`,
+          `${MOLATV_API_BASE}/${segment}/search?keyword=${encodeURIComponent(kw)}${langQs}&token=${token}`,
+        ],
       };
     }
     if (prov === 'MeloLoV2') {
       return {
         provider: prov,
         segment,
-        buildUrl: (kw) =>
+        buildUrls: (kw) => [
           `${MOLATV_API_BASE}/melolov2/search?keyword=${encodeURIComponent(kw)}&lang=en&token=${token}`,
+        ],
       };
     }
     return {
       provider: prov,
       segment,
-      buildUrl: (kw) =>
-        `${MOLATV_API_BASE}/${segment}/search?keyword=${encodeURIComponent(kw)}&lang=${encodeURIComponent(mapLangForProvider(prov, 'en') || 'en')}&token=${token}`,
+      buildUrls: (kw) => [
+        `${MOLATV_API_BASE}/${segment}/search?keyword=${encodeURIComponent(kw)}${langQs}&token=${token}`,
+        `${MOLATV_API_BASE}/${segment}/search?q=${encodeURIComponent(kw)}${langQs}&token=${token}`,
+      ],
     };
   });
 
   const settled = await Promise.allSettled(
     searchSpecs.map(async (spec) => {
-      const res = await fetch(spec.buildUrl(keyword), {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(4000),
-      });
-      if (!res.ok) return [] as CachedDramaItem[];
-      const json = (await res.json()) as unknown;
-      const books = extractBookArray(json);
-      const out: CachedDramaItem[] = [];
-      books.forEach((raw, idx) => {
-        const norm = normalizeDrama(raw, spec.provider, idx);
-        if (norm) out.push(norm);
-      });
-      return out;
+      for (const searchUrl of spec.buildUrls(keyword)) {
+        try {
+          const res = await fetch(searchUrl, {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(4000),
+          });
+          if (!res.ok) continue;
+          const json = (await res.json()) as unknown;
+          const books = extractBookArray(json);
+          if (books.length === 0) continue;
+          const out: CachedDramaItem[] = [];
+          books.forEach((raw, idx) => {
+            const norm = normalizeDrama(raw, spec.provider, idx);
+            if (norm) out.push(norm);
+          });
+          if (out.length > 0) return out;
+        } catch {
+          // Try alternate search parameter cleanly
+        }
+      }
+      return [] as CachedDramaItem[];
     })
   );
 
