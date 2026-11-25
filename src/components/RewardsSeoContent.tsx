@@ -14,7 +14,6 @@ interface RewardsSeoContentProps {
   bindReferralBonusPoints?: number;
   dailyCheckinPoints?: number;
   dailyCheckinDay7Points?: number;
-  watchEpisodePoints?: number;
   watchMinutePoints?: number;
   dailyMissionMilestones?: Array<{ minutes: number; bonusPoints: number }>;
   levelTiers?: Array<{
@@ -74,7 +73,6 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
   bindReferralBonusPoints = 200,
   dailyCheckinPoints = 500,
   dailyCheckinDay7Points = 2000,
-  watchEpisodePoints = 50,
   watchMinutePoints = 20,
   dailyMissionMilestones = [
     { minutes: 15, bonusPoints: 150 },
@@ -109,7 +107,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
     ? [
         {
           q: 'Bagaimana cara mendapatkan poin dari nonton drama & tugas harian di KanoDrama?',
-          a: `Login ke akun KanoDrama untuk langsung memperoleh bonus login pertama +${firstLoginBonusPoints.toLocaleString()} poin (1x per akun), klaim tugas harian share ke media sosial +${dailySocialSharePoints.toLocaleString()} poin/hari, check-in harian +${dailyCheckinPoints.toLocaleString()} poin (Hari ke-7 +${dailyCheckinDay7Points.toLocaleString()} poin, total ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} poin/minggu), serta tonton drama Asia atau film secara aktif pada kecepatan 1x dengan tab browser tetap terlihat (+${watchMinutePoints} poin/menit otomatis maks 60 menit/hari, +${watchEpisodePoints} poin per episode baru, dan bonus milestone 15m/30m/60m) hingga batas ${maxDailyEarnPoints.toLocaleString()} poin/hari.`,
+          a: `Login ke akun KanoDrama untuk langsung memperoleh bonus login pertama +${firstLoginBonusPoints.toLocaleString()} poin (1x per akun), klaim tugas harian share ke media sosial +${dailySocialSharePoints.toLocaleString()} poin/hari, check-in harian +${dailyCheckinPoints.toLocaleString()} poin (Hari ke-7 +${dailyCheckinDay7Points.toLocaleString()} poin, total ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} poin/minggu), serta tonton drama Asia atau film secara aktif pada kecepatan 1x dengan tab browser tetap terlihat (+${watchMinutePoints} poin/menit otomatis maks 60 menit/hari dan bonus milestone 15m/30m/60m) hingga batas ${maxDailyEarnPoints.toLocaleString()} poin/hari.`,
         },
         {
           q: 'Berapa nilai tukar poin KanoDrama ke saldo DANA, bank lokal, atau USD?',
@@ -127,7 +125,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
     : [
         {
           q: 'How do I earn watch points and daily task bonuses on KanoDrama?',
-          a: `Sign in to receive a +${firstLoginBonusPoints.toLocaleString()} pts first-login bonus (once per account), claim the daily social media share task (+${dailySocialSharePoints.toLocaleString()} pts/day), check in daily (+${dailyCheckinPoints.toLocaleString()} pts, Day 7 +${dailyCheckinDay7Points.toLocaleString()} pts, ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} pts/week), and stream dramas or movies actively at 1x speed (+${watchMinutePoints} pts/min auto up to 60 min/day, +${watchEpisodePoints} pts per new episode, and claimable 15m/30m/60m milestones) up to ${maxDailyEarnPoints.toLocaleString()} pts/day.`,
+          a: `Sign in to receive a +${firstLoginBonusPoints.toLocaleString()} pts first-login bonus (once per account), claim the daily social media share task (+${dailySocialSharePoints.toLocaleString()} pts/day), check in daily (+${dailyCheckinPoints.toLocaleString()} pts, Day 7 +${dailyCheckinDay7Points.toLocaleString()} pts, ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} pts/week), and stream dramas or movies actively at 1x speed (+${watchMinutePoints} pts/min auto up to 60 min/day and claimable 15m/30m/60m milestones) up to ${maxDailyEarnPoints.toLocaleString()} pts/day.`,
         },
         {
           q: 'What is the points conversion rate and minimum withdrawal?',
@@ -233,19 +231,6 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
                   {isId
                     ? 'Kecepatan 1x, tab aktif, tanpa buffering/skip'
                     : '1x speed, visible tab, non-buffering playback'}
-                </td>
-              </tr>
-              <tr>
-                <td className="py-2.5 pr-4 font-medium">
-                  {isId ? 'Bonus Episode Baru' : 'New Episode Bonus'}
-                </td>
-                <td className="py-2.5 pr-4 font-bold text-emerald-300 tabular-nums">
-                  +{watchEpisodePoints} {isId ? 'poin / episode' : 'pts / episode'}
-                </td>
-                <td className="py-2.5 text-[#A1A1AA]">
-                  {isId
-                    ? 'Maks. 1x per episode setelah minimal 15 detik nonton aktif'
-                    : 'Once per episode after >= 15s active session'}
                 </td>
               </tr>
               <tr>

@@ -18,7 +18,6 @@ import {
   buildGmailAccountKey,
   claimDailyCheckinInDb,
   claimDailySocialShareInDb,
-  claimWatchEpisodeInDb,
   claimWatchMilestoneInDb,
   createCommentInDb,
   createPayoutRequestInDb,
@@ -2922,7 +2921,7 @@ function injectPageMetadataIntoHtml(
                     name: 'Bagaimana cara nonton drama dapat poin di KanoDrama?',
                     acceptedAnswer: {
                       '@type': 'Answer',
-                      text: 'Daftar atau masuk dengan akun Anda untuk langsung memperoleh bonus login pertama +10.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +20 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), +50 poin episode baru (minimal 15 detik), check-in harian +500 poin dan Hari ke-7 +2.000 poin (total 5.000 poin/minggu), serta bonus milestone 15, 30, dan 60 menit (+150 / +300 / +600 poin) hingga batas 2.500 poin nonton harian yang reset otomatis setiap pukul 00.00 WIB.',
+                      text: 'Daftar atau masuk dengan akun Anda untuk langsung memperoleh bonus login pertama +10.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +20 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), check-in harian +500 poin dan Hari ke-7 +2.000 poin (total 5.000 poin/minggu), serta bonus milestone 15, 30, dan 60 menit (+150 / +300 / +600 poin) hingga batas 2.500 poin nonton harian yang reset otomatis setiap pukul 00.00 WIB.',
                     },
                   },
                   {
@@ -2951,7 +2950,7 @@ function injectPageMetadataIntoHtml(
                         name: 'How do I earn points watching dramas on KanoDrama?',
                         acceptedAnswer: {
                           '@type': 'Answer',
-                          text: 'Sign in to claim a +10,000 points first-login welcome bonus (once per account), then actively watch short dramas or movies at normal 1x speed. You earn +20 points/min automatically up to 60 minutes daily (scaled up to 1.6x by your account level), +50 points per new episode (15s minimum), +500 points daily check-in and +2,000 points on Day 7 (5,000 points/week), +500 points daily social share, plus +150 / +300 / +600 milestone bonuses up to 2,500 daily watch points (all daily missions reset at 17:00 UTC).',
+                          text: 'Sign in to claim a +10,000 points first-login welcome bonus (once per account), then actively watch short dramas or movies at normal 1x speed. You earn +20 points/min automatically up to 60 minutes daily (scaled up to 1.6x by your account level), +500 points daily check-in and +2,000 points on Day 7 (5,000 points/week), +500 points daily social share, plus +150 / +300 / +600 milestone bonuses up to 2,500 daily watch points (all daily missions reset at 17:00 UTC).',
                         },
                       },
                       {
@@ -3101,7 +3100,6 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
         <ul>
           <li>Bonus login pertama akun baru: +10.000 poin otomatis saat pertama kali masuk (1x per akun).</li>
           <li>Tonton drama pendek &amp; film aktif (kecepatan normal): +20 poin per menit otomatis (maksimal 60 menit/hari) × multiplier level akun (Bronze 1.0x hingga Platinum 1.6x).</li>
-          <li>Bonus episode baru: +50 poin per episode setelah minimal 15 detik menonton terverifikasi.</li>
           <li>Check-in harian &amp; streak 7 hari: +500 poin/hari (H-1 s.d. H-6) dan +2.000 poin di H-7 (total 5.000 poin/minggu, reset pukul 00.00 WIB).</li>
           <li>Bonus milestone harian (klaim manual setelah target tercapai): +150 poin (15 menit), +300 poin (30 menit), dan +600 poin (60 menit), dengan batas poin nonton harian 2.500 poin.</li>
           <li>Tugas Share Media Sosial Harian: +500 poin sekali per hari (reset serentak pukul 00.00 WIB).</li>
@@ -3123,7 +3121,6 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
         <ul>
           <li>First-login welcome bonus: +10,000 points credited automatically on your first sign-in (once per account).</li>
           <li>Watch short dramas &amp; movies actively (normal 1x speed): +20 points per minute automatically (up to 60 minutes/day) × account level multiplier (Bronze 1.0x up to Platinum 1.6x).</li>
-          <li>New episode bonus: +50 points per episode after at least 15 seconds of verified active playback.</li>
           <li>Daily check-in &amp; 7-day streak bonus: +500 points/day (Days 1–6) and +2,000 points on Day 7 (5,000 points/week total, resets at 17:00 UTC).</li>
           <li>Daily milestone bonuses (manual claim once reached): +150 points (15 min), +300 points (30 min), and +600 points (60 min), within a 2,500 daily watch points cap.</li>
           <li>Daily social share task: +500 points once per daily cycle (resets at 17:00 UTC).</li>
@@ -5869,85 +5866,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }
 
       if (action === 'watch_episode') {
-        const dramaId = cleanText(req.body?.dramaId).slice(0, 80);
-        const provider = cleanText(req.body?.provider, 'DramaBoxV2').slice(0, 40);
-        const episodeNumber = Math.floor(Number(req.body?.episodeNumber) || 0);
-        const sessionToken = cleanText(
-          req.body?.sessionToken ?? req.body?.watchSessionToken
-        ).slice(0, 128);
-        const title = cleanText(req.body?.title).slice(0, 140);
-
-        if (!dramaId || episodeNumber < 1 || episodeNumber > 5000) {
-          res.status(400).json({
-            ok: false,
-            error: 'Valid dramaId and episodeNumber are required',
-          });
-          return;
-        }
-        if (!sessionToken) {
-          res.status(400).json({
-            ok: false,
-            reason: 'invalid_session',
-            error: 'Active watch session token is required to claim episode points',
-          });
-          return;
-        }
-
-        const result = await claimWatchEpisodeInDb({
-          userId: session.uid,
-          provider,
-          dramaId,
-          episodeNumber,
-          sessionToken,
-          title,
-          displayName: session.displayName,
-          timeZone: extractUserTimeZone(req),
-        });
-
-        if (!result.ok) {
-          const statusCode =
-            result.reason === 'daily_cap_reached' || result.reason === 'cooldown_active'
-              ? 429
-              : result.reason === 'duplicate_claim'
-              ? 409
-              : 400;
-          const message =
-            result.reason === 'duplicate_claim'
-              ? isId
-                ? 'Bonus episode ini sudah pernah diklaim untuk akun Anda.'
-                : 'This episode watch bonus has already been claimed on your account.'
-              : result.reason === 'watch_duration_insufficient'
-              ? isId
-                ? 'Tonton episode minimal 15 detik secara aktif untuk membuka bonus poin.'
-                : 'Watch at least 15 seconds actively to unlock the episode bonus.'
-              : result.reason === 'daily_cap_reached'
-              ? isId
-                ? `Batas poin harian (${cfg.maxDailyEarnPoints.toLocaleString('id-ID')} poin) hari ini sudah tercapai.`
-                : `Daily earn limit (${cfg.maxDailyEarnPoints.toLocaleString('en-US')} pts) reached for today.`
-              : result.reason === 'cooldown_active'
-              ? isId
-                ? `Tunggu ${result.cooldownSecondsRemaining || cfg.claimCooldownSeconds} detik sebelum klaim berikutnya.`
-                : `Please wait ${result.cooldownSecondsRemaining || cfg.claimCooldownSeconds}s before the next claim`
-              : isId
-              ? 'Gagal mengklaim bonus episode.'
-              : 'Unable to claim episode watch reward';
-          res.status(statusCode).json({
-            ok: false,
-            reason: result.reason,
-            cooldownSecondsRemaining: result.cooldownSecondsRemaining,
-            error: message,
-            summary: result.summary,
-            config: cfg,
-          });
-          return;
-        }
-
-        res.json({
-          ok: true,
-          awardedPoints: result.entry?.points ?? cfg.watchEpisodePoints,
-          entry: result.entry,
-          summary: result.summary,
-          config: cfg,
+        res.status(400).json({
+          ok: false,
+          reason: 'feature_removed',
+          error: isId
+            ? 'Bonus episode baru sudah dihapus.'
+            : 'New episode bonus has been removed.',
         });
         return;
       }

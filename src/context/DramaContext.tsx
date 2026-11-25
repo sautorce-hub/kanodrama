@@ -183,7 +183,6 @@ interface DramaContextValue {
     watchMinutePoints: number;
     dailyCheckinPoints: number;
     dailyCheckinDay7Points?: number;
-    watchEpisodePoints: number;
     dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
     progressPercent: number;
   } | null;
@@ -506,13 +505,10 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     watchMinutePoints: number;
     dailyCheckinPoints: number;
     dailyCheckinDay7Points?: number;
-    watchEpisodePoints: number;
     dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
     progressPercent: number;
   } | null>(null);
   const [pointsPerUsd, setPointsPerUsd] = useState<number>(100000);
-  const claimedWatchRewardRef = useRef<Set<string>>(new Set());
-  const lastWatchClaimAttemptRef = useRef<number>(0);
   const watchStreamSessionIdRef = useRef<string>(
     `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   );
@@ -578,7 +574,6 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
             watchMinutePoints: number;
             dailyCheckinPoints: number;
             dailyCheckinDay7Points?: number;
-            watchEpisodePoints: number;
             dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
             progressPercent: number;
           };
@@ -2041,7 +2036,6 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     setTodayWatchSeconds(0);
     setTodayWatchPointsEarned(0);
     watchSessionTokenRef.current = null;
-    claimedWatchRewardRef.current.clear();
     setMovieListItemsRaw([]);
     setStreak(EMPTY_STREAK);
     setAuthModalOpen(false);
@@ -2873,7 +2867,6 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
                 watchMinutePoints: number;
                 dailyCheckinPoints: number;
                 dailyCheckinDay7Points?: number;
-                watchEpisodePoints: number;
                 dailyMissionMilestones: Array<{ minutes: number; bonusPoints: number }>;
                 progressPercent: number;
               };
@@ -2976,62 +2969,6 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
                     },
                   })
                 );
-              }
-            }
-
-            // Attempt Episode Bonus Claim only once >=15s verified under valid session token
-            if (
-              !claimedWatchRewardRef.current.has(epSessionKey) &&
-              Date.now() - lastWatchClaimAttemptRef.current >= 15_000
-            ) {
-              lastWatchClaimAttemptRef.current = Date.now();
-              const claimRes = await fetch('/api/points/claim', {
-                method: 'POST',
-                credentials: 'include',
-                headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
-                body: JSON.stringify({
-                  action: 'watch_episode',
-                  dramaId: drama.bookId,
-                  provider: drama.provider,
-                  episodeNumber: episode,
-                  title: drama.title,
-                  sessionToken,
-                }),
-              });
-              if (claimRes.status === 200 || claimRes.status === 409) {
-                claimedWatchRewardRef.current.add(epSessionKey);
-              }
-              const claimData = (await claimRes.json().catch(() => null)) as {
-                ok?: boolean;
-                awardedPoints?: number;
-                summary?: { balance?: number } | null;
-              } | null;
-              const awardedEpisodePoints =
-                claimRes.ok &&
-                claimData?.ok &&
-                typeof claimData.awardedPoints === 'number' &&
-                claimData.awardedPoints > 0
-                  ? Math.floor(claimData.awardedPoints)
-                  : 0;
-              if (awardedEpisodePoints > 0) {
-                pushToast(
-                  `+${awardedEpisodePoints.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit} (${drama.title} EP ${episode})`,
-                  'gold'
-                );
-              }
-              if (typeof claimData?.summary?.balance === 'number') {
-                setPointsBalance(Math.max(0, Math.floor(claimData.summary.balance)));
-                if (typeof window !== 'undefined') {
-                  window.dispatchEvent(
-                    new CustomEvent('kd:points-updated', {
-                      detail: {
-                        source: 'watch_episode',
-                        awardedWatchPoints: awardedEpisodePoints,
-                        summary: claimData.summary,
-                      },
-                    })
-                  );
-                }
               }
             }
           })().catch(() => {

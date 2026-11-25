@@ -1536,8 +1536,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const sessJson = await sessRes.json();
     assert.ok(sessJson.sessionToken);
 
-    // Reject premature episode bonus claim (< 15s active verified watch)
-    const prematureClaim = await fetch(`${baseUrl}/api/points/claim`, {
+    // Removed watch_episode bonus action is rejected cleanly (400)
+    const removedEpClaim = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1551,8 +1551,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
         sessionToken: sessJson.sessionToken,
       }),
     });
-    assert.equal(prematureClaim.status, 400);
-    assert.equal((await prematureClaim.json()).reason, 'watch_duration_insufficient');
+    assert.equal(removedEpClaim.status, 400);
+    assert.equal((await removedEpClaim.json()).reason, 'feature_removed');
 
     // Baseline heartbeat seq=1
     const hb1 = await fetch(`${baseUrl}/api/watch/heartbeat`, {
@@ -1723,8 +1723,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(valid20.reason, 'counted');
     assert.equal(valid20.addedSeconds, 20);
 
-    // Episode bonus now succeeds once (+50 pts), second claim blocked (409)
-    const epClaim1 = await fetch(`${baseUrl}/api/points/claim`, {
+    // Confirm watch_episode bonus remains disabled even after >= 20s verified watch
+    const epClaimAfterWatch = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1738,24 +1738,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
         sessionToken: sessJson.sessionToken,
       }),
     });
-    assert.equal(epClaim1.status, 200);
-    assert.equal((await epClaim1.json()).awardedPoints, 50);
-
-    const epClaimDup = await fetch(`${baseUrl}/api/points/claim`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${aliceToken}`,
-      },
-      body: JSON.stringify({
-        action: 'watch_episode',
-        dramaId: 'd-101',
-        provider: 'DramaBox',
-        episodeNumber: 3,
-        sessionToken: sessJson.sessionToken,
-      }),
-    });
-    assert.equal(epClaimDup.status, 409);
+    assert.equal(epClaimAfterWatch.status, 400);
+    assert.equal((await epClaimAfterWatch.json()).reason, 'feature_removed');
   });
 
   await t.test('4. Production Referral URL, Self/Clone Referral Block & 1h Verification Bonus', async () => {
@@ -2122,7 +2106,6 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(cfg.bindReferralBonusPoints, 200);
     assert.equal(cfg.dailyCheckinPoints, 500);
     assert.equal(cfg.dailyCheckinDay7Points, 2000);
-    assert.equal(cfg.watchEpisodePoints, 50);
     assert.equal(cfg.watchMinutePoints, 20);
     assert.equal(cfg.dailySocialSharePoints, 500);
     assert.equal(cfg.referralBonusPoints, 5000);
@@ -2179,7 +2162,6 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(silverMe.summary.levelInfo.dailyCheckinPoints, 600);
     assert.equal(silverMe.summary.levelInfo.dailyCheckinDay7Points, 2400);
     assert.equal(silverMe.summary.levelInfo.watchMinutePoints, 24);
-    assert.equal(silverMe.summary.levelInfo.watchEpisodePoints, 60);
 
     // Claim daily check-in at Silver -> server grants +600 pts (ignores any client input)
     const silverCheckin = await fetch(`${baseUrl}/api/points/claim`, {

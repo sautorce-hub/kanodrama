@@ -19,7 +19,6 @@ export const REWARDS_DEFAULTS = {
   bindReferralBonusPoints: 200,
   dailyCheckinPoints: 500,
   dailyCheckinDay7Points: 2_000,
-  watchEpisodePoints: 50,
   watchMinutePoints: 20, // WATCH_POINTS_PER_MINUTE default +20 poin / menit nonton aktif
   dailyMissionMaxWatchSeconds: 3_600, // Maksimal 1 jam (60 menit) misi nonton harian
   dailyMission15mPoints: 150,
@@ -44,7 +43,6 @@ export const ANTI_CHEAT_DEFAULTS = {
   maxHeartbeatStepSec: 65,
   maxSeekRatio: 1.45,
   watchSessionTtlSec: 4 * 3600,
-  minEpisodeWatchSecForBonus: 15,
   newAccountMaxLedgerEntries: 2,
   newAccountMaxWatchSeconds: 600,
 } as const;
@@ -208,7 +206,6 @@ export interface AccountLevelTierSummary extends AccountLevelTierConfig {
   watchMinutePoints: number;
   dailyCheckinPoints: number;
   dailyCheckinDay7Points: number;
-  watchEpisodePoints: number;
   dailyMissionMilestones: DailyMissionMilestoneConfig[];
 }
 
@@ -233,7 +230,6 @@ export interface AccountLevelStatus {
   watchMinutePoints: number;
   dailyCheckinPoints: number;
   dailyCheckinDay7Points: number;
-  watchEpisodePoints: number;
   dailyMissionMilestones: DailyMissionMilestoneConfig[];
   totalEarned: number;
   verifiedWatchSeconds: number;
@@ -294,7 +290,6 @@ export interface RewardsRuntimeValues {
   bindReferralBonusPoints: number;
   dailyCheckinPoints: number;
   dailyCheckinDay7Points: number;
-  watchEpisodePoints: number;
   watchMinutePoints: number;
   dailyMissionMaxWatchSeconds: number;
   dailyMissionMilestones: DailyMissionMilestoneConfig[];
@@ -319,7 +314,6 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     bindReferralBonusPoints,
     dailyCheckinPoints,
     dailyCheckinDay7Points,
-    watchEpisodePoints,
     watchMinutePoints,
     dailyMissionMaxWatchSeconds,
     dailyMission15mPoints,
@@ -350,7 +344,6 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     bindReferralBonusPoints,
     dailyCheckinPoints,
     dailyCheckinDay7Points,
-    watchEpisodePoints,
     watchMinutePoints,
     dailyMissionMaxWatchSeconds,
     dailyMissionMilestones: [
@@ -377,7 +370,6 @@ export function getAccountLevelTiersSummary(
     | 'watchMinutePoints'
     | 'dailyCheckinPoints'
     | 'dailyCheckinDay7Points'
-    | 'watchEpisodePoints'
     | 'dailyMissionMilestones'
   >
 ): AccountLevelTierSummary[] {
@@ -386,7 +378,6 @@ export function getAccountLevelTiersSummary(
     watchMinutePoints: scaleLevelPoints(baseCfg.watchMinutePoints, tier.multiplier),
     dailyCheckinPoints: scaleLevelPoints(baseCfg.dailyCheckinPoints, tier.multiplier),
     dailyCheckinDay7Points: scaleLevelPoints(baseCfg.dailyCheckinDay7Points, tier.multiplier),
-    watchEpisodePoints: scaleLevelPoints(baseCfg.watchEpisodePoints, tier.multiplier),
     dailyMissionMilestones: baseCfg.dailyMissionMilestones.map((ms) => ({
       minutes: ms.minutes,
       bonusPoints: scaleLevelPoints(ms.bonusPoints, tier.multiplier),
@@ -402,7 +393,6 @@ export function resolveAccountLevelStatus(
     | 'watchMinutePoints'
     | 'dailyCheckinPoints'
     | 'dailyCheckinDay7Points'
-    | 'watchEpisodePoints'
     | 'dailyMissionMilestones'
   >
 ): AccountLevelStatus {
@@ -466,7 +456,6 @@ export function resolveAccountLevelStatus(
     watchMinutePoints: scaleLevelPoints(baseCfg.watchMinutePoints, activeTier.multiplier),
     dailyCheckinPoints: scaleLevelPoints(baseCfg.dailyCheckinPoints, activeTier.multiplier),
     dailyCheckinDay7Points: scaleLevelPoints(baseCfg.dailyCheckinDay7Points, activeTier.multiplier),
-    watchEpisodePoints: scaleLevelPoints(baseCfg.watchEpisodePoints, activeTier.multiplier),
     dailyMissionMilestones: baseCfg.dailyMissionMilestones.map((ms) => ({
       minutes: ms.minutes,
       bonusPoints: scaleLevelPoints(ms.bonusPoints, activeTier.multiplier),

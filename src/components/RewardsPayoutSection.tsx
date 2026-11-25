@@ -228,7 +228,6 @@ interface AccountLevelTierSummary {
   watchMinutePoints: number;
   dailyCheckinPoints: number;
   dailyCheckinDay7Points?: number;
-  watchEpisodePoints: number;
   dailyMissionMilestones: DailyMissionMilestoneConfig[];
 }
 
@@ -253,7 +252,6 @@ interface AccountLevelStatus {
   watchMinutePoints: number;
   dailyCheckinPoints: number;
   dailyCheckinDay7Points?: number;
-  watchEpisodePoints: number;
   dailyMissionMilestones: DailyMissionMilestoneConfig[];
   totalEarned: number;
   verifiedWatchSeconds: number;
@@ -276,7 +274,6 @@ interface PayoutConfig {
   dailySocialSharePoints?: number;
   dailyCheckinPoints: number;
   dailyCheckinDay7Points?: number;
-  watchEpisodePoints: number;
   watchMinutePoints: number;
   dailyMissionMaxWatchSeconds: number;
   dailyMissionMilestones: DailyMissionMilestoneConfig[];
@@ -446,7 +443,6 @@ const DEFAULT_CONFIG: PayoutConfig = {
   dailySocialSharePoints: 500,
   dailyCheckinPoints: 500,
   dailyCheckinDay7Points: 2000,
-  watchEpisodePoints: 50,
   watchMinutePoints: 20,
   dailyMissionMaxWatchSeconds: 3600,
   dailyMissionMilestones: [
@@ -471,7 +467,6 @@ const DEFAULT_CONFIG: PayoutConfig = {
       watchMinutePoints: 20,
       dailyCheckinPoints: 500,
       dailyCheckinDay7Points: 2000,
-      watchEpisodePoints: 50,
       dailyMissionMilestones: [
         { minutes: 15, bonusPoints: 150 },
         { minutes: 30, bonusPoints: 300 },
@@ -489,7 +484,6 @@ const DEFAULT_CONFIG: PayoutConfig = {
       watchMinutePoints: 24,
       dailyCheckinPoints: 600,
       dailyCheckinDay7Points: 2400,
-      watchEpisodePoints: 60,
       dailyMissionMilestones: [
         { minutes: 15, bonusPoints: 180 },
         { minutes: 30, bonusPoints: 360 },
@@ -507,7 +501,6 @@ const DEFAULT_CONFIG: PayoutConfig = {
       watchMinutePoints: 28,
       dailyCheckinPoints: 700,
       dailyCheckinDay7Points: 2800,
-      watchEpisodePoints: 70,
       dailyMissionMilestones: [
         { minutes: 15, bonusPoints: 210 },
         { minutes: 30, bonusPoints: 420 },
@@ -525,7 +518,6 @@ const DEFAULT_CONFIG: PayoutConfig = {
       watchMinutePoints: 32,
       dailyCheckinPoints: 800,
       dailyCheckinDay7Points: 3200,
-      watchEpisodePoints: 80,
       dailyMissionMilestones: [
         { minutes: 15, bonusPoints: 240 },
         { minutes: 30, bonusPoints: 480 },
@@ -2056,7 +2048,6 @@ export const RewardsPayoutSection: React.FC = () => {
       watchMinutePoints: config.watchMinutePoints || 20,
       dailyCheckinPoints: config.dailyCheckinPoints || 500,
       dailyCheckinDay7Points: config.dailyCheckinDay7Points || 2000,
-      watchEpisodePoints: config.watchEpisodePoints || 50,
       dailyMissionMilestones: config.dailyMissionMilestones || [],
     };
     const secondTier = levelTiers[1] || null;
@@ -2069,7 +2060,6 @@ export const RewardsPayoutSection: React.FC = () => {
       watchMinutePoints: baseTier.watchMinutePoints,
       dailyCheckinPoints: baseTier.dailyCheckinPoints,
       dailyCheckinDay7Points: baseTier.dailyCheckinDay7Points,
-      watchEpisodePoints: baseTier.watchEpisodePoints,
       dailyMissionMilestones: baseTier.dailyMissionMilestones,
       totalEarned: 0,
       verifiedWatchSeconds: 0,
@@ -2097,7 +2087,6 @@ export const RewardsPayoutSection: React.FC = () => {
     activeLevelInfo.dailyCheckinDay7Points ||
     config.dailyCheckinDay7Points ||
     Math.round(effectiveDailyCheckinPoints * 4);
-  const effectiveWatchEpisodePoints = activeLevelInfo.watchEpisodePoints || config.watchEpisodePoints || 50;
 
   const todayWatchPointsEarned = Math.max(0, summary?.todayWatchPointsEarned ?? 0);
   const effectiveMilestoneConfigs =
@@ -2406,8 +2395,8 @@ export const RewardsPayoutSection: React.FC = () => {
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#D4D4D8]">
             <span className="tabular-nums">
               {isId
-                ? `Perolehan aktif: +${effectiveWatchMinutePoints} poin/mnt · +${effectiveDailyCheckinPoints} check-in · +${effectiveWatchEpisodePoints} ep baru`
-                : `Active rates: +${effectiveWatchMinutePoints} pts/min · +${effectiveDailyCheckinPoints} check-in · +${effectiveWatchEpisodePoints} new ep`}
+                ? `Perolehan aktif: +${effectiveWatchMinutePoints} poin/mnt · +${effectiveDailyCheckinPoints} check-in`
+                : `Active rates: +${effectiveWatchMinutePoints} pts/min · +${effectiveDailyCheckinPoints} check-in`}
             </span>
             {activeLevelInfo.nextTier && (
               <span className="text-[#A1A1AA] tabular-nums">
@@ -4309,7 +4298,6 @@ export const RewardsPayoutSection: React.FC = () => {
         bindReferralBonusPoints={config.bindReferralBonusPoints ?? 200}
         dailyCheckinPoints={effectiveDailyCheckinPoints}
         dailyCheckinDay7Points={effectiveDailyCheckinDay7Points}
-        watchEpisodePoints={effectiveWatchEpisodePoints}
         watchMinutePoints={effectiveWatchMinutePoints}
         dailyMissionMilestones={effectiveMilestoneConfigs}
         levelTiers={levelTiers}
