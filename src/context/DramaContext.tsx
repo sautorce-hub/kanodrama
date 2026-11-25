@@ -2966,9 +2966,10 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
                 window.dispatchEvent(
                   new CustomEvent('kd:points-updated', {
                     detail: {
+                      source: 'watch_heartbeat',
                       verifiedWatchSeconds: hb.verifiedWatchSeconds,
                       todayWatchSeconds: hb.todayWatchSeconds,
-                      awardedWatchPoints: hb.awardedWatchPoints,
+                      awardedWatchPoints: awardedWatch,
                       todayWatchPointsEarned: hb.todayWatchPointsEarned,
                       pointsBalance: hb.pointsBalance,
                       referralQualified: Boolean(hb.referralQualified),
@@ -3005,9 +3006,16 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
                 awardedPoints?: number;
                 summary?: { balance?: number } | null;
               } | null;
-              if (claimRes.ok && claimData?.awardedPoints) {
+              const awardedEpisodePoints =
+                claimRes.ok &&
+                claimData?.ok &&
+                typeof claimData.awardedPoints === 'number' &&
+                claimData.awardedPoints > 0
+                  ? Math.floor(claimData.awardedPoints)
+                  : 0;
+              if (awardedEpisodePoints > 0) {
                 pushToast(
-                  `+${claimData.awardedPoints.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit} (${drama.title} EP ${episode})`,
+                  `+${awardedEpisodePoints.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit} (${drama.title} EP ${episode})`,
                   'gold'
                 );
               }
@@ -3016,7 +3024,11 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
                 if (typeof window !== 'undefined') {
                   window.dispatchEvent(
                     new CustomEvent('kd:points-updated', {
-                      detail: { summary: claimData.summary },
+                      detail: {
+                        source: 'watch_episode',
+                        awardedWatchPoints: awardedEpisodePoints,
+                        summary: claimData.summary,
+                      },
                     })
                   );
                 }

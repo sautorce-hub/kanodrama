@@ -1521,6 +1521,17 @@ export const RewardsPayoutSection: React.FC = () => {
           `+${awarded.toLocaleString()} ${t.rewards.pointsUnit} (${milestoneMinutes} ${t.rewards.milestoneMinSuffix})!`,
           'gold'
         );
+        if (typeof window !== 'undefined' && awarded > 0) {
+          window.dispatchEvent(
+            new CustomEvent('kd:points-updated', {
+              detail: {
+                source: 'watch_milestone',
+                awardedMilestonePoints: awarded,
+                summary: data.summary,
+              },
+            })
+          );
+        }
         void refreshPointsBalance();
       } else {
         setFormFeedback({

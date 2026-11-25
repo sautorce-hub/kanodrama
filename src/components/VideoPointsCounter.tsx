@@ -13,6 +13,29 @@ interface VideoPointsCounterProps {
   className?: string;
 }
 
+interface CoinBurstState {
+  id: number;
+  amount: number;
+}
+
+const COIN_BURST_PARTICLES: ReadonlyArray<{
+  cls: string;
+  kind: 'coin' | 'spark';
+}> = [
+  { cls: 'coin-burst-p0', kind: 'coin' },
+  { cls: 'coin-burst-p1', kind: 'coin' },
+  { cls: 'coin-burst-p2', kind: 'coin' },
+  { cls: 'coin-burst-p3', kind: 'coin' },
+  { cls: 'coin-burst-p4', kind: 'coin' },
+  { cls: 'coin-burst-p5', kind: 'coin' },
+  { cls: 'coin-burst-p6', kind: 'spark' },
+  { cls: 'coin-burst-p7', kind: 'spark' },
+  { cls: 'coin-burst-p8', kind: 'spark' },
+  { cls: 'coin-burst-p9', kind: 'spark' },
+  { cls: 'coin-burst-p10', kind: 'spark' },
+  { cls: 'coin-burst-p11', kind: 'spark' },
+];
+
 function formatClockMmSs(totalSeconds: number): string {
   const safe = Math.max(0, Math.floor(totalSeconds));
   const mins = Math.floor(safe / 60);
@@ -52,7 +75,10 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
   const [tabHidden, setTabHidden] = useState<boolean>(
     typeof document !== 'undefined' ? document.hidden : false
   );
+  const [coinBurst, setCoinBurst] = useState<CoinBurstState | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const burstSeqRef = useRef(0);
+  const burstTimerRef = useRef<number | null>(null);
 
   const isId = language === 'id';
   const safeRate = Number(playbackRate) || 1;
@@ -68,6 +94,53 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
       void refreshPointsBalance();
     }
   }, [user, pointsBalance, refreshPointsBalance]);
+
+  useEffect(() => {
+    if (!user) {
+      setCoinBurst(null);
+      return;
+    }
+    const onPointsUpdated = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          source?: string;
+          awardedWatchPoints?: number;
+          awardedMilestonePoints?: number;
+        }>
+      ).detail;
+      if (!detail) return;
+      const watchPts =
+        typeof detail.awardedWatchPoints === 'number' && detail.awardedWatchPoints > 0
+          ? Math.floor(detail.awardedWatchPoints)
+          : 0;
+      const milestonePts =
+        typeof detail.awardedMilestonePoints === 'number' &&
+        detail.awardedMilestonePoints > 0
+          ? Math.floor(detail.awardedMilestonePoints)
+          : 0;
+      const awardedAmount = watchPts + milestonePts;
+      if (awardedAmount <= 0) return;
+
+      burstSeqRef.current += 1;
+      setCoinBurst({ id: burstSeqRef.current, amount: awardedAmount });
+      if (burstTimerRef.current !== null) {
+        window.clearTimeout(burstTimerRef.current);
+      }
+      burstTimerRef.current = window.setTimeout(() => {
+        setCoinBurst(null);
+        burstTimerRef.current = null;
+      }, 920);
+    };
+
+    window.addEventListener('kd:points-updated', onPointsUpdated);
+    return () => {
+      window.removeEventListener('kd:points-updated', onPointsUpdated);
+      if (burstTimerRef.current !== null) {
+        window.clearTimeout(burstTimerRef.current);
+        burstTimerRef.current = null;
+      }
+    };
+  }, [user]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -218,8 +291,10 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
         }}
         aria-expanded={expanded}
         aria-label={isId ? 'Counter Poin Nonton & Misi Harian' : 'Live Watch Points Counter'}
-        className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg backdrop-blur-md border text-xs font-bold shadow-[0_8px_24px_rgba(0,0,0,0.65)] transition-all whitespace-nowrap ${
-          isActivelyCounting
+        className={`relative group flex items-center gap-2 px-3 py-1.5 rounded-lg backdrop-blur-md border text-xs font-bold shadow-[0_8px_24px_rgba(0,0,0,0.65)] transition-all whitespace-nowrap ${
+          coinBurst
+            ? 'bg-[#09090B]/95 border-[#D4AF37] ring-1 ring-[#D4AF37]/60 text-white'
+            : isActivelyCounting
             ? 'bg-[#09090B]/90 border-emerald-400/50 text-white hover:border-[#D4AF37]'
             : 'bg-[#09090B]/90 border-amber-400/40 text-[#D4D4D8] hover:border-white/40'
         }`}
@@ -230,10 +305,52 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
           <Pause className="w-3 h-3 text-amber-400 shrink-0" />
         )}
 
-        <Coins className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
+        <span className="relative inline-flex items-center justify-center shrink-0">
+          {coinBurst && (
+            <span
+              key={`burst-${coinBurst.id}`}
+              aria-hidden="true"
+              className="pointer-events-none absolute left-1/2 top-1/2 z-40"
+            >
+              <span className="coin-burst-ring absolute left-0 top-0 w-7 h-7 rounded-full border border-[#FDE68A]/85 bg-[#D4AF37]/20" />
+              {COIN_BURST_PARTICLES.map((p) => (
+                <span
+                  key={p.cls}
+                  className={`coin-burst-particle absolute left-0 top-0 rounded-full ${
+                    p.kind === 'coin'
+                      ? 'coin-burst-coin w-2.5 h-2.5'
+                      : 'coin-burst-spark w-1.5 h-1.5'
+                  } ${p.cls}`}
+                />
+              ))}
+            </span>
+          )}
+          <Coins
+            key={coinBurst ? `coin-${coinBurst.id}` : 'coin-idle'}
+            className={`w-3.5 h-3.5 text-[#D4AF37] shrink-0 ${
+              coinBurst ? 'coin-icon-pop' : ''
+            }`}
+          />
+        </span>
 
-        <span className="tabular-nums text-white font-extrabold">
-          {balanceDisplay.toLocaleString()}
+        <span className="relative inline-flex items-center">
+          {coinBurst && (
+            <span
+              key={`float-${coinBurst.id}`}
+              aria-hidden="true"
+              className="coin-float-up pointer-events-none absolute left-1/2 top-1/2 z-50 whitespace-nowrap text-[11px] sm:text-xs font-black tracking-tight text-[#FEF08A] drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]"
+            >
+              +{coinBurst.amount.toLocaleString()} pts
+            </span>
+          )}
+          <span
+            key={coinBurst ? `bal-${coinBurst.id}` : 'bal-idle'}
+            className={`tabular-nums font-extrabold transition-colors duration-300 ${
+              coinBurst ? 'coin-balance-pop text-[#FDE68A]' : 'text-white'
+            }`}
+          >
+            {balanceDisplay.toLocaleString()}
+          </span>
         </span>
 
         <span className="text-[10px] text-[#A1A1AA] hidden sm:inline">pts</span>

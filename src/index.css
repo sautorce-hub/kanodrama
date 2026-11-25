@@ -147,6 +147,133 @@
   animation: reactionFloat 1.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+@keyframes coinBurstRing {
+  0% {
+    opacity: 0.9;
+    transform: translate3d(-50%, -50%, 0) scale(0.45);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-50%, -50%, 0) scale(2.45);
+  }
+}
+
+@keyframes coinBurstParticle {
+  0% {
+    opacity: 0;
+    transform: translate3d(-50%, -50%, 0) scale(0.35) rotate(0deg);
+  }
+  14% {
+    opacity: 1;
+    transform: translate3d(calc(-50% + var(--burst-x, 0px) * 0.36), calc(-50% + var(--burst-y, 0px) * 0.36), 0) scale(1.05) rotate(calc(var(--burst-rot, 0deg) * 0.35));
+  }
+  68% {
+    opacity: 0.95;
+    transform: translate3d(calc(-50% + var(--burst-x, 0px)), calc(-50% + var(--burst-y, 0px)), 0) scale(0.92) rotate(var(--burst-rot, 0deg));
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(calc(-50% + var(--burst-x, 0px) * 1.15), calc(-50% + var(--burst-y, 0px) * 1.15 + 6px), 0) scale(0.2) rotate(calc(var(--burst-rot, 0deg) * 1.25));
+  }
+}
+
+@keyframes coinFloatUp {
+  0% {
+    opacity: 0;
+    transform: translate3d(-50%, 2px, 0) scale(0.78);
+  }
+  18% {
+    opacity: 1;
+    transform: translate3d(-50%, -13px, 0) scale(1.08);
+  }
+  62% {
+    opacity: 1;
+    transform: translate3d(-50%, -22px, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-50%, -31px, 0) scale(0.94);
+  }
+}
+
+@keyframes coinIconPop {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  28% {
+    transform: scale(1.34) rotate(-14deg);
+  }
+  60% {
+    transform: scale(0.94) rotate(10deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes coinBalancePop {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.2);
+  }
+  62% {
+    transform: scale(0.97);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.coin-burst-ring {
+  animation: coinBurstRing 720ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.coin-burst-particle {
+  animation: coinBurstParticle 840ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.coin-burst-coin {
+  background: radial-gradient(circle at 32% 30%, #fef9c3 0%, #facc15 38%, #d4af37 72%, #a16207 100%);
+  border: 1px solid rgba(254, 240, 138, 0.9);
+}
+
+.coin-burst-spark {
+  background: radial-gradient(circle, #ffffff 0%, #fef08a 55%, #f59e0b 100%);
+}
+
+.coin-burst-p0 { --burst-x: -18px; --burst-y: -16px; --burst-rot: 160deg; animation-duration: 780ms; }
+.coin-burst-p1 { --burst-x: 14px; --burst-y: -21px; --burst-rot: -180deg; animation-duration: 840ms; animation-delay: 20ms; }
+.coin-burst-p2 { --burst-x: 34px; --burst-y: -10px; --burst-rot: 210deg; animation-duration: 860ms; animation-delay: 35ms; }
+.coin-burst-p3 { --burst-x: 32px; --burst-y: 16px; --burst-rot: -150deg; animation-duration: 820ms; animation-delay: 15ms; }
+.coin-burst-p4 { --burst-x: 6px; --burst-y: 25px; --burst-rot: 175deg; animation-duration: 850ms; animation-delay: 30ms; }
+.coin-burst-p5 { --burst-x: -19px; --burst-y: 14px; --burst-rot: -190deg; animation-duration: 800ms; animation-delay: 25ms; }
+
+.coin-burst-p6 { --burst-x: -3px; --burst-y: -22px; --burst-rot: 90deg; animation-duration: 740ms; animation-delay: 10ms; }
+.coin-burst-p7 { --burst-x: 25px; --burst-y: -19px; --burst-rot: 120deg; animation-duration: 780ms; animation-delay: 45ms; }
+.coin-burst-p8 { --burst-x: 42px; --burst-y: 2px; --burst-rot: 45deg; animation-duration: 810ms; animation-delay: 30ms; }
+.coin-burst-p9 { --burst-x: 20px; --burst-y: 24px; --burst-rot: -90deg; animation-duration: 760ms; animation-delay: 50ms; }
+.coin-burst-p10 { --burst-x: -11px; --burst-y: 22px; --burst-rot: 135deg; animation-duration: 750ms; animation-delay: 35ms; }
+.coin-burst-p11 { --burst-x: -24px; --burst-y: -1px; --burst-rot: -60deg; animation-duration: 730ms; animation-delay: 20ms; }
+
+.coin-float-up {
+  animation: coinFloatUp 900ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.coin-icon-pop {
+  animation: coinIconPop 540ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.coin-balance-pop {
+  animation: coinBalancePop 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
