@@ -1,33 +1,11 @@
 import crypto from 'node:crypto';
 
 /**
- * Centralized backend runtime configuration & business-rule defaults for KanoDrama.
- * Consolidates environment variable resolution with safe fallbacks so small rules
- * (points, anti-cheat, cooldowns, daily/weekly caps, FX rate, payout thresholds)
- * do not require cluttering `.env` with redundant micro-variables.
+ * Centralized backend runtime configuration & fixed business-rule defaults for KanoDrama.
+ * Optional micro-tuning rules (points, anti-cheat, cooldowns, daily/weekly caps, FX rate,
+ * payout thresholds) live here as fixed constants so `.env` stays lean with only core
+ * operational and security environment variables.
  */
-
-function parseBoundedIntEnv(
-  raw: string | undefined,
-  fallback: number,
-  min: number,
-  max: number
-): number {
-  const num = Number(raw);
-  if (!Number.isFinite(num) || num <= 0) return fallback;
-  return Math.min(max, Math.max(min, Math.round(num)));
-}
-
-function parseBoundedFloatEnv(
-  raw: string | undefined,
-  fallback: number,
-  min: number,
-  max: number
-): number {
-  const num = Number(raw);
-  if (!Number.isFinite(num) || num <= 0) return fallback;
-  return Math.min(max, Math.max(min, Math.round(num * 100) / 100));
-}
 
 export const REWARDS_DEFAULTS = {
   usdToIdrRate: 18_200,
@@ -35,15 +13,15 @@ export const REWARDS_DEFAULTS = {
   minPayoutIdr: 50_000,
   minPayoutUsd: 5.0,
   maxDailyEarnPoints: 25_000,
-  maxDailyWatchPoints: 3_500, // Batas poin nonton harian (per-menit + milestone)
+  maxDailyWatchPoints: 10_000, // Batas poin nonton harian (per-menit + milestone, cukup hingga Platinum 1.6x = 9.120 poin)
   claimCooldownSeconds: 45,
   dailyCheckinPoints: 500,
   watchEpisodePoints: 200,
   watchMinutePoints: 20, // WATCH_POINTS_PER_MINUTE default +20 poin / menit nonton aktif
   dailyMissionMaxWatchSeconds: 3_600, // Maksimal 1 jam (60 menit) misi nonton harian
-  dailyMission15mPoints: 100,
-  dailyMission30mPoints: 200,
-  dailyMission60mPoints: 400,
+  dailyMission15mPoints: 500,
+  dailyMission30mPoints: 1_200,
+  dailyMission60mPoints: 2_800,
   referralQualifySeconds: 3_600, // 1 hour active verified watch
   referralBonusPoints: 5_000,
   maxDailyReferrals: 5,
@@ -102,7 +80,6 @@ export function getMolaApiToken(): string {
 export function getConfiguredSiteUrl(): string {
   const candidates = [
     process.env.SITE_URL,
-    process.env.APP_URL,
     process.env.VITE_SITE_URL,
   ];
   for (const cand of candidates) {
@@ -186,15 +163,6 @@ export function getGoogleIndexingServiceAccount(): {
         err instanceof Error ? err.message : String(err)
       );
     }
-  }
-
-  const email = (process.env.GOOGLE_INDEXING_CLIENT_EMAIL || '').trim();
-  const key = (process.env.GOOGLE_INDEXING_PRIVATE_KEY || '').trim();
-  if (email && key) {
-    return {
-      clientEmail: email,
-      privateKey: key.replace(/\\n/g, '\n'),
-    };
   }
 
   return null;
@@ -314,88 +282,30 @@ export interface RewardsRuntimeValues {
 }
 
 export function getRewardsRuntimeValues(): RewardsRuntimeValues {
-  const usdToIdrRate = parseBoundedIntEnv(
-    process.env.USD_TO_IDR_RATE,
-    REWARDS_DEFAULTS.usdToIdrRate,
-    1_000,
-    100_000
-  );
-  const pointsPerUsd = parseBoundedIntEnv(
-    process.env.POINTS_PER_USD,
-    REWARDS_DEFAULTS.pointsPerUsd,
-    100,
-    10_000_000
-  );
-  const minPayoutIdr = parseBoundedIntEnv(
-    process.env.MIN_PAYOUT_IDR,
-    REWARDS_DEFAULTS.minPayoutIdr,
-    REWARDS_DEFAULTS.minPayoutIdr,
-    50_000_000
-  );
-  const minPayoutUsd = parseBoundedFloatEnv(
-    process.env.MIN_PAYOUT_USD,
-    REWARDS_DEFAULTS.minPayoutUsd,
-    REWARDS_DEFAULTS.minPayoutUsd,
-    10_000
-  );
+  const {
+    usdToIdrRate,
+    pointsPerUsd,
+    minPayoutIdr,
+    minPayoutUsd,
+    maxDailyEarnPoints,
+    maxDailyWatchPoints,
+    claimCooldownSeconds,
+    dailyCheckinPoints,
+    watchEpisodePoints,
+    watchMinutePoints,
+    dailyMissionMaxWatchSeconds,
+    dailyMission15mPoints,
+    dailyMission30mPoints,
+    dailyMission60mPoints,
+    referralQualifySeconds,
+    referralBonusPoints,
+    maxDailyReferrals,
+    maxWeeklyReferrals,
+    maxDailyVerifiedWatchSeconds,
+  } = REWARDS_DEFAULTS;
 
   const minPayoutPointsIdr = Math.ceil((minPayoutIdr / usdToIdrRate) * pointsPerUsd);
   const minPayoutPointsUsd = Math.ceil(minPayoutUsd * pointsPerUsd);
-
-  const maxDailyEarnPoints = parseBoundedIntEnv(
-    process.env.MAX_DAILY_EARN_POINTS,
-    REWARDS_DEFAULTS.maxDailyEarnPoints,
-    50,
-    500_000
-  );
-  const maxDailyWatchPoints = parseBoundedIntEnv(
-    process.env.MAX_DAILY_WATCH_POINTS,
-    REWARDS_DEFAULTS.maxDailyWatchPoints,
-    20,
-    200_000
-  );
-  const watchMinutePoints = parseBoundedIntEnv(
-    process.env.WATCH_POINTS_PER_MINUTE,
-    REWARDS_DEFAULTS.watchMinutePoints,
-    1,
-    5_000
-  );
-  const claimCooldownSeconds = parseBoundedIntEnv(
-    process.env.CLAIM_COOLDOWN_SECONDS,
-    REWARDS_DEFAULTS.claimCooldownSeconds,
-    5,
-    3_600
-  );
-  const referralQualifySeconds = parseBoundedIntEnv(
-    process.env.REFERRAL_QUALIFY_SECONDS,
-    REWARDS_DEFAULTS.referralQualifySeconds,
-    REWARDS_DEFAULTS.referralQualifySeconds,
-    86_400
-  );
-  const referralBonusPoints = parseBoundedIntEnv(
-    process.env.REFERRAL_BONUS_POINTS,
-    REWARDS_DEFAULTS.referralBonusPoints,
-    50,
-    500_000
-  );
-  const maxDailyReferrals = parseBoundedIntEnv(
-    process.env.MAX_DAILY_REFERRALS,
-    REWARDS_DEFAULTS.maxDailyReferrals,
-    1,
-    50
-  );
-  const maxWeeklyReferrals = parseBoundedIntEnv(
-    process.env.MAX_WEEKLY_REFERRALS,
-    REWARDS_DEFAULTS.maxWeeklyReferrals,
-    1,
-    200
-  );
-  const maxDailyVerifiedWatchSeconds = parseBoundedIntEnv(
-    process.env.MAX_DAILY_VERIFIED_WATCH_SECONDS,
-    REWARDS_DEFAULTS.maxDailyVerifiedWatchSeconds,
-    3_600,
-    43_200
-  );
 
   return {
     usdToIdrRate,
@@ -407,14 +317,14 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     maxDailyEarnPoints,
     maxDailyWatchPoints,
     claimCooldownSeconds,
-    dailyCheckinPoints: REWARDS_DEFAULTS.dailyCheckinPoints,
-    watchEpisodePoints: REWARDS_DEFAULTS.watchEpisodePoints,
+    dailyCheckinPoints,
+    watchEpisodePoints,
     watchMinutePoints,
-    dailyMissionMaxWatchSeconds: REWARDS_DEFAULTS.dailyMissionMaxWatchSeconds,
+    dailyMissionMaxWatchSeconds,
     dailyMissionMilestones: [
-      { minutes: 15, bonusPoints: REWARDS_DEFAULTS.dailyMission15mPoints },
-      { minutes: 30, bonusPoints: REWARDS_DEFAULTS.dailyMission30mPoints },
-      { minutes: 60, bonusPoints: REWARDS_DEFAULTS.dailyMission60mPoints },
+      { minutes: 15, bonusPoints: dailyMission15mPoints },
+      { minutes: 30, bonusPoints: dailyMission30mPoints },
+      { minutes: 60, bonusPoints: dailyMission60mPoints },
     ],
     referralQualifySeconds,
     referralBonusPoints,

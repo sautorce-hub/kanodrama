@@ -790,10 +790,12 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     }
 
     if (
-      drama.provider === 'Melolo' &&
-      !failedUrl.includes('/api/melolo/decrypt')
+      (drama.provider === 'Melolo' || drama.provider === 'MeloLoV2') &&
+      !failedUrl.includes('/decrypt')
     ) {
-      const decrypted = ensureMeloloDecryptedUrl(failedUrl);
+      const decryptBase =
+        drama.provider === 'MeloLoV2' ? '/api/mola/melolov2' : '/api/mola/melolo';
+      const decrypted = ensureMeloloDecryptedUrl(failedUrl, decryptBase);
       if (decrypted && !triedStreamUrlsRef.current.has(decrypted)) {
         triedStreamUrlsRef.current.add(decrypted);
         setSelectedUrl(decrypted);
@@ -816,18 +818,20 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
       ),
       ...(streamData?.qualities ?? []),
     ];
+    const decryptBaseForProvider =
+      drama.provider === 'MeloLoV2' ? '/api/mola/melolov2' : '/api/mola/melolo';
+    const isMeloloVariant =
+      drama.provider === 'Melolo' || drama.provider === 'MeloLoV2';
     const fallback = candidates.find((q) => {
-      const candidateUrl =
-        drama.provider === 'Melolo'
-          ? ensureMeloloDecryptedUrl(q.url)
-          : q.url;
+      const candidateUrl = isMeloloVariant
+        ? ensureMeloloDecryptedUrl(q.url, decryptBaseForProvider)
+        : q.url;
       return Boolean(candidateUrl) && !triedStreamUrlsRef.current.has(candidateUrl);
     });
     if (fallback) {
-      const fallbackUrl =
-        drama.provider === 'Melolo'
-          ? ensureMeloloDecryptedUrl(fallback.url)
-          : fallback.url;
+      const fallbackUrl = isMeloloVariant
+        ? ensureMeloloDecryptedUrl(fallback.url, decryptBaseForProvider)
+        : fallback.url;
       rawSelectedUrlRef.current = fallbackUrl;
       triedStreamUrlsRef.current.add(fallbackUrl);
       setSelectedUrl(fallbackUrl);
@@ -906,10 +910,12 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
         data.qualities.find((q) => q.quality.includes('1080')) ??
         data.qualities.find((q) => q.quality.includes('720')) ??
         data.qualities[0];
-      const rawChosenUrl =
-        provider === 'Melolo'
-          ? ensureMeloloDecryptedUrl(data.streamUrl || preferred?.url || '')
-          : (preferred?.url ?? data.streamUrl);
+      const isMeloloProv = provider === 'Melolo' || provider === 'MeloLoV2';
+      const decryptBase =
+        provider === 'MeloLoV2' ? '/api/mola/melolov2' : '/api/mola/melolo';
+      const rawChosenUrl = isMeloloProv
+        ? ensureMeloloDecryptedUrl(data.streamUrl || preferred?.url || '', decryptBase)
+        : (preferred?.url ?? data.streamUrl);
       rawSelectedUrlRef.current = rawChosenUrl;
       const securedUrl = await signPlaybackUrl(rawChosenUrl);
       if (reqId !== streamReqIdRef.current) return;
@@ -918,7 +924,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
       }
       setSelectedUrl(securedUrl);
       setSelectedQuality(
-        provider === 'Melolo' && data.streamUrl === rawChosenUrl
+        isMeloloProv && data.streamUrl === rawChosenUrl
           ? 'HD'
           : (preferred?.quality ?? 'HD')
       );
@@ -955,6 +961,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
 
   useEffect(() => {
     if (!drama) return;
+    lastSavedTickRef.current = 0;
     retriedWithEpisodesRef.current = '';
     loadStream(drama.bookId, episodeNumber, drama.provider);
     void refreshDramaStats(drama.bookId, drama.provider);
@@ -2372,7 +2379,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
               }
               setCurrentTime(v.currentTime);
               const now = Date.now();
-              if (now - lastSavedTickRef.current >= 4500) {
+              if (now - lastSavedTickRef.current >= 3000) {
                 lastSavedTickRef.current = now;
                 onProgressUpdate?.(
                   episodeNumber,
@@ -2415,6 +2422,22 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
             onPlaying={() => {
               setIsBuffering(false);
               setIsPlaying(true);
+              const v = videoRef.current;
+              const now = Date.now();
+              if (v && now - lastSavedTickRef.current >= 3000) {
+                lastSavedTickRef.current = now;
+                onProgressUpdate?.(
+                  episodeNumber,
+                  v.currentTime,
+                  Number.isFinite(v.duration) ? v.duration : 0,
+                  false,
+                  {
+                    isPlaying: !v.paused && !v.ended,
+                    isBuffering: false,
+                    playbackRate: Number(v.playbackRate) || playbackSpeed,
+                  }
+                );
+              }
             }}
             onPlay={() => {
               setIsPlaying(true);

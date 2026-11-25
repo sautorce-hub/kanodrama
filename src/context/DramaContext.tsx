@@ -481,9 +481,9 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const [dailyMissionMilestones, setDailyMissionMilestones] = useState<
     Array<{ minutes: number; bonusPoints: number }>
   >([
-    { minutes: 15, bonusPoints: 100 },
-    { minutes: 30, bonusPoints: 200 },
-    { minutes: 60, bonusPoints: 400 },
+    { minutes: 15, bonusPoints: 500 },
+    { minutes: 30, bonusPoints: 1200 },
+    { minutes: 60, bonusPoints: 2800 },
   ]);
   const [dailyMissionStatuses, setDailyMissionStatuses] = useState<
     Array<{ minutes: number; bonusPoints: number; reached: boolean; claimed: boolean }>
@@ -1483,6 +1483,12 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       cancelled = true;
     };
   }, [visitorId, syncUserStreak, bindPendingReferralIfAny, hydrateUserLibraryFromPostgres, hydrateLikesFromPostgres, refreshPointsBalance]);
+
+  useEffect(() => {
+    if (user?.uid) {
+      void refreshPointsBalance();
+    }
+  }, [language, user?.uid, refreshPointsBalance]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -2619,8 +2625,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         }).catch(() => {});
       }
 
-      // Server-issued Watch Session + Heartbeat (~20s interval, active visible tab, not buffering, 1x speed)
-      if (user && !immediate && typeof document !== 'undefined') {
+      // Server-issued Watch Session + Heartbeat (15s interval -> exact 60s minute crediting)
+      if (user && typeof document !== 'undefined') {
         const tabVisible = !document.hidden;
         const videos = Array.from(document.querySelectorAll('video'));
         const activeVideo =
@@ -2640,15 +2646,30 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
             : 1;
         const isNewMedia = lastWatchHeartbeatMediaRef.current !== epSessionKey;
         const elapsedSinceHb = nowMs - lastWatchHeartbeatSentAtRef.current;
+        const exactVideoTime =
+          currentTime > 0
+            ? Math.round(currentTime * 100) / 100
+            : resolvedTime;
+        const canFlushEndingSegment =
+          immediate &&
+          !isNewMedia &&
+          watchSessionTokenRef.current?.mediaKey === epSessionKey &&
+          exactVideoTime > 0 &&
+          elapsedSinceHb >= 12_500;
+        const shouldSendRegularHb =
+          !immediate &&
+          isPlaying &&
+          (isNewMedia || elapsedSinceHb >= 15_000);
 
         if (
           tabVisible &&
-          isPlaying &&
           !isBuffering &&
           playbackRate >= 0.75 &&
           playbackRate <= 1.15 &&
-          (isNewMedia || elapsedSinceHb >= 20_000)
+          (shouldSendRegularHb || canFlushEndingSegment)
         ) {
+          const prevHbMedia = lastWatchHeartbeatMediaRef.current;
+          const prevHbSentAt = lastWatchHeartbeatSentAtRef.current;
           lastWatchHeartbeatMediaRef.current = epSessionKey;
           lastWatchHeartbeatSentAtRef.current = nowMs;
 
@@ -2658,7 +2679,13 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
               drama.provider,
               episode
             );
-            if (!sessionToken || !watchSessionTokenRef.current) return;
+            if (!sessionToken || !watchSessionTokenRef.current) {
+              if (lastWatchHeartbeatMediaRef.current === epSessionKey) {
+                lastWatchHeartbeatMediaRef.current = prevHbMedia;
+                lastWatchHeartbeatSentAtRef.current = prevHbSentAt;
+              }
+              return;
+            }
             watchSessionTokenRef.current.seq += 1;
             const seq = watchSessionTokenRef.current.seq;
 
@@ -2673,8 +2700,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
                 dramaId: drama.bookId,
                 provider: drama.provider,
                 episodeNumber: episode,
-                currentTimeSec: resolvedTime,
-                isPlaying,
+                currentTimeSec: exactVideoTime,
+                isPlaying: canFlushEndingSegment ? true : isPlaying,
                 isBuffering,
                 tabVisible,
                 playbackRate,
@@ -2720,11 +2747,21 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
               hb?.reason === 'session_expired'
             ) {
               watchSessionTokenRef.current = null;
+              if (lastWatchHeartbeatMediaRef.current === epSessionKey) {
+                lastWatchHeartbeatMediaRef.current = prevHbMedia;
+                lastWatchHeartbeatSentAtRef.current = prevHbSentAt;
+              }
               return;
             }
             if (hb) {
               setPointsDbConnected(true);
               setPointsDbError(null);
+              if (hb.reason === 'session_started') {
+                lastWatchHeartbeatSentAtRef.current = Math.max(
+                  lastWatchHeartbeatSentAtRef.current,
+                  Date.now()
+                );
+              }
               if (typeof hb.todayWatchSeconds === 'number') {
                 setTodayWatchSeconds(Math.max(0, Math.floor(hb.todayWatchSeconds)));
               }
@@ -2759,13 +2796,22 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
               if (typeof hb.pointsBalance === 'number') {
                 setPointsBalance(Math.max(0, Math.floor(hb.pointsBalance)));
               }
-              if (typeof hb.awardedWatchPoints === 'number' && hb.awardedWatchPoints > 0) {
-                pushToast(
-                  `+${hb.awardedWatchPoints.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit}!`,
-                  'gold'
-                );
+              const awardedWatch =
+                typeof hb.awardedWatchPoints === 'number' && hb.awardedWatchPoints > 0
+                  ? hb.awardedWatchPoints
+                  : 0;
+              if (awardedWatch > 0) {
+                const watchedMins =
+                  typeof hb.todayWatchSeconds === 'number'
+                    ? Math.floor(hb.todayWatchSeconds / 60)
+                    : 0;
+                const autoLabel =
+                  language === 'id'
+                    ? `+${awardedWatch.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit} nonton (${watchedMins}m)`
+                    : `+${awardedWatch.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit} (${watchedMins}m)`;
+                pushToast(autoLabel, 'gold');
               }
-              if (hb.referralQualified) {
+              if (awardedWatch > 0 || hb.referralQualified) {
                 void refreshPointsBalance();
               }
               if (
@@ -2790,7 +2836,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
             // Attempt Episode Bonus Claim only once >=15s verified under valid session token
             if (
               !claimedWatchRewardRef.current.has(epSessionKey) &&
-              Date.now() - lastWatchClaimAttemptRef.current >= 22_000
+              Date.now() - lastWatchClaimAttemptRef.current >= 15_000
             ) {
               lastWatchClaimAttemptRef.current = Date.now();
               const claimRes = await fetch('/api/points/claim', {
@@ -2831,7 +2877,12 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
                 }
               }
             }
-          })().catch(() => {});
+          })().catch(() => {
+            if (lastWatchHeartbeatMediaRef.current === epSessionKey) {
+              lastWatchHeartbeatMediaRef.current = prevHbMedia;
+              lastWatchHeartbeatSentAtRef.current = prevHbSentAt;
+            }
+          });
         }
       }
     },

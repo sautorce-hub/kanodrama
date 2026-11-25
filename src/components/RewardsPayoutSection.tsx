@@ -345,6 +345,9 @@ interface PayoutRequestItem {
 }
 
 interface UserPointsSummary {
+  timeZone?: string;
+  resetPeriodKey?: string;
+  nextResetAt?: string;
   balance: number;
   totalEarned: number;
   totalRedeemed: number;
@@ -413,16 +416,16 @@ const DEFAULT_CONFIG: PayoutConfig = {
   minPayoutPointsIdr: 274726,
   minPayoutPointsUsd: 500000,
   maxDailyEarnPoints: 25000,
-  maxDailyWatchPoints: 3500,
+  maxDailyWatchPoints: 10000,
   claimCooldownSeconds: 45,
   dailyCheckinPoints: 500,
   watchEpisodePoints: 200,
   watchMinutePoints: 20,
   dailyMissionMaxWatchSeconds: 3600,
   dailyMissionMilestones: [
-    { minutes: 15, bonusPoints: 100 },
-    { minutes: 30, bonusPoints: 200 },
-    { minutes: 60, bonusPoints: 400 },
+    { minutes: 15, bonusPoints: 500 },
+    { minutes: 30, bonusPoints: 1200 },
+    { minutes: 60, bonusPoints: 2800 },
   ],
   referralQualifySeconds: 3600,
   referralBonusPoints: 5000,
@@ -442,9 +445,9 @@ const DEFAULT_CONFIG: PayoutConfig = {
       dailyCheckinPoints: 500,
       watchEpisodePoints: 200,
       dailyMissionMilestones: [
-        { minutes: 15, bonusPoints: 100 },
-        { minutes: 30, bonusPoints: 200 },
-        { minutes: 60, bonusPoints: 400 },
+        { minutes: 15, bonusPoints: 500 },
+        { minutes: 30, bonusPoints: 1200 },
+        { minutes: 60, bonusPoints: 2800 },
       ],
     },
     {
@@ -459,9 +462,9 @@ const DEFAULT_CONFIG: PayoutConfig = {
       dailyCheckinPoints: 600,
       watchEpisodePoints: 240,
       dailyMissionMilestones: [
-        { minutes: 15, bonusPoints: 120 },
-        { minutes: 30, bonusPoints: 240 },
-        { minutes: 60, bonusPoints: 480 },
+        { minutes: 15, bonusPoints: 600 },
+        { minutes: 30, bonusPoints: 1440 },
+        { minutes: 60, bonusPoints: 3360 },
       ],
     },
     {
@@ -476,9 +479,9 @@ const DEFAULT_CONFIG: PayoutConfig = {
       dailyCheckinPoints: 700,
       watchEpisodePoints: 280,
       dailyMissionMilestones: [
-        { minutes: 15, bonusPoints: 140 },
-        { minutes: 30, bonusPoints: 280 },
-        { minutes: 60, bonusPoints: 560 },
+        { minutes: 15, bonusPoints: 700 },
+        { minutes: 30, bonusPoints: 1680 },
+        { minutes: 60, bonusPoints: 3920 },
       ],
     },
     {
@@ -493,9 +496,9 @@ const DEFAULT_CONFIG: PayoutConfig = {
       dailyCheckinPoints: 800,
       watchEpisodePoints: 320,
       dailyMissionMilestones: [
-        { minutes: 15, bonusPoints: 160 },
-        { minutes: 30, bonusPoints: 320 },
-        { minutes: 60, bonusPoints: 640 },
+        { minutes: 15, bonusPoints: 800 },
+        { minutes: 30, bonusPoints: 1920 },
+        { minutes: 60, bonusPoints: 4480 },
       ],
     },
   ],
@@ -555,38 +558,46 @@ const RelativeTimeText: React.FC<{ iso: string; lang: string }> = React.memo(
 );
 RelativeTimeText.displayName = 'RelativeTimeText';
 
-// Isolated 00:00 reset countdown widget (WIB UTC+7 for Indonesian, UTC for all other languages)
-const ResetCountdown: React.FC<{ lang: string }> = React.memo(({ lang }) => {
-  const [label, setLabel] = useState('');
-  const isWib = lang === 'id';
+// Isolated canonical reset countdown widget (single 00:00 WIB / 17:00 UTC server cycle, displayed in WIB for ID or UTC for other languages)
+const ResetCountdown: React.FC<{ lang: string; nextResetAt?: string | null }> = React.memo(
+  ({ lang, nextResetAt }) => {
+    const [label, setLabel] = useState('');
+    const isWib = lang === 'id';
 
-  useEffect(() => {
-    const offsetMs = isWib ? 7 * 3600 * 1000 : 0;
-    const update = () => {
-      const now = Date.now();
-      const tzMs = now + offsetMs;
-      const elapsedToday = tzMs % (24 * 3600 * 1000);
-      const remSec = Math.max(0, Math.floor((24 * 3600 * 1000 - elapsedToday) / 1000));
-      const h = Math.floor(remSec / 3600);
-      const m = Math.floor((remSec % 3600) / 60);
-      const s = remSec % 60;
-      setLabel(
-        `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-      );
-    };
-    update();
-    const id = window.setInterval(() => {
-      if (!document.hidden) update();
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [isWib]);
+    useEffect(() => {
+      const parsedNextResetMs = nextResetAt ? Date.parse(nextResetAt) : NaN;
+      const update = () => {
+        const now = Date.now();
+        let targetResetMs = parsedNextResetMs;
+        if (!Number.isFinite(targetResetMs) || targetResetMs <= now) {
+          // Canonical server reset: 00:00 WIB (Asia/Jakarta, UTC+7) === 17:00 UTC
+          const wibOffsetMs = 7 * 3600 * 1000;
+          const wibMs = now + wibOffsetMs;
+          const elapsedWibDay = wibMs % (24 * 3600 * 1000);
+          targetResetMs = now + (24 * 3600 * 1000 - elapsedWibDay);
+        }
+        const remSec = Math.max(0, Math.floor((targetResetMs - now) / 1000));
+        const h = Math.floor(remSec / 3600);
+        const m = Math.floor((remSec % 3600) / 60);
+        const s = remSec % 60;
+        setLabel(
+          `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+        );
+      };
+      update();
+      const id = window.setInterval(() => {
+        if (!document.hidden) update();
+      }, 1000);
+      return () => window.clearInterval(id);
+    }, [nextResetAt]);
 
-  return (
-    <span className="tabular-nums font-mono text-[11px] text-[#A1A1AA]">
-      {isWib ? `Reset 00:00 WIB (${label})` : `Resets 00:00 UTC (${label})`}
-    </span>
-  );
-});
+    return (
+      <span className="tabular-nums font-mono text-[11px] text-[#A1A1AA]">
+        {isWib ? `Reset 00:00 WIB (${label})` : `Resets 17:00 UTC (${label})`}
+      </span>
+    );
+  }
+);
 ResetCountdown.displayName = 'ResetCountdown';
 
 function generateIdempotencyKey(): string {
@@ -1046,6 +1057,7 @@ export const RewardsPayoutSection: React.FC = () => {
           summary?: UserPointsSummary;
           verifiedWatchSeconds?: number;
           todayWatchSeconds?: number;
+          awardedWatchPoints?: number;
           todayWatchPointsEarned?: number;
           pointsBalance?: number | null;
           referralQualified?: boolean;
@@ -1092,7 +1104,12 @@ export const RewardsPayoutSection: React.FC = () => {
             : prev
         );
       }
-      if (detail?.referralQualified || detail?.referralBound) {
+      if (
+        detail?.referralQualified ||
+        detail?.referralBound ||
+        (typeof detail?.awardedWatchPoints === 'number' &&
+          detail.awardedWatchPoints > 0)
+      ) {
         void loadPointsData();
       }
     };
@@ -1741,7 +1758,7 @@ export const RewardsPayoutSection: React.FC = () => {
     effectiveMilestoneConfigs.reduce((acc, m) => acc + m.bonusPoints, 0);
   const dailyWatchCap = Math.max(
     effectiveWatchMinutePoints,
-    config.maxDailyWatchPoints || 3500
+    config.maxDailyWatchPoints || 10000
   );
   const maxWatchMissionPoints = Math.min(dailyWatchCap, rawLevelWatchMax);
   const oneUsdtPoints = Math.max(1000, config.pointsPerUsd || 100000);
@@ -2227,8 +2244,8 @@ export const RewardsPayoutSection: React.FC = () => {
           </p>
           <p className="text-xs text-[#A1A1AA] max-w-lg mx-auto leading-relaxed">
             {isId
-              ? 'Check-in direset setiap hari pukul 00:00 WIB. Hadiah bertambah dengan bonus +50 poin pada hari ke-7 beruntun.'
-              : 'Daily check-ins reset at 00:00 UTC. Keep a 7-day consecutive streak to unlock a +50 pts bonus.'}
+              ? 'Check-in, milestone, dan batas harian direset serentak setiap hari pukul 00:00 WIB (17:00 UTC). Hadiah bertambah dengan bonus +50 poin pada hari ke-7 beruntun.'
+              : 'Daily check-ins, milestones, and daily caps reset together once per day at 17:00 UTC (00:00 WIB). Keep a 7-day consecutive streak to unlock a +50 pts bonus.'}
           </p>
         </div>
 
@@ -2240,12 +2257,12 @@ export const RewardsPayoutSection: React.FC = () => {
                 <Shield className="w-4 h-4" />
               </span>
               <span className="text-sm font-bold text-white">
-                {isId ? 'Sinkronisasi WIB & Anti-Curang' : 'UTC Streak & Verified Watch'}
+                {isId ? 'Sinkronisasi Reset Server & Anti-Curang' : 'Server Reset Sync & Verified Watch'}
               </span>
             </div>
 
             <span className="inline-flex items-center px-3 py-1 rounded-full border border-amber-500/40 bg-amber-500/10 text-[11px] font-semibold text-amber-200">
-              <ResetCountdown lang={language} />
+              <ResetCountdown lang={language} nextResetAt={summary?.nextResetAt} />
             </span>
           </div>
 

@@ -599,13 +599,13 @@ const SECTION_SEO_COPY: Record<
       path: '/explore',
       title: 'Watch Free Vertical Short Dramas by Genre & Filter | KanoDrama',
       description:
-        'Explore and watch free 49+ short drama platforms by CEO, Romance, Revenge, Fantasy, completion status, and rating on KanoDrama.',
+        'Explore and watch free 89+ short drama platforms by CEO, Romance, Revenge, Fantasy, completion status, and rating on KanoDrama.',
     },
     providers: {
       path: '/providers',
-      title: 'All Short Drama Providers — Watch Free HD Across 49+ Platforms | KanoDrama',
+      title: 'All Short Drama Providers — Watch Free HD Across 89+ Platforms | KanoDrama',
       description:
-        'Browse 49+ vertical short drama providers and watch free HD series from DramaBox, Melolo, NetShort, ReelShort, GoodShort, and FreeReels on KanoDrama.',
+        'Browse 89+ vertical short drama providers and watch free HD series from DramaBox, Melolo, NetShort, ReelShort, GoodShort, and FreeReels on KanoDrama.',
     },
     trending: {
       path: '/trending',
@@ -617,7 +617,7 @@ const SECTION_SEO_COPY: Record<
       path: '/latest',
       title: 'Watch Free Latest Short Dramas — Fresh Daily Releases | KanoDrama',
       description:
-        'Watch free newly released episodes and premiering short drama series updated daily across 49+ platforms on KanoDrama.',
+        'Watch free newly released episodes and premiering short drama series updated daily across 89+ platforms on KanoDrama.',
     },
     vip: {
       path: '/vip',
@@ -673,13 +673,13 @@ const SECTION_SEO_COPY: Record<
       path: '/explore',
       title: 'Nonton Gratis Drama Pendek berdasarkan Genre & Filter | KanoDrama',
       description:
-        'Saring katalog dari 49+ platform dan nonton gratis berdasarkan CEO, Romansa, Balas Dendam, Fantasi, status tamat, dan rating di KanoDrama.',
+        'Saring katalog dari 89+ platform dan nonton gratis berdasarkan CEO, Romansa, Balas Dendam, Fantasi, status tamat, dan rating di KanoDrama.',
     },
     providers: {
       path: '/providers',
-      title: 'Daftar Lengkap Provider Drama Pendek — Nonton Gratis 49+ Platform | KanoDrama',
+      title: 'Daftar Lengkap Provider Drama Pendek — Nonton Gratis 89+ Platform | KanoDrama',
       description:
-        'Jelajahi 49+ platform penyedia drama pendek vertikal dan nonton gratis DramaBox, Melolo, NetShort, ReelShort, GoodShort, serta FreeReels di KanoDrama.',
+        'Jelajahi 89+ platform penyedia drama pendek vertikal dan nonton gratis DramaBox, Melolo, NetShort, ReelShort, GoodShort, serta FreeReels di KanoDrama.',
     },
     trending: {
       path: '/trending',
@@ -691,7 +691,7 @@ const SECTION_SEO_COPY: Record<
       path: '/latest',
       title: 'Nonton Gratis Rilis Terbaru — Drama Pendek Update Harian | KanoDrama',
       description:
-        'Nonton gratis episode terbaru dan serial drama pendek perdana yang diperbarui setiap hari dari 49+ platform di KanoDrama.',
+        'Nonton gratis episode terbaru dan serial drama pendek perdana yang diperbarui setiap hari dari 89+ platform di KanoDrama.',
     },
     vip: {
       path: '/vip',
@@ -727,7 +727,7 @@ const SECTION_SEO_COPY: Record<
       path: '/rewards',
       title: 'Nonton Drama Dapat Poin & Saldo DANA — Reward KanoDrama',
       description:
-        'Nonton drama China & short drama dapat hadiah di KanoDrama! Kumpulkan poin harian (+5 poin/menit), check-in streak WIB, undang teman (+1.000 poin), dan tarik ke DANA, GoPay, Bank, PayPal, atau USDT.',
+        'Nonton drama China & short drama dapat hadiah di KanoDrama! Kumpulkan poin harian (+20 poin/menit), check-in streak WIB, undang teman (+5.000 poin), dan tarik ke DANA, GoPay, Bank, PayPal, atau USDT.',
     },
   },
   cn: {
@@ -735,7 +735,7 @@ const SECTION_SEO_COPY: Record<
       path: '/',
       title: 'KanoDrama — 在线高清观看热门竖屏短剧与亚洲剧集',
       description:
-        '在 KanoDrama 免费畅看来自 49+ 平台的超清竖屏短剧、霸总甜宠、豪门复仇与亚洲热门剧集。',
+        '在 KanoDrama 免费畅看来自 89+ 平台的超清竖屏短剧、霸总甜宠、豪门复仇与亚洲热门剧集。',
     },
     movies: {
       path: '/movies',
@@ -747,13 +747,13 @@ const SECTION_SEO_COPY: Record<
       path: '/explore',
       title: '按题材与评分探索全部短剧 | KanoDrama',
       description:
-        '在 49+ 短剧片源中按霸总、言情、复仇、玄幻、完结状态与评分快速筛选。',
+        '在 89+ 短剧片源中按霸总、言情、复仇、玄幻、完结状态与评分快速筛选。',
     },
     providers: {
       path: '/providers',
-      title: '短剧片源平台大全 — 49+ 热门平台 | KanoDrama',
+      title: '短剧片源平台大全 — 89+ 热门平台 | KanoDrama',
       description:
-        '浏览 KanoDrama 收录的 DramaBox、Melolo、NetShort、ReelShort 等 49+ 竖屏短剧片源中心。',
+        '浏览 KanoDrama 收录的 DramaBox、Melolo、NetShort、ReelShort 等 89+ 竖屏短剧片源中心。',
     },
     trending: {
       path: '/trending',
@@ -765,7 +765,7 @@ const SECTION_SEO_COPY: Record<
       path: '/latest',
       title: '最新上线 — 每日更新热门短剧 | KanoDrama',
       description:
-        '每日同步更新来自 49+ 平台的全新短剧集数与首播剧目。',
+        '每日同步更新来自 89+ 平台的全新短剧集数与首播剧目。',
     },
     vip: {
       path: '/vip',
@@ -804,7 +804,7 @@ const SECTION_SEO_COPY: Record<
       path: '/',
       title: 'KanoDrama — Xem Phim Ngắn Dọc HD & Phim Bộ Châu Á Trực Tuyến',
       description:
-        'Xem miễn phí phim ngắn dọc HD, ngôn tình tổng tài, báo thù và series châu Á từ hơn 49 nền tảng trên KanoDrama.',
+        'Xem miễn phí phim ngắn dọc HD, ngôn tình tổng tài, báo thù và series châu Á từ hơn 89 nền tảng trên KanoDrama.',
     },
     movies: {
       path: '/movies',
@@ -816,13 +816,13 @@ const SECTION_SEO_COPY: Record<
       path: '/explore',
       title: 'Khám Phá Phim Ngắn Theo Thể Loại & Bộ Lọc | KanoDrama',
       description:
-        'Lọc phim từ 49+ nền tảng theo Tổng tài, Ngôn tình, Báo thù, Huyền huyễn, trạng thái và đánh giá.',
+        'Lọc phim từ 89+ nền tảng theo Tổng tài, Ngôn tình, Báo thù, Huyền huyễn, trạng thái và đánh giá.',
     },
     providers: {
       path: '/providers',
-      title: 'Danh Bạ Nhà Cung Cấp Phim Ngắn — 49+ Nền Tảng | KanoDrama',
+      title: 'Danh Bạ Nhà Cung Cấp Phim Ngắn — 89+ Nền Tảng | KanoDrama',
       description:
-        'Khám phá 49+ nền tảng phim ngắn như DramaBox, Melolo, NetShort, ReelShort, GoodShort trên KanoDrama.',
+        'Khám phá 89+ nền tảng phim ngắn như DramaBox, Melolo, NetShort, ReelShort, GoodShort trên KanoDrama.',
     },
     trending: {
       path: '/trending',
@@ -834,7 +834,7 @@ const SECTION_SEO_COPY: Record<
       path: '/latest',
       title: 'Phim Mới Phát Hành — Cập Nhật Hàng Ngày | KanoDrama',
       description:
-        'Đón xem các tập mới nhất và series mới ra mắt được cập nhật mỗi ngày từ 49+ nguồn phim.',
+        'Đón xem các tập mới nhất và series mới ra mắt được cập nhật mỗi ngày từ 89+ nguồn phim.',
     },
     vip: {
       path: '/vip',
@@ -873,7 +873,7 @@ const SECTION_SEO_COPY: Record<
       path: '/',
       title: 'KanoDrama — Ver Dramas Cortos Verticales HD y Series Asiáticas Online',
       description:
-        'Disfruta gratis de dramas cortos verticales HD, romance de CEO, historias de venganza y series asiáticas de 49+ plataformas en KanoDrama.',
+        'Disfruta gratis de dramas cortos verticales HD, romance de CEO, historias de venganza y series asiáticas de 89+ plataformas en KanoDrama.',
     },
     movies: {
       path: '/movies',
@@ -885,13 +885,13 @@ const SECTION_SEO_COPY: Record<
       path: '/explore',
       title: 'Explorar Dramas Cortos por Género y Filtro | KanoDrama',
       description:
-        'Filtra más de 49 plataformas de dramas cortos por CEO, Romance, Venganza, Fantasía, estado y valoración.',
+        'Filtra más de 89 plataformas de dramas cortos por CEO, Romance, Venganza, Fantasía, estado y valoración.',
     },
     providers: {
       path: '/providers',
-      title: 'Directorio de Proveedores de Dramas Cortos — 49+ Plataformas | KanoDrama',
+      title: 'Directorio de Proveedores de Dramas Cortos — 89+ Plataformas | KanoDrama',
       description:
-        'Explora más de 49 plataformas de dramas cortos verticales como DramaBox, Melolo, NetShort y ReelShort en KanoDrama.',
+        'Explora más de 89 plataformas de dramas cortos verticales como DramaBox, Melolo, NetShort y ReelShort en KanoDrama.',
     },
     trending: {
       path: '/trending',
@@ -938,7 +938,7 @@ const SECTION_SEO_COPY: Record<
     home: {
       path: '/',
       title: 'KanoDrama — HD 세로형 숏드라마 & 아시아 시리즈 무료 감상',
-      description: '49개 이상 플랫폼의 인기 세로형 숏드라마, 재벌 로맨스, 복수극을 HD로 무료 시청하세요.',
+      description: '89개 이상 플랫폼의 인기 세로형 숏드라마, 재벌 로맨스, 복수극을 HD로 무료 시청하세요.',
     },
     movies: {
       path: '/movies',
@@ -952,8 +952,8 @@ const SECTION_SEO_COPY: Record<
     },
     providers: {
       path: '/providers',
-      title: '전체 숏드라마 플랫폼 디렉터리 — 49+ 제공사 | KanoDrama',
-      description: 'DramaBox, Melolo, NetShort, ReelShort 등 49개 이상의 숏드라마 플랫폼을 한곳에서 탐색하세요.',
+      title: '전체 숏드라마 플랫폼 디렉터리 — 89+ 제공사 | KanoDrama',
+      description: 'DramaBox, Melolo, NetShort, ReelShort 등 89개 이상의 숏드라마 플랫폼을 한곳에서 탐색하세요.',
     },
     trending: {
       path: '/trending',
@@ -963,7 +963,7 @@ const SECTION_SEO_COPY: Record<
     latest: {
       path: '/latest',
       title: '최신 공개 숏드라마 — 매일 업데이트 | KanoDrama',
-      description: '49개 이상 플랫폼에서 매일 업데이트되는 최신 에피소드와 신작을 만나보세요.',
+      description: '89개 이상 플랫폼에서 매일 업데이트되는 최신 에피소드와 신작을 만나보세요.',
     },
     vip: {
       path: '/vip',
@@ -1000,7 +1000,7 @@ const SECTION_SEO_COPY: Record<
     home: {
       path: '/',
       title: 'KanoDrama — 高画質HD 縦型ショートドラマ＆アジア作品オンライン視聴',
-      description: '49以上の配信プラットフォームからCEOロマンス、復讐劇、アジアショートドラマをHD画質で無料視聴。',
+      description: '89以上の配信プラットフォームからCEOロマンス、復讐劇、アジアショートドラマをHD画質で無料視聴。',
     },
     movies: {
       path: '/movies',
@@ -1010,12 +1010,12 @@ const SECTION_SEO_COPY: Record<
     explore: {
       path: '/explore',
       title: 'ジャンル＆条件でショートドラマを探す | KanoDrama',
-      description: 'CEO、恋愛、復讐、ファンタジー、完結状況、評価で49以上の配信元から検索。',
+      description: 'CEO、恋愛、復讐、ファンタジー、完結状況、評価で89以上の配信元から検索。',
     },
     providers: {
       path: '/providers',
-      title: 'ショートドラマ配信プラットフォーム一覧 — 49+ 対応 | KanoDrama',
-      description: 'DramaBox、Melolo、NetShort、ReelShort など49以上の縦型ショートドラマ配信元を KanoDrama でまとめて探索。',
+      title: 'ショートドラマ配信プラットフォーム一覧 — 89+ 対応 | KanoDrama',
+      description: 'DramaBox、Melolo、NetShort、ReelShort など89以上の縦型ショートドラマ配信元を KanoDrama でまとめて探索。',
     },
     trending: {
       path: '/trending',
@@ -1062,7 +1062,7 @@ const SECTION_SEO_COPY: Record<
     home: {
       path: '/',
       title: 'KanoDrama — ดูมินิซีรีส์แนวตั้ง HD และซีรีส์เอเชียออนไลน์ฟรี',
-      description: 'รับชมมินิซีรีส์แนวตั้ง HD ซีรีส์ท่านประธาน ล้างแค้น และซีรีส์เอเชียฟรีกว่า 49 แพลตฟอร์มบน KanoDrama',
+      description: 'รับชมมินิซีรีส์แนวตั้ง HD ซีรีส์ท่านประธาน ล้างแค้น และซีรีส์เอเชียฟรีกว่า 89 แพลตฟอร์มบน KanoDrama',
     },
     movies: {
       path: '/movies',
@@ -1072,12 +1072,12 @@ const SECTION_SEO_COPY: Record<
     explore: {
       path: '/explore',
       title: 'สำรวจมินิซีรีส์ตามแนวเรื่องและตัวกรอง | KanoDrama',
-      description: 'คัดกรองกว่า 49 แพลตฟอร์มตามแนวท่านประธาน โรแมนติก แก้แค้น แฟนตาซี และคะแนนรีวิว',
+      description: 'คัดกรองกว่า 89 แพลตฟอร์มตามแนวท่านประธาน โรแมนติก แก้แค้น แฟนตาซี และคะแนนรีวิว',
     },
     providers: {
       path: '/providers',
-      title: 'รวมผู้ให้บริการมินิซีรีส์ทั้งหมด — 49+ แพลตฟอร์ม | KanoDrama',
-      description: 'สำรวจกว่า 49 แพลตฟอร์มมินิซีรีส์แนวตั้ง เช่น DramaBox, Melolo, NetShort และ ReelShort บน KanoDrama',
+      title: 'รวมผู้ให้บริการมินิซีรีส์ทั้งหมด — 89+ แพลตฟอร์ม | KanoDrama',
+      description: 'สำรวจกว่า 89 แพลตฟอร์มมินิซีรีส์แนวตั้ง เช่น DramaBox, Melolo, NetShort และ ReelShort บน KanoDrama',
     },
     trending: {
       path: '/trending',
@@ -1124,7 +1124,7 @@ const SECTION_SEO_COPY: Record<
     home: {
       path: '/',
       title: 'KanoDrama — Tonton Drama Pendek Menegak HD & Siri Asia Dalam Talian',
-      description: 'Strim drama pendek menegak HD, romantik CEO, balas dendam dan siri Asia percuma daripada 49+ platform di KanoDrama.',
+      description: 'Strim drama pendek menegak HD, romantik CEO, balas dendam dan siri Asia percuma daripada 89+ platform di KanoDrama.',
     },
     movies: {
       path: '/movies',
@@ -1134,12 +1134,12 @@ const SECTION_SEO_COPY: Record<
     explore: {
       path: '/explore',
       title: 'Teroka Semua Drama Pendek Mengikut Genre & Penapis | KanoDrama',
-      description: 'Tapis 49+ platform drama pendek mengikut CEO, Romantik, Balas Dendam, Fantasi, status tamat dan rating.',
+      description: 'Tapis 89+ platform drama pendek mengikut CEO, Romantik, Balas Dendam, Fantasi, status tamat dan rating.',
     },
     providers: {
       path: '/providers',
-      title: 'Direktori Penyedia Drama Pendek — 49+ Platform | KanoDrama',
-      description: 'Teroka 49+ platform drama pendek menegak seperti DramaBox, Melolo, NetShort dan ReelShort di KanoDrama.',
+      title: 'Direktori Penyedia Drama Pendek — 89+ Platform | KanoDrama',
+      description: 'Teroka 89+ platform drama pendek menegak seperti DramaBox, Melolo, NetShort dan ReelShort di KanoDrama.',
     },
     trending: {
       path: '/trending',
@@ -1186,7 +1186,7 @@ const SECTION_SEO_COPY: Record<
     home: {
       path: '/',
       title: 'KanoDrama — Manood ng HD Vertical Short Dramas at Asian Series Online',
-      description: 'Mag-stream ng trending HD vertical short dramas, CEO romance, paghihiganti at Asian mini-series nang libre mula 49+ platform sa KanoDrama.',
+      description: 'Mag-stream ng trending HD vertical short dramas, CEO romance, paghihiganti at Asian mini-series nang libre mula 89+ platform sa KanoDrama.',
     },
     movies: {
       path: '/movies',
@@ -1196,12 +1196,12 @@ const SECTION_SEO_COPY: Record<
     explore: {
       path: '/explore',
       title: 'Mag-explore ng Short Dramas ayon sa Genre at Filter | KanoDrama',
-      description: 'I-filter ang 49+ short drama platforms ayon sa CEO, Romance, Revenge, Fantasy, status at rating.',
+      description: 'I-filter ang 89+ short drama platforms ayon sa CEO, Romance, Revenge, Fantasy, status at rating.',
     },
     providers: {
       path: '/providers',
-      title: 'Direktoryo ng Mga Short Drama Provider — 49+ Platforms | KanoDrama',
-      description: 'Tuklasin ang 49+ vertical short drama platforms tulad ng DramaBox, Melolo, NetShort at ReelShort sa KanoDrama.',
+      title: 'Direktoryo ng Mga Short Drama Provider — 89+ Platforms | KanoDrama',
+      description: 'Tuklasin ang 89+ vertical short drama platforms tulad ng DramaBox, Melolo, NetShort at ReelShort sa KanoDrama.',
     },
     trending: {
       path: '/trending',
@@ -1588,16 +1588,16 @@ export function generateMetadata(
       tl: `Panoorin Nang Libre ${tag} Vertical Short Dramas sa HD | KanoDrama`,
     };
     const tagDescMap: Record<LanguageCode, string> = {
-      id: `Nonton gratis drama pendek ${tag} terpopuler dari 49+ platform dalam kualitas HD di KanoDrama.`,
-      en: `Watch free trending ${tag} vertical short dramas and binge-worthy mini-series across 49+ platforms in HD on KanoDrama.`,
+      id: `Nonton gratis drama pendek ${tag} terpopuler dari 89+ platform dalam kualitas HD di KanoDrama.`,
+      en: `Watch free trending ${tag} vertical short dramas and binge-worthy mini-series across 89+ platforms in HD on KanoDrama.`,
       cn: `在 KanoDrama 免费高清观看热门 ${tag} 竖屏短剧合集。`,
-      vi: `Xem miễn phí tuyển tập phim ngắn ${tag} thịnh hành từ 49+ nền tảng chuẩn HD.`,
-      es: `Ver gratis los mejores dramas cortos verticales de ${tag} de 49+ plataformas en HD.`,
-      ko: `49개+ 플랫폼의 인기 ${tag} 세로형 숏드라마를 HD로 무료 감상하세요.`,
-      ja: `49以上の配信元から厳選された${tag}ショートドラマをHD画質で無料視聴。`,
-      th: `ดูฟรีมินิซีรีส์แนว ${tag} ยอดนิยมจากกว่า 49 แพลตฟอร์มในระดับ HD`,
-      ms: `Tonton percuma drama pendek ${tag} paling popular daripada 49+ platform dalam HD.`,
-      tl: `Panoorin nang libre ang sikat na ${tag} vertical short dramas mula 49+ platforms sa HD.`,
+      vi: `Xem miễn phí tuyển tập phim ngắn ${tag} thịnh hành từ 89+ nền tảng chuẩn HD.`,
+      es: `Ver gratis los mejores dramas cortos verticales de ${tag} de 89+ plataformas en HD.`,
+      ko: `89개+ 플랫폼의 인기 ${tag} 세로형 숏드라마를 HD로 무료 감상하세요.`,
+      ja: `89以上の配信元から厳選された${tag}ショートドラマをHD画質で無料視聴。`,
+      th: `ดูฟรีมินิซีรีส์แนว ${tag} ยอดนิยมจากกว่า 89 แพลตฟอร์มในระดับ HD`,
+      ms: `Tonton percuma drama pendek ${tag} paling popular daripada 89+ platform dalam HD.`,
+      tl: `Panoorin nang libre ang sikat na ${tag} vertical short dramas mula 89+ platforms sa HD.`,
     };
     title = tagTitleMap[lang];
     description = composeRichMetaDescription(

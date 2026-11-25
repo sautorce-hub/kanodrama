@@ -147,15 +147,21 @@ import {
   getStreamSigningSecret,
   resolveServerPort,
 } from './server/config.ts';
-import type { LanguageCode, LanguagePreference } from './src/types/drama.ts';
+import type {
+  LanguageCode,
+  LanguagePreference,
+  ProviderName,
+} from './src/types/drama.ts';
 
 const PORT = resolveServerPort();
 const IS_PROD = process.env.NODE_ENV === 'production';
 const MOLATV_API_BASE = 'https://api.molatv.id/api';
-const DRAMABOX_BASE_URL = `${MOLATV_API_BASE}/dramaboxv2`;
+const DRAMABOX_BASE_URL = `${MOLATV_API_BASE}/dramabox`;
+const DRAMABOX_V2_BASE_URL = `${MOLATV_API_BASE}/dramaboxv2`;
 const NETSHORT_BASE_URL = `${MOLATV_API_BASE}/netshort`;
 const ANYREEL_BASE_URL = `${MOLATV_API_BASE}/anyreel`;
 const MELOLO_BASE_URL = `${MOLATV_API_BASE}/melolo`;
+const MELOLO_V2_BASE_URL = `${MOLATV_API_BASE}/melolov2`;
 const DEFAULT_OG_IMAGE_PATH =
   '/assets/aistudio/file_00000000f37c8211a740b95cbbe03886_b90a3ae0.png';
 
@@ -163,56 +169,7 @@ function getMolaToken(): string {
   return getMolaApiToken();
 }
 
-type SsrProviderName =
-  | 'DramaBox'
-  | 'NetShort'
-  | 'AnyReel'
-  | 'Melolo'
-  | 'DramaOra'
-  | 'MeloShort'
-  | 'PetaDrama'
-  | 'RadReels'
-  | 'DramaVerse'
-  | 'KalosTV'
-  | 'StardustTV'
-  | 'StarShort'
-  | 'DramaBite'
-  | 'LoveShots'
-  | 'MyDrama'
-  | 'ShotShort'
-  | 'MoboReels'
-  | 'BlinkDrama'
-  | 'WeTV'
-  | 'CubeTV'
-  | 'MicroDrama'
-  | 'FlareFlow'
-  | 'FunDrama'
-  | 'FreeShort'
-  | 'ToonShort'
-  | 'HappyShort'
-  | 'DramaDash'
-  | 'StoryReel'
-  | 'StoryReelV2'
-  | 'VibeShort'
-  | 'VibeShortV2'
-  | 'FlickReels'
-  | 'DramaWave'
-  | 'FreeReels'
-  | 'PineDrama'
-  | 'ShortMax'
-  | 'ShortMaxV2'
-  | 'FlexTV'
-  | 'Vigloo'
-  | 'DotDrama'
-  | 'iDrama'
-  | 'iDramaV2'
-  | 'GoodShort'
-  | 'ReelShort'
-  | 'ReelShortV2'
-  | 'JoyReels'
-  | 'SodaReels'
-  | 'BonusTV'
-  | 'iQIYI';
+type SsrProviderName = ProviderName;
 
 interface SsrDrama {
   bookId: string;
@@ -1406,9 +1363,13 @@ function parseSsrProviderName(raw: string | undefined | null): SsrProviderName {
   const norm = (raw || '').trim().toLowerCase();
   const map: Record<string, SsrProviderName> = {
     dramabox: 'DramaBox',
+    dramaboxv2: 'DramaBoxV2',
+    dramabox_v2: 'DramaBoxV2',
     netshort: 'NetShort',
     anyreel: 'AnyReel',
     melolo: 'Melolo',
+    melolov2: 'MeloLoV2',
+    melolo_v2: 'MeloLoV2',
     dramaora: 'DramaOra',
     meloshort: 'MeloShort',
     petadrama: 'PetaDrama',
@@ -1460,6 +1421,46 @@ function parseSsrProviderName(raw: string | undefined | null): SsrProviderName {
     sodareels: 'SodaReels',
     bonustv: 'BonusTV',
     iqiyi: 'iQIYI',
+    audiotoon: 'AudioToon',
+    playlet: 'Playlet',
+    momeshort: 'MomeShort',
+    storeel: 'StoReel',
+    mymuse: 'MyMuse',
+    huangdou: 'HuangDou',
+    moreshort: 'MoreShort',
+    dramarush: 'DramaRush',
+    shortswave: 'Shortswave',
+    relala: 'Relala',
+    sixthshort: 'SixthShort',
+    snackshort: 'SnackShort',
+    soreel: 'Soreel',
+    stareel: 'StarReel',
+    starreel: 'StarReel',
+    storygo: 'StoryGo',
+    minishort: 'MiniShort',
+    shorten: 'Shorten',
+    velolo: 'Velolo',
+    reelpine: 'ReelPine',
+    dynastyshorts: 'DynastyShorts',
+    dynasty_shorts: 'DynastyShorts',
+    dramashorts: 'DramaShorts',
+    tallflix: 'TallFlix',
+    qlax: 'Qlax',
+    shortical: 'Shortical',
+    luzicine: 'LuziCine',
+    zebrashort: 'ZebraShort',
+    drakorid: 'DrakorID',
+    drachinreborn: 'DrachinReborn',
+    dramaqueen: 'DramaQueen',
+    ansflix: 'Ansflix',
+    lupacine: 'LupaCine',
+    reellife: 'ReelLife',
+    bstation: 'Bstation',
+    anichin: 'Anichin',
+    donghuaqueen: 'DonghuaQueen',
+    samehadaku: 'Samehadaku',
+    animex: 'AnimeX',
+    winknovel: 'WinkNovel',
   };
   return map[norm] ?? 'DramaBox';
 }
@@ -1567,8 +1568,20 @@ function getProviderConfigForSsr(providerHint: SsrProviderName): {
       return { baseUrl: `${MOLATV_API_BASE}/bonustv`, langParam: 'en', idParam: 'book_id' };
     case 'iQIYI':
       return { baseUrl: `${MOLATV_API_BASE}/iqiyi`, langParam: 'en', idParam: 'album_id' };
-    default:
+    case 'DramaBox':
       return { baseUrl: DRAMABOX_BASE_URL, langParam: 'en', idParam: 'book_id' };
+    case 'DramaBoxV2':
+      return { baseUrl: DRAMABOX_V2_BASE_URL, langParam: 'en', idParam: 'book_id' };
+    case 'MeloLoV2':
+      return { baseUrl: MELOLO_V2_BASE_URL, langParam: 'en', idParam: 'book_id' };
+    case 'StarReel':
+      return { baseUrl: `${MOLATV_API_BASE}/stareel`, langParam: 'en', idParam: 'book_id' };
+    default:
+      return {
+        baseUrl: `${MOLATV_API_BASE}/${getProviderRouteSlug(providerHint)}`,
+        langParam: 'en',
+        idParam: 'book_id',
+      };
   }
 }
 
@@ -1625,7 +1638,7 @@ async function fetchDramaForSsr(
         const normalizedCover =
           rawCover &&
           (rawCover.startsWith('http://') ||
-            (providerHint === 'Melolo' &&
+            ((providerHint === 'Melolo' || providerHint === 'MeloLoV2') &&
               (rawCover.toLowerCase().includes('.heic') ||
                 rawCover.toLowerCase().includes('fizzopic.org'))))
             ? `/api/proxy?url=${encodeURIComponent(rawCover)}`
@@ -5133,7 +5146,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               : 400;
           const message =
             result.reason === 'duplicate_claim'
-              ? 'Check-in harian hari ini sudah diklaim (reset pukul 00:00 waktu lokal).'
+              ? 'Check-in harian untuk periode berjalan sudah diklaim (reset serentak pukul 00:00 WIB / 17:00 UTC).'
               : result.reason === 'daily_cap_reached'
               ? `Batas poin harian (${cfg.maxDailyEarnPoints} pts) hari ini sudah tercapai.`
               : 'Unable to complete daily check-in';
@@ -6594,7 +6607,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       '## Primary Sections',
       `- [Home](${siteOrigin}/): Beranda KanoDrama — streaming drama pendek, serial Asia, drama China/Korea, dan film gratis Sub Indo.`,
       `- [Explore Catalog](${siteOrigin}/explore): Browse and watch free from the full multi-provider short drama catalog.`,
-      `- [Providers Directory](${siteOrigin}/providers): Full directory of 49+ short drama providers including DramaBox, NetShort, Melolo, AnyReel, ReelShort, GoodShort, and DramaWave.`,
+      `- [Providers Directory](${siteOrigin}/providers): Full directory of 89+ short drama providers including DramaBox, NetShort, Melolo, AnyReel, ReelShort, GoodShort, and DramaWave.`,
       `- [Trending Series](${siteOrigin}/trending): Watch free daily most-watched and top-ranked short dramas.`,
       `- [Latest Releases](${siteOrigin}/latest): Watch free newly added episodes and recent drama premieres.`,
       `- [VIP Selection](${siteOrigin}/vip): Watch free premium vertical drama series and complete boxsets.`,
@@ -7362,11 +7375,16 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         ? cleanPath.match(/^\/movie\/([^/]+)$/i)
         : null;
 
-      const legacyProvMatch =
+      const rawLegacyProvMatch =
         !scopedMatch && !providerHubMatch && !legacyMovieSlugMatch
-          ? cleanPath.match(
-              /^\/drama\/(dramabox|netshort|anyreel|melolo|dramaora|meloshort|petadrama|radreels|dramaverse|kalostv|stardusttv|stardust|starshort|dramabite|loveshots|mydrama|shotshort|moboreels|blinkdrama|wetv|cubetv|microdrama|flareflow|fundrama|freeshort|toonshort|happyshort|dramadash|storyreel_v2|storyreelv2|storyreel|vibeshort_v2|vibeshortv2|vibeshort|flickreels|dramawave|freereels|pinedrama|shortmax_v2|shortmaxv2|shortmax|flextv|vigloo|dotdrama|idrama_v2|idramav2|idrama|goodshort|reelshort_v2|reelshortv2|reelshort|joyreels|sodareels|bonustv|iqiyi)\/([^/]+)$/i
-            )
+          ? cleanPath.match(/^\/drama\/([a-z0-9_]+)\/([^/]+)$/i)
+          : null;
+      const legacyProvMatch =
+        rawLegacyProvMatch &&
+        isKnownProviderRouteSlug(rawLegacyProvMatch[1]) &&
+        rawLegacyProvMatch[1].toLowerCase() !== 'lk21' &&
+        rawLegacyProvMatch[1].toLowerCase() !== 'lookseries'
+          ? rawLegacyProvMatch
           : null;
       const legacySlugOrIdMatch =
         !scopedMatch && !providerHubMatch && !legacyMovieSlugMatch && !legacyProvMatch

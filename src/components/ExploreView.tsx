@@ -263,7 +263,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
           </div>
         </div>
 
-        {/* Provider Filter Tabs (Single Horizontal Row — All 49 Providers) */}
+        {/* Provider Filter Tabs (Single Horizontal Row — All 89 Providers) */}
         <div
           className="flex flex-nowrap items-center gap-2 overflow-x-auto scrollbar-none py-1"
           role="tablist"

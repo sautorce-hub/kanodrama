@@ -95,7 +95,7 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
     if (!isActivelyCounting) return;
     const timer = window.setInterval(() => {
       setDisplaySeconds((prev) => {
-        const cap = todayWatchSeconds + 24;
+        const cap = todayWatchSeconds + 16;
         return prev < cap ? prev + 1 : prev;
       });
     }, 1000);

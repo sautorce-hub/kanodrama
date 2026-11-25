@@ -361,10 +361,21 @@ function createStatefulPgMock() {
     }
 
     // 4. Daily Check-in queries
-    if (sql.startsWith('SELECT user_id FROM daily_checkins WHERE user_id = $1 AND checkin_date = $2::date')) {
+    if (sql.includes('FROM daily_checkins WHERE user_id = $1 AND (checkin_date = $2::date') ||
+        sql.startsWith('SELECT user_id FROM daily_checkins WHERE user_id = $1 AND checkin_date = $2::date')) {
       const uid = String(params[0]);
       const dt = String(params[1]);
-      const hit = state.checkins.find((c) => c.user_id === uid && c.checkin_date === dt);
+      const pStart = params[2] instanceof Date ? params[2].getTime() : null;
+      const pEnd = params[3] instanceof Date ? params[3].getTime() : null;
+      const hit = state.checkins.find((c) => {
+        if (c.user_id !== uid) return false;
+        if (c.checkin_date === dt) return true;
+        if (pStart !== null && pEnd !== null) {
+          const ts = c.created_at.getTime();
+          return ts >= pStart && ts < pEnd;
+        }
+        return false;
+      });
       return { rows: hit ? [{ user_id: uid }] : [], rowCount: hit ? 1 : 0 };
     }
 
@@ -409,7 +420,11 @@ function createStatefulPgMock() {
         .filter((c) => c.user_id === uid)
         .sort((a, b) => b.checkin_date.localeCompare(a.checkin_date))
         .slice(0, 14)
-        .map((c) => ({ checkin_date: c.checkin_date, streak_day: c.streak_day }));
+        .map((c) => ({
+          checkin_date: c.checkin_date,
+          streak_day: c.streak_day,
+          created_at: c.created_at,
+        }));
       return { rows, rowCount: rows.length };
     }
 
@@ -712,6 +727,25 @@ function createStatefulPgMock() {
       return { rows: hit ? [{ id: hit.id }] : [], rowCount: hit ? 1 : 0 };
     }
 
+    if (sql.startsWith('SELECT id FROM points_ledger WHERE user_id = $1 AND ( reference_id = $2') ||
+        sql.includes('FROM points_ledger WHERE user_id = $1 AND ( reference_id = $2')) {
+      const uid = String(params[0]);
+      const exactRef = String(params[1] || '');
+      const likePat = String(params[2] || '');
+      const toLikeRegex = (pat: string) =>
+        new RegExp('^' + pat.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*') + '$');
+      const re = toLikeRegex(likePat);
+      const pStart = params[3] instanceof Date ? params[3].getTime() : 0;
+      const pEnd = params[4] instanceof Date ? params[4].getTime() : Number.MAX_SAFE_INTEGER;
+      const hit = state.ledger.find((l) => {
+        if (l.user_id !== uid) return false;
+        if (l.reference_id === exactRef) return true;
+        const ts = l.created_at.getTime();
+        return re.test(l.reference_id) && ts >= pStart && ts < pEnd;
+      });
+      return { rows: hit ? [{ id: hit.id }] : [], rowCount: hit ? 1 : 0 };
+    }
+
     if (sql.startsWith("SELECT reference_id FROM points_ledger WHERE user_id = $1 AND reference_id LIKE 'mission:%'")) {
       const uid = String(params[0]);
       const dayKey = String(params[1]);
@@ -721,11 +755,24 @@ function createStatefulPgMock() {
       return { rows, rowCount: rows.length };
     }
 
-    if (sql.includes('FROM points_ledger WHERE user_id = $1 AND reference_id = ANY')) {
+    if (sql.includes('FROM points_ledger WHERE user_id = $1') && sql.includes('reference_id = ANY')) {
       const uid = String(params[0]);
       const refs: string[] = params[1] || [];
+      const toLikeRegex = (pat: string) =>
+        new RegExp('^' + pat.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*') + '$');
+      const re = params[2] ? toLikeRegex(String(params[2])) : null;
+      const pStart = params[3] instanceof Date ? params[3].getTime() : null;
+      const pEnd = params[4] instanceof Date ? params[4].getTime() : null;
       const rows = state.ledger
-        .filter((l) => l.user_id === uid && refs.includes(l.reference_id))
+        .filter((l) => {
+          if (l.user_id !== uid) return false;
+          if (refs.includes(l.reference_id)) return true;
+          if (re && pStart !== null && pEnd !== null) {
+            const ts = l.created_at.getTime();
+            return re.test(l.reference_id) && ts >= pStart && ts < pEnd;
+          }
+          return false;
+        })
         .map((l) => ({ reference_id: l.reference_id, created_at: l.created_at }));
       return { rows, rowCount: rows.length };
     }
@@ -736,15 +783,34 @@ function createStatefulPgMock() {
         new RegExp('^' + pat.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*') + '$');
       const re1 = toLikeRegex(String(params[1] || ''));
       const re2 = params.length >= 3 && params[2] ? toLikeRegex(String(params[2])) : null;
+      const pStart = params.length >= 5 && params[3] instanceof Date ? params[3].getTime() : null;
+      const pEnd = params.length >= 5 && params[4] instanceof Date ? params[4].getTime() : null;
       const rows = state.ledger
-        .filter((l) => l.user_id === uid && (re1.test(l.reference_id) || (re2 ? re2.test(l.reference_id) : false)))
-        .map((l) => ({ reference_id: l.reference_id }));
+        .filter((l) => {
+          if (l.user_id !== uid) return false;
+          if (re1.test(l.reference_id)) return true;
+          if (re2 && re2.test(l.reference_id)) {
+            if (pStart !== null && pEnd !== null) {
+              const ts = l.created_at.getTime();
+              return ts >= pStart && ts < pEnd;
+            }
+            return true;
+          }
+          return false;
+        })
+        .map((l) => ({ reference_id: l.reference_id, created_at: l.created_at }));
       return { rows, rowCount: rows.length };
     }
 
     if (sql.includes('FROM points_ledger WHERE user_id = $1') && sql.includes('AS today_earned')) {
       const uid = String(params[0]);
-      const dayKey = String(params[1]);
+      const dateArgs = params.filter((p) => p instanceof Date) as Date[];
+      const pStart = dateArgs.length >= 2 ? dateArgs[0].getTime() : null;
+      const pEnd = dateArgs.length >= 2 ? dateArgs[1].getTime() : null;
+      const checkinExact =
+        typeof params[1] === 'string' && params[1].startsWith('checkin:') ? params[1] : null;
+      const dayKey = getJakartaDateKey();
+
       let totalEarn = 0;
       let lifetimeEarnedForLevel = 0;
       let totalRedeem = 0;
@@ -758,12 +824,16 @@ function createStatefulPgMock() {
       for (const l of state.ledger) {
         if (l.user_id !== uid) continue;
         ledgerCount += 1;
-        const lDay = getJakartaDateKey(l.created_at);
+        const ts = l.created_at.getTime();
+        const inCurrentPeriod =
+          pStart !== null && pEnd !== null
+            ? ts >= pStart && ts < pEnd
+            : getJakartaDateKey(l.created_at) === dayKey;
         if (l.type === 'earn') {
           totalEarn += l.points;
           if (!l.reference_id.startsWith('refund:payout:')) {
             lifetimeEarnedForLevel += l.points;
-            if (lDay === dayKey) {
+            if (inCurrentPeriod) {
               todayEarned += l.points;
             }
           }
@@ -772,7 +842,7 @@ function createStatefulPgMock() {
               l.reference_id.startsWith('mission:') ||
               l.reference_id.startsWith('watch_min:') ||
               l.reference_id.startsWith('watchmin:')) &&
-            lDay === dayKey
+            inCurrentPeriod
           ) {
             todayWatchPts += l.points;
             if (!lastWatchMission || l.created_at > lastWatchMission) {
@@ -784,7 +854,10 @@ function createStatefulPgMock() {
               lastClaim = l.created_at;
             }
           }
-          if (l.reference_id === `checkin:${uid}:${dayKey}`) {
+          if (
+            (checkinExact && l.reference_id === checkinExact) ||
+            (l.reference_id.startsWith(`checkin:${uid}:`) && inCurrentPeriod)
+          ) {
             checkinToday = true;
           }
         } else {
@@ -1839,7 +1912,12 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(cfg.minPayoutIdr, 50000);
     assert.equal(cfg.minPayoutUsd, 5);
     assert.equal(cfg.watchMinutePoints, 20);
-    assert.equal(cfg.maxDailyWatchPoints, 3500);
+    assert.equal(cfg.maxDailyWatchPoints, 10000);
+    assert.deepEqual(cfg.dailyMissionMilestones, [
+      { minutes: 15, bonusPoints: 500 },
+      { minutes: 30, bonusPoints: 1200 },
+      { minutes: 60, bonusPoints: 2800 },
+    ]);
     assert.equal(cfg.levelTiers.length, 4);
   });
 
@@ -2012,7 +2090,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(premature30.status, 400);
     assert.equal((await premature30.json()).reason, 'milestone_not_reached');
 
-    // 3. Valid 15m milestone claim succeeds (+100 pts)
+    // 3. Valid 15m milestone claim succeeds (+500 pts)
     const claim15 = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
@@ -2024,8 +2102,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(claim15.status, 200);
     const claim15Json = await claim15.json();
     assert.equal(claim15Json.ok, true);
-    assert.equal(claim15Json.awardedPoints, 100);
-    assert.equal(claim15Json.summary.todayWatchPointsEarned, 400);
+    assert.equal(claim15Json.awardedPoints, 500);
+    assert.equal(claim15Json.summary.todayWatchPointsEarned, 800);
     assert.equal(claim15Json.summary.milestones[0].claimed, true);
     assert.equal(claim15Json.summary.milestones[1].reached, false);
 
@@ -2072,7 +2150,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       body: JSON.stringify({ action: 'watch_milestone', milestoneMinutes: 30 }),
     });
     assert.equal(claim30.status, 200);
-    assert.equal((await claim30.json()).awardedPoints, 200);
+    assert.equal((await claim30.json()).awardedPoints, 1200);
 
     const claim60 = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
@@ -2084,11 +2162,11 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.equal(claim60.status, 200);
     const claim60Json = await claim60.json();
-    assert.equal(claim60Json.awardedPoints, 400);
-    assert.equal(claim60Json.summary.todayWatchPointsEarned, 1900);
+    assert.equal(claim60Json.awardedPoints, 2800);
+    assert.equal(claim60Json.summary.todayWatchPointsEarned, 5700);
     assert.ok(claim60Json.summary.milestones.every((m: any) => m.reached && m.claimed));
 
-    // 6. Enforce MAX_DAILY_WATCH_POINTS (3500) cap cleanly with 429
+    // 6. Enforce MAX_DAILY_WATCH_POINTS (10000) cap cleanly with 429
     state.users.set('user-bob', {
       uid: 'user-bob',
       email: 'bob@example.com',
@@ -2118,10 +2196,10 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       id: 'seed-bob-watch-cap',
       user_id: 'user-bob',
       type: 'earn',
-      points: 3450,
+      points: 9800,
       description: 'Seed near daily watch cap',
       reference_id: `watch_min:user-bob:${todayKey}:m99`,
-      balance_after: 3450,
+      balance_after: 9800,
       created_at: new Date(),
     });
     const capRes = await fetch(`${baseUrl}/api/points/claim`, {
@@ -2135,5 +2213,312 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(capRes.status, 429);
     assert.equal((await capRes.json()).reason, 'daily_watch_cap_reached');
   });
+
+  await t.test('9. Canonical Reset Period Lock prevents re-claiming when switching between UTC and WIB display timezones', async () => {
+    const { mockPool, state } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    state.users.set('user-alice', {
+      uid: 'user-alice',
+      email: 'alice@example.com',
+      display_name: 'Alice Drama',
+      referral_code: 'KDALICE01',
+      referred_by: null,
+      streak_count: 1,
+      last_visit_date: '',
+      is_vip: false,
+    });
+
+    // 1. User starts in EN mode (X-User-Timezone: UTC) and claims daily check-in
+    const utcCheckin = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${aliceToken}`,
+        'X-User-Timezone': 'UTC',
+      },
+      body: JSON.stringify({ action: 'daily_checkin' }),
+    });
+    assert.equal(utcCheckin.status, 200);
+    const utcCheckinJson = await utcCheckin.json();
+    assert.equal(utcCheckinJson.awardedPoints, 500);
+    assert.ok(utcCheckinJson.summary.resetPeriodKey);
+    assert.ok(utcCheckinJson.summary.nextResetAt);
+
+    // 2. Simulate 15m watch and claim 15m milestone while in UTC mode
+    const sess = await startWatchSessionInDb({
+      userId: 'user-alice',
+      mediaKey: 'DramaBox:d-909:ep1',
+      provider: 'DramaBox',
+      dramaId: 'd-909',
+      episodeNumber: 1,
+    });
+    const canonicalKey = utcCheckinJson.summary.resetPeriodKey as string;
+    state.telemetry.set('user-alice', {
+      user_id: 'user-alice',
+      verified_watch_seconds: 880,
+      today_watch_seconds: 880,
+      today_date_key: canonicalKey,
+      active_stream_session_id: sess.sessionToken,
+      active_stream_media_key: 'DramaBox:d-909:ep1',
+      last_heartbeat_at: new Date(Date.now() - 20_000),
+      last_video_time_sec: '20',
+      fast_delta_strikes: 0,
+      concurrent_tab_strikes: 0,
+      risk_flag: '',
+      suspicious_reason: '',
+      updated_at: new Date(),
+    });
+    const hbUtc = await recordWatchHeartbeatInDb({
+      userId: 'user-alice',
+      streamSessionId: sess.sessionToken,
+      mediaKey: 'DramaBox:d-909:ep1',
+      currentTimeSec: 40,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 1,
+      ipHash: 'ip-tz',
+      subnetHash: 'sub-tz',
+      uaHash: 'ua-tz',
+      deviceHash: 'dev-tz',
+      timeZone: 'UTC',
+    });
+    assert.equal(hbUtc.awardedWatchPoints, 300);
+
+    const claim15Utc = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${aliceToken}`,
+        'X-User-Timezone': 'UTC',
+      },
+      body: JSON.stringify({ action: 'watch_milestone', milestoneMinutes: 15 }),
+    });
+    assert.equal(claim15Utc.status, 200);
+    assert.equal((await claim15Utc.json()).awardedPoints, 500);
+
+    // 3. Switch display timezone header to WIB (Asia/Jakarta): UI status MUST stay locked & claims MUST return 409
+    const meWib = await fetch(`${baseUrl}/api/points/me`, {
+      headers: {
+        Authorization: `Bearer ${aliceToken}`,
+        'X-User-Timezone': 'Asia/Jakarta',
+      },
+    }).then((r) => r.json());
+    assert.equal(meWib.summary.resetPeriodKey, canonicalKey);
+    assert.equal(meWib.summary.dailyCheckinClaimedToday, true);
+    assert.equal(meWib.summary.milestones[0].claimed, true);
+    assert.equal(meWib.summary.todayWatchPointsEarned, 800);
+    assert.equal(meWib.summary.todayEarned, 1300);
+    assert.equal(meWib.summary.balance, 1300);
+
+    const wibReCheckin = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${aliceToken}`,
+        'X-User-Timezone': 'Asia/Jakarta',
+      },
+      body: JSON.stringify({ action: 'daily_checkin' }),
+    });
+    assert.equal(wibReCheckin.status, 409);
+    assert.equal((await wibReCheckin.json()).reason, 'duplicate_claim');
+
+    const wibReMilestone = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${aliceToken}`,
+        'X-User-Timezone': 'Asia/Jakarta',
+      },
+      body: JSON.stringify({ action: 'watch_milestone', milestoneMinutes: 15 }),
+    });
+    assert.equal(wibReMilestone.status, 409);
+    assert.equal((await wibReMilestone.json()).reason, 'duplicate_claim');
+
+    // Subsequent watch heartbeat under Asia/Jakarta must NOT double-credit minutes already granted under UTC
+    state.telemetry.get('user-alice')!.last_heartbeat_at = new Date(Date.now() - 20_000);
+    const hbWib = await recordWatchHeartbeatInDb({
+      userId: 'user-alice',
+      streamSessionId: sess.sessionToken,
+      mediaKey: 'DramaBox:d-909:ep1',
+      currentTimeSec: 60,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 2,
+      ipHash: 'ip-tz',
+      subnetHash: 'sub-tz',
+      uaHash: 'ua-tz',
+      deviceHash: 'dev-tz',
+      timeZone: 'Asia/Jakarta',
+    });
+    assert.equal(hbWib.awardedWatchPoints, 0);
+
+    // 4. Even a legacy/mismatched-date claim created within the current canonical period window locks across UTC <-> WIB
+    state.users.set('user-bob', {
+      uid: 'user-bob',
+      email: 'bob@example.com',
+      display_name: 'Bob Viewer',
+      referral_code: 'KDBOB01',
+      referred_by: null,
+      streak_count: 1,
+      last_visit_date: '',
+      is_vip: false,
+    });
+    state.telemetry.set('user-bob', {
+      user_id: 'user-bob',
+      verified_watch_seconds: 1800,
+      today_watch_seconds: 1800,
+      today_date_key: canonicalKey,
+      active_stream_session_id: '',
+      active_stream_media_key: 'DramaBox:d-909:ep1',
+      last_heartbeat_at: new Date(),
+      last_video_time_sec: '20',
+      fast_delta_strikes: 0,
+      concurrent_tab_strikes: 0,
+      risk_flag: '',
+      suspicious_reason: '',
+      updated_at: new Date(),
+    });
+    // Simulate a prior claim stamped with an alternate calendar date inside the same canonical reset window
+    state.ledger.push({
+      id: 'legacy-utc-checkin',
+      user_id: 'user-bob',
+      type: 'earn',
+      points: 500,
+      description: 'Legacy UTC Check-in',
+      reference_id: 'checkin:user-bob:1999-12-31',
+      balance_after: 500,
+      created_at: new Date(),
+    });
+    state.ledger.push({
+      id: 'legacy-utc-m30',
+      user_id: 'user-bob',
+      type: 'earn',
+      points: 200,
+      description: 'Legacy UTC Milestone 30m',
+      reference_id: 'mission_30m:user-bob:1999-12-31',
+      balance_after: 700,
+      created_at: new Date(),
+    });
+
+    const bobMeWib = await fetch(`${baseUrl}/api/points/me`, {
+      headers: {
+        Authorization: `Bearer ${bobToken}`,
+        'X-User-Timezone': 'Asia/Jakarta',
+      },
+    }).then((r) => r.json());
+    assert.equal(bobMeWib.summary.dailyCheckinClaimedToday, true);
+    assert.equal(bobMeWib.summary.milestones[1].claimed, true);
+
+    const bobReCheckin = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bobToken}`,
+        'X-User-Timezone': 'Asia/Jakarta',
+      },
+      body: JSON.stringify({ action: 'daily_checkin' }),
+    });
+    assert.equal(bobReCheckin.status, 409);
+
+    const bobReM30 = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${bobToken}`,
+        'X-User-Timezone': 'Asia/Jakarta',
+      },
+      body: JSON.stringify({ action: 'watch_milestone', milestoneMinutes: 30 }),
+    });
+    assert.equal(bobReM30.status, 409);
+  });
+
+  await t.test('10. Automatic Per-Minute Watch Points credit automatically at every 60s across 15s heartbeats', async () => {
+    const { mockPool, state } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    state.users.set('user-alice', {
+      uid: 'user-alice',
+      email: 'alice@example.com',
+      display_name: 'Alice Drama',
+      referral_code: 'KDALICE01',
+      referred_by: null,
+      streak_count: 1,
+      last_visit_date: '',
+      is_vip: false,
+    });
+
+    const sess = await startWatchSessionInDb({
+      userId: 'user-alice',
+      mediaKey: 'DramaBox:d-1010:ep1',
+      provider: 'DramaBox',
+      dramaId: 'd-1010',
+      episodeNumber: 1,
+    });
+
+    // Baseline heartbeat at t=0.25s -> 0 pts
+    const hb0 = await recordWatchHeartbeatInDb({
+      userId: 'user-alice',
+      streamSessionId: sess.sessionToken,
+      mediaKey: 'DramaBox:d-1010:ep1',
+      currentTimeSec: 0.25,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 1,
+      ipHash: 'ip-m',
+      subnetHash: 'sub-m',
+      uaHash: 'ua-m',
+      deviceHash: 'dev-m',
+    });
+    assert.equal(hb0.reason, 'session_started');
+    assert.equal(hb0.awardedWatchPoints, 0);
+
+    // Simulate 8 consecutive 15-second heartbeats (minute 1 at t=60s, minute 2 at t=120s)
+    // Include slight 300ms RTT jitter (14.7s) on step 1 to verify rounding preserves exact 60s mark
+    const steps = [
+      { videoSec: 15.25, elapsedMs: 14_700, expectedTotalSec: 15, expectedAward: 0, expectedBal: 0 },
+      { videoSec: 30.25, elapsedMs: 15_000, expectedTotalSec: 30, expectedAward: 0, expectedBal: 0 },
+      { videoSec: 45.25, elapsedMs: 15_000, expectedTotalSec: 45, expectedAward: 0, expectedBal: 0 },
+      { videoSec: 60.25, elapsedMs: 15_000, expectedTotalSec: 60, expectedAward: 20, expectedBal: 20 },
+      { videoSec: 75.25, elapsedMs: 15_000, expectedTotalSec: 75, expectedAward: 0, expectedBal: 20 },
+      { videoSec: 90.25, elapsedMs: 15_000, expectedTotalSec: 90, expectedAward: 0, expectedBal: 20 },
+      { videoSec: 105.25, elapsedMs: 15_000, expectedTotalSec: 105, expectedAward: 0, expectedBal: 20 },
+      { videoSec: 120.25, elapsedMs: 15_000, expectedTotalSec: 120, expectedAward: 20, expectedBal: 40 },
+    ];
+
+    let seq = 1;
+    for (const step of steps) {
+      seq += 1;
+      state.telemetry.get('user-alice')!.last_heartbeat_at = new Date(
+        Date.now() - step.elapsedMs
+      );
+      const hb = await recordWatchHeartbeatInDb({
+        userId: 'user-alice',
+        streamSessionId: sess.sessionToken,
+        mediaKey: 'DramaBox:d-1010:ep1',
+        currentTimeSec: step.videoSec,
+        isPlaying: true,
+        isBuffering: false,
+        tabVisible: true,
+        playbackRate: 1,
+        seq,
+        ipHash: 'ip-m',
+        subnetHash: 'sub-m',
+        uaHash: 'ua-m',
+        deviceHash: 'dev-m',
+      });
+      assert.equal(hb.todayWatchSeconds, step.expectedTotalSec);
+      assert.equal(hb.awardedWatchPoints, step.expectedAward);
+      assert.equal(hb.pointsBalance, step.expectedBal);
+      assert.equal(hb.todayWatchPointsEarned, step.expectedBal);
+    }
+  });
 });
+
 

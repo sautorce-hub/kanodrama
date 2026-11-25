@@ -1021,6 +1021,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
 
   useEffect(() => {
     if (!drama) return;
+    lastSavedTickRef.current = 0;
     retriedWithEpisodesRef.current = '';
     void loadMovieStream(drama.bookId, episodeNumber);
   }, [drama?.bookId, drama?.provider, episodeNumber]);
@@ -2562,6 +2563,22 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
                 setIsBuffering(false);
                 setVideoReady(true);
                 setIsPlaying(true);
+                const v = videoRef.current;
+                const now = Date.now();
+                if (v && now - lastSavedTickRef.current >= 3000) {
+                  lastSavedTickRef.current = now;
+                  onProgressUpdate?.(
+                    episodeNumber,
+                    v.currentTime,
+                    Number.isFinite(v.duration) ? v.duration : 0,
+                    false,
+                    {
+                      isPlaying: !v.paused && !v.ended,
+                      isBuffering: false,
+                      playbackRate: Number(v.playbackRate) || playbackSpeed,
+                    }
+                  );
+                }
               }}
               onProgress={() => {
                 const v = videoRef.current;
@@ -2584,7 +2601,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
                 }
                 setCurrentTime(v.currentTime);
                 const now = Date.now();
-                if (now - lastSavedTickRef.current >= 4500) {
+                if (now - lastSavedTickRef.current >= 3000) {
                   lastSavedTickRef.current = now;
                   onProgressUpdate?.(
                     episodeNumber,

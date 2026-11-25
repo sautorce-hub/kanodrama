@@ -13,10 +13,12 @@ import type {
 } from '../types/drama';
 
 const MOLATV_BASE = '/api/mola';
-const DRAMABOX_BASE = `${MOLATV_BASE}/dramaboxv2`;
+const DRAMABOX_BASE = `${MOLATV_BASE}/dramabox`;
+const DRAMABOX_V2_BASE = `${MOLATV_BASE}/dramaboxv2`;
 const NETSHORT_BASE = `${MOLATV_BASE}/netshort`;
 const ANYREEL_BASE = `${MOLATV_BASE}/anyreel`;
 const MELOLO_BASE = `${MOLATV_BASE}/melolo`;
+const MELOLO_V2_BASE = `${MOLATV_BASE}/melolov2`;
 const DRAMAORA_BASE = `${MOLATV_BASE}/dramaora`;
 const MELOSHORT_BASE = `${MOLATV_BASE}/meloshort`;
 const PETADRAMA_BASE = `${MOLATV_BASE}/petadrama`;
@@ -62,6 +64,44 @@ const JOYREELS_BASE = `${MOLATV_BASE}/joyreels`;
 const SODAREELS_BASE = `${MOLATV_BASE}/sodareels`;
 const BONUSTV_BASE = `${MOLATV_BASE}/bonustv`;
 const IQIYI_BASE = `${MOLATV_BASE}/iqiyi`;
+const AUDIOTOON_BASE = `${MOLATV_BASE}/audiotoon`;
+const PLAYLET_BASE = `${MOLATV_BASE}/playlet`;
+const MOMESHORT_BASE = `${MOLATV_BASE}/momeshort`;
+const STOREEL_BASE = `${MOLATV_BASE}/storeel`;
+const MYMUSE_BASE = `${MOLATV_BASE}/mymuse`;
+const HUANGDOU_BASE = `${MOLATV_BASE}/huangdou`;
+const MORESHORT_BASE = `${MOLATV_BASE}/moreshort`;
+const DRAMARUSH_BASE = `${MOLATV_BASE}/dramarush`;
+const SHORTSWAVE_BASE = `${MOLATV_BASE}/shortswave`;
+const RELALA_BASE = `${MOLATV_BASE}/relala`;
+const SIXTHSHORT_BASE = `${MOLATV_BASE}/sixthshort`;
+const SNACKSHORT_BASE = `${MOLATV_BASE}/snackshort`;
+const SOREEL_BASE = `${MOLATV_BASE}/soreel`;
+const STARREEL_BASE = `${MOLATV_BASE}/stareel`;
+const STORYGO_BASE = `${MOLATV_BASE}/storygo`;
+const MINISHORT_BASE = `${MOLATV_BASE}/minishort`;
+const SHORTEN_BASE = `${MOLATV_BASE}/shorten`;
+const VELOLO_BASE = `${MOLATV_BASE}/velolo`;
+const REELPINE_BASE = `${MOLATV_BASE}/reelpine`;
+const DYNASTYSHORTS_BASE = `${MOLATV_BASE}/dynastyshorts`;
+const DRAMASHORTS_BASE = `${MOLATV_BASE}/dramashorts`;
+const TALLFLIX_BASE = `${MOLATV_BASE}/tallflix`;
+const QLAX_BASE = `${MOLATV_BASE}/qlax`;
+const SHORTICAL_BASE = `${MOLATV_BASE}/shortical`;
+const LUZICINE_BASE = `${MOLATV_BASE}/luzicine`;
+const ZEBRASHORT_BASE = `${MOLATV_BASE}/zebrashort`;
+const DRAKORID_BASE = `${MOLATV_BASE}/drakorid`;
+const DRACHINREBORN_BASE = `${MOLATV_BASE}/drachinreborn`;
+const DRAMAQUEEN_BASE = `${MOLATV_BASE}/dramaqueen`;
+const ANSFLIX_BASE = `${MOLATV_BASE}/ansflix`;
+const LUPACINE_BASE = `${MOLATV_BASE}/lupacine`;
+const REELLIFE_BASE = `${MOLATV_BASE}/reellife`;
+const BSTATION_BASE = `${MOLATV_BASE}/bstation`;
+const ANICHIN_BASE = `${MOLATV_BASE}/anichin`;
+const DONGHUAQUEEN_BASE = `${MOLATV_BASE}/donghuaqueen`;
+const SAMEHADAKU_BASE = `${MOLATV_BASE}/samehadaku`;
+const ANIMEX_BASE = `${MOLATV_BASE}/animex`;
+const WINKNOVEL_BASE = `${MOLATV_BASE}/winknovel`;
 
 const MEDIA_PROXY_PREFIX = '/api/proxy?url=';
 
@@ -154,39 +194,12 @@ export function mapProviderLang(
 ): string | undefined {
   switch (provider) {
     case 'DramaBox':
+    case 'DramaBoxV2':
       return mapDramaBoxLang(lang);
     case 'NetShort':
       return mapNetShortLang(lang);
-    case 'AnyReel':
-    case 'KalosTV':
-    case 'DramaBite':
-    case 'LoveShots':
-    case 'MyDrama':
-    case 'ShotShort':
-    case 'BlinkDrama':
-    case 'WeTV':
-    case 'FlareFlow':
-    case 'FreeShort':
-    case 'ToonShort':
-    case 'HappyShort':
-    case 'DramaDash':
-    case 'StoryReel':
-    case 'StoryReelV2':
-    case 'VibeShort':
-    case 'VibeShortV2':
-    case 'PineDrama':
-    case 'ShortMax':
-    case 'ShortMaxV2':
-    case 'FlexTV':
-    case 'iDrama':
-    case 'iDramaV2':
-    case 'ReelShort':
-    case 'ReelShortV2':
-    case 'JoyReels':
-    case 'BonusTV':
-    case 'iQIYI':
-      return mapIdEnLang(lang);
     case 'Melolo':
+    case 'MeloLoV2':
     case 'MeloShort':
     case 'DramaVerse':
     case 'MoboReels':
@@ -214,25 +227,36 @@ export function mapProviderLang(
     case 'DramaWave':
     case 'FreeReels':
       return mapDramaWaveLang(lang);
+    default:
+      return mapIdEnLang(lang);
   }
 }
 
-export function ensureMeloloDecryptedUrl(rawUrl: string): string {
+export function ensureMeloloDecryptedUrl(
+  rawUrl: string,
+  baseUrl: string = MELOLO_BASE
+): string {
   const clean = cleanText(rawUrl);
   if (!clean) return '';
-  if (clean.includes('/api/mola/melolo/decrypt')) {
+  if (
+    clean.includes('/api/mola/melolo/decrypt') ||
+    clean.includes('/api/mola/melolov2/decrypt')
+  ) {
     return clean;
   }
-  if (clean.includes('/api/melolo/decrypt')) {
+  if (clean.includes('/api/melolov2/decrypt') || clean.includes('/api/melolo/decrypt')) {
     try {
       const parsed = new URL(clean, 'http://localhost');
       parsed.searchParams.delete('token');
-      return `/api/mola/melolo/decrypt${parsed.search}`;
+      const targetBase = clean.includes('/api/melolov2/decrypt')
+        ? '/api/mola/melolov2/decrypt'
+        : `${baseUrl}/decrypt`;
+      return `${targetBase}${parsed.search}`;
     } catch {
       return clean;
     }
   }
-  return `${MELOLO_BASE}/decrypt?url=${encodeURIComponent(clean)}`;
+  return `${baseUrl}/decrypt?url=${encodeURIComponent(clean)}`;
 }
 
 export function ensureHttpsSafeStreamUrl(rawUrl: string): string {
@@ -463,7 +487,7 @@ function normalizeDrama(
     Boolean(rawCover) &&
     !rawCover.startsWith('/api/proxy') &&
     (rawCover.startsWith('http://') ||
-      (provider === 'Melolo' &&
+      ((provider === 'Melolo' || provider === 'MeloLoV2') &&
         (rawCover.toLowerCase().includes('.heic') ||
           rawCover.toLowerCase().includes('fizzopic.org'))));
 
@@ -642,7 +666,8 @@ function normalizeStream(
   const seenUrls = new Set<string>();
 
   const transformUrl = (url: string): string => {
-    if (provider === 'Melolo') return ensureMeloloDecryptedUrl(url);
+    if (provider === 'Melolo') return ensureMeloloDecryptedUrl(url, MELOLO_BASE);
+    if (provider === 'MeloLoV2') return ensureMeloloDecryptedUrl(url, MELOLO_V2_BASE);
     return ensureHttpsSafeStreamUrl(url);
   };
 
@@ -699,6 +724,10 @@ function normalizeStream(
             qObj.play_url ??
             qObj.directUrl ??
             qObj.streamUrl ??
+            qObj.stream_url ??
+            qObj.audioUrl ??
+            qObj.audio_url ??
+            qObj.mp3 ??
             qObj.fileUrl ??
             qObj.videoPath ??
             qObj.proxyUrl ??
@@ -725,7 +754,7 @@ function normalizeStream(
     pushQuality(label, urlVal);
   }
 
-  const rawPrimaryUrl =
+  const rawDirectUrl =
     cleanText(
       data.videoUrl ??
         data.video_url ??
@@ -738,16 +767,34 @@ function normalizeStream(
         data.h264_url ??
         data.m3u8 ??
         data.streamUrl ??
+        data.stream_url ??
+        data.audioUrl ??
+        data.audio_url ??
+        data.mp3Url ??
+        data.mp3 ??
         data.proxyUrl ??
         data.raw_url ??
         data.direct_url ??
         data.backup_url ??
         root.video_url ??
         root.play_url ??
+        root.stream_url ??
+        root.audio_url ??
         root.url ??
         qualities[0]?.url
     ) || '';
 
+  const rawEmbedUrl =
+    cleanText(
+      data.embedUrl ??
+        data.embed_url ??
+        data.iframeUrl ??
+        data.iframe_url ??
+        root.embedUrl ??
+        root.embed_url
+    ) || '';
+
+  const rawPrimaryUrl = rawDirectUrl || rawEmbedUrl;
   const primaryUrl = rawPrimaryUrl ? transformUrl(rawPrimaryUrl) : '';
 
   if (!primaryUrl) {
@@ -844,6 +891,7 @@ function normalizeStream(
     }
   }
 
+  const isEmbedOnly = !rawDirectUrl && Boolean(rawEmbedUrl);
   return {
     bookId,
     provider,
@@ -851,6 +899,7 @@ function normalizeStream(
     chapterId:
       cleanText(String(data.chapterId ?? data.episodeId ?? '')) || undefined,
     streamUrl: primaryUrl,
+    ...(isEmbedOnly ? { embedUrl: primaryUrl, sourceType: 'embed' as const } : {}),
     isHls,
     qualities,
     subtitles: subtitles.length > 0 ? subtitles : undefined,
@@ -1043,8 +1092,24 @@ export const dramaBoxProvider: DramaProviderAdapter = {
   },
 
   async fetchDetail(bookId: string): Promise<DramaItem | null> {
+    try {
+      const json = await requestProviderJson<Record<string, unknown>>(
+        DRAMABOX_BASE,
+        '/detail',
+        { book_id: bookId },
+        mapDramaBoxLang(currentAppLang)
+      );
+      const raw =
+        json?.data && typeof json.data === 'object'
+          ? (json.data as Record<string, unknown>)
+          : json;
+      const parsed = normalizeDrama(raw, 'DramaBox', undefined, false, bookId);
+      if (parsed) return parsed;
+    } catch {
+      // Fall back to V2 for legacy DramaBox bookIds cached before V1/V2 split
+    }
     const json = await requestProviderJson<Record<string, unknown>>(
-      DRAMABOX_BASE,
+      DRAMABOX_V2_BASE,
       '/detail',
       { book_id: bookId },
       mapDramaBoxLang(currentAppLang)
@@ -1057,8 +1122,145 @@ export const dramaBoxProvider: DramaProviderAdapter = {
   },
 
   async fetchAllEpisodes(bookId: string): Promise<EpisodeItem[]> {
+    try {
+      const json = await requestProviderJson(
+        DRAMABOX_BASE,
+        '/allepisode',
+        { book_id: bookId },
+        mapDramaBoxLang(currentAppLang)
+      );
+      const eps = normalizeEpisodeList(json);
+      if (eps.length > 0) return eps;
+    } catch {
+      // Fall back to V2 for legacy DramaBox bookIds
+    }
     const json = await requestProviderJson(
-      DRAMABOX_BASE,
+      DRAMABOX_V2_BASE,
+      '/allepisode',
+      { book_id: bookId },
+      mapDramaBoxLang(currentAppLang)
+    );
+    return normalizeEpisodeList(json);
+  },
+
+  async fetchStream(bookId: string, episode: number) {
+    try {
+      const json = await requestProviderJson(
+        DRAMABOX_BASE,
+        '/stream',
+        { book_id: bookId, episode },
+        mapDramaBoxLang(currentAppLang)
+      );
+      return normalizeStream(json, bookId, episode, 'DramaBox');
+    } catch {
+      const json = await requestProviderJson(
+        DRAMABOX_V2_BASE,
+        '/stream',
+        { book_id: bookId, episode },
+        mapDramaBoxLang(currentAppLang)
+      );
+      return normalizeStream(json, bookId, episode, 'DramaBox');
+    }
+  },
+};
+
+// --- Provider 1B: DramaBox V2 Adapter ---
+export const dramaBoxV2Provider: DramaProviderAdapter = {
+  id: 'DramaBoxV2',
+  label: 'DramaBox V2',
+  enabled: true,
+
+  async setLanguage(lang: LanguageCode): Promise<void> {
+    currentAppLang = lang;
+    await requestProviderJson(DRAMABOX_V2_BASE, '/set_language', {
+      lang: mapDramaBoxLang(lang),
+    });
+  },
+
+  fetchForYou(page = 1) {
+    return fetchProviderFeed(
+      DRAMABOX_V2_BASE,
+      '/foryou',
+      'DramaBoxV2',
+      page,
+      mapDramaBoxLang(currentAppLang)
+    );
+  },
+
+  fetchRanking(page = 1) {
+    return fetchProviderFeed(
+      DRAMABOX_V2_BASE,
+      '/ranking',
+      'DramaBoxV2',
+      page,
+      mapDramaBoxLang(currentAppLang),
+      { withRank: true }
+    );
+  },
+
+  fetchNewReleases(page = 1) {
+    return fetchProviderFeed(
+      DRAMABOX_V2_BASE,
+      '/terbaru',
+      'DramaBoxV2',
+      page,
+      mapDramaBoxLang(currentAppLang)
+    );
+  },
+
+  fetchVip(page = 1) {
+    return fetchProviderFeed(
+      DRAMABOX_V2_BASE,
+      '/vip',
+      'DramaBoxV2',
+      page,
+      mapDramaBoxLang(currentAppLang),
+      { forceVip: true }
+    );
+  },
+
+  fetchDubbing(page = 1) {
+    return fetchProviderFeed(
+      DRAMABOX_V2_BASE,
+      '/dubbing',
+      'DramaBoxV2',
+      page,
+      mapDramaBoxLang(currentAppLang)
+    );
+  },
+
+  async searchDramas(keyword: string, page = 1): Promise<PaginatedResult> {
+    const trimmed = keyword.trim();
+    if (!trimmed) return { items: [], hasMore: false, page };
+    const json = await requestProviderJson(
+      DRAMABOX_V2_BASE,
+      '/search',
+      { keyword: trimmed, page },
+      mapDramaBoxLang(currentAppLang)
+    );
+    const items = extractBookArray(json)
+      .map((raw) => normalizeDrama(raw, 'DramaBoxV2'))
+      .filter((d): d is DramaItem => d !== null);
+    return { items, hasMore: items.length >= 10, page };
+  },
+
+  async fetchDetail(bookId: string): Promise<DramaItem | null> {
+    const json = await requestProviderJson<Record<string, unknown>>(
+      DRAMABOX_V2_BASE,
+      '/detail',
+      { book_id: bookId },
+      mapDramaBoxLang(currentAppLang)
+    );
+    const raw =
+      json?.data && typeof json.data === 'object'
+        ? (json.data as Record<string, unknown>)
+        : json;
+    return normalizeDrama(raw, 'DramaBoxV2', undefined, false, bookId);
+  },
+
+  async fetchAllEpisodes(bookId: string): Promise<EpisodeItem[]> {
+    const json = await requestProviderJson(
+      DRAMABOX_V2_BASE,
       '/allepisode',
       { book_id: bookId },
       mapDramaBoxLang(currentAppLang)
@@ -1068,12 +1270,12 @@ export const dramaBoxProvider: DramaProviderAdapter = {
 
   async fetchStream(bookId: string, episode: number) {
     const json = await requestProviderJson(
-      DRAMABOX_BASE,
+      DRAMABOX_V2_BASE,
       '/stream',
       { book_id: bookId, episode },
       mapDramaBoxLang(currentAppLang)
     );
-    return normalizeStream(json, bookId, episode, 'DramaBox');
+    return normalizeStream(json, bookId, episode, 'DramaBoxV2');
   },
 };
 
@@ -4465,11 +4667,469 @@ export const iqiyiProvider: DramaProviderAdapter & {
   },
 };
 
+// --- Provider 4B: MeloLo V2 Adapter ---
+export const meloLoV2Provider: DramaProviderAdapter & {
+  fetchAllDrama: (page?: number) => Promise<PaginatedResult>;
+} = {
+  id: 'MeloLoV2',
+  label: 'MeloLo V2',
+  enabled: true,
+
+  async setLanguage(lang: LanguageCode): Promise<void> {
+    currentAppLang = lang;
+    await requestProviderJson(MELOLO_V2_BASE, '/set_language', {
+      lang: mapInEnLang(lang),
+    }).catch(() => {});
+  },
+
+  fetchForYou(page = 1) {
+    return fetchProviderFeed(
+      MELOLO_V2_BASE,
+      '/foryou',
+      'MeloLoV2',
+      page,
+      mapInEnLang(currentAppLang)
+    );
+  },
+
+  fetchRanking(page = 1) {
+    return fetchProviderFeed(
+      MELOLO_V2_BASE,
+      '/rank',
+      'MeloLoV2',
+      page,
+      mapInEnLang(currentAppLang),
+      { withRank: true, extraParams: { page_size: 18 } }
+    );
+  },
+
+  fetchNewReleases(page = 1) {
+    return fetchProviderFeed(
+      MELOLO_V2_BASE,
+      '/new_release',
+      'MeloLoV2',
+      page,
+      mapInEnLang(currentAppLang),
+      { extraParams: { page_size: 10 } }
+    );
+  },
+
+  fetchAllDrama(page = 1) {
+    return fetchProviderFeed(
+      MELOLO_V2_BASE,
+      '/all_drama',
+      'MeloLoV2',
+      page,
+      mapInEnLang(currentAppLang),
+      { extraParams: { page_size: 10 } }
+    );
+  },
+
+  fetchVip(page = 1) {
+    return fetchProviderFeed(
+      MELOLO_V2_BASE,
+      '/rank',
+      'MeloLoV2',
+      page,
+      mapInEnLang(currentAppLang),
+      { forceVip: true, extraParams: { page_size: 18 } }
+    );
+  },
+
+  fetchAnime(page = 1) {
+    return fetchProviderFeed(
+      MELOLO_V2_BASE,
+      '/anime',
+      'MeloLoV2',
+      page,
+      mapInEnLang(currentAppLang)
+    );
+  },
+
+  async searchDramas(keyword: string, page = 1): Promise<PaginatedResult> {
+    const trimmed = keyword.trim();
+    if (!trimmed) return { items: [], hasMore: false, page };
+    const json = await requestProviderJson(
+      MELOLO_V2_BASE,
+      '/search',
+      { keyword: trimmed },
+      mapInEnLang(currentAppLang)
+    );
+    const items = extractBookArray(json)
+      .map((raw) => normalizeDrama(raw, 'MeloLoV2'))
+      .filter((d): d is DramaItem => d !== null);
+    return { items, hasMore: false, page };
+  },
+
+  async fetchDetail(bookId: string): Promise<DramaItem | null> {
+    const json = await requestProviderJson<Record<string, unknown>>(
+      MELOLO_V2_BASE,
+      '/detail',
+      { book_id: bookId },
+      mapInEnLang(currentAppLang)
+    );
+    const raw =
+      json?.data && typeof json.data === 'object'
+        ? (json.data as Record<string, unknown>)
+        : json;
+    return normalizeDrama(raw, 'MeloLoV2', undefined, false, bookId);
+  },
+
+  async fetchAllEpisodes(bookId: string): Promise<EpisodeItem[]> {
+    const json = await requestProviderJson(
+      MELOLO_V2_BASE,
+      '/allepisode',
+      { book_id: bookId },
+      mapInEnLang(currentAppLang)
+    );
+    return normalizeEpisodeList(json);
+  },
+
+  async fetchStream(bookId: string, episode: number) {
+    const json = await requestProviderJson(
+      MELOLO_V2_BASE,
+      '/stream',
+      { book_id: bookId, episode },
+      mapInEnLang(currentAppLang)
+    );
+    return normalizeStream(json, bookId, episode, 'MeloLoV2');
+  },
+};
+
+// --- Resilient Multi-Convention Mola Provider Factory (Providers 52-89) ---
+function createResilientMolaProvider(config: {
+  id: ProviderName;
+  label?: string;
+  baseUrl: string;
+  langFn?: (lang: LanguageCode) => string;
+  supportsAnime?: boolean;
+  defaultPaths?: Partial<Record<'foryou' | 'ranking' | 'newest' | 'vip' | 'anime', string[]>>;
+}): DramaProviderAdapter {
+  const {
+    id,
+    label = id,
+    baseUrl,
+    langFn = mapIdEnLang,
+    supportsAnime = false,
+    defaultPaths = {},
+  } = config;
+
+  const discovered: {
+    foryou?: string;
+    ranking?: string;
+    newest?: string;
+    vip?: string;
+    anime?: string;
+    idParam?: string;
+    epPath?: string;
+    searchKey?: string;
+  } = {};
+
+  const feedCandidates: Record<'foryou' | 'ranking' | 'newest' | 'vip' | 'anime', string[]> = {
+    foryou: defaultPaths.foryou ?? ['/foryou', '/hot', '/popular', '/trending', '/alldrama', '/new', '/latest', '/home', '/all'],
+    ranking: defaultPaths.ranking ?? ['/ranking', '/rank', '/trending', '/hot', '/popular', '/top', '/foryou'],
+    newest: defaultPaths.newest ?? ['/terbaru', '/new', '/latest', '/new_release', '/newrelease', '/update', '/foryou'],
+    vip: defaultPaths.vip ?? ['/vip', '/exclusive', '/premium', '/hot', '/foryou'],
+    anime: defaultPaths.anime ?? ['/anime', '/donghua', '/foryou', '/latest', '/popular', '/all'],
+  };
+
+  async function tryFeedSlot(
+    slot: 'foryou' | 'ranking' | 'newest' | 'vip' | 'anime',
+    page: number,
+    options: { withRank?: boolean; forceVip?: boolean } = {}
+  ): Promise<PaginatedResult> {
+    const langVal = langFn(currentAppLang);
+    const cachedPath = discovered[slot];
+    const candidates = cachedPath
+      ? [cachedPath, ...feedCandidates[slot].filter((p) => p !== cachedPath)]
+      : feedCandidates[slot];
+
+    let lastError: unknown = null;
+    for (const path of candidates) {
+      try {
+        const res = await fetchProviderFeed(baseUrl, path, id, page, langVal, options);
+        if (res.items.length > 0 || path === candidates[candidates.length - 1]) {
+          discovered[slot] = path;
+          return res;
+        }
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (lastError) throw lastError;
+    return { items: [], hasMore: false, page };
+  }
+
+  const idParamCandidates = ['book_id', 'drama_id', 'playlet_id', 'album_id', 'bookId', 'id', 'slug'];
+  const searchKeyCandidates = ['keyword', 'q', 'query'];
+  const epPathCandidates = ['/allepisode', '/episodes', '/detail'];
+
+  return {
+    id,
+    label,
+    enabled: true,
+
+    async setLanguage(lang: LanguageCode): Promise<void> {
+      currentAppLang = lang;
+      await requestProviderJson(baseUrl, '/set_language', {
+        lang: langFn(lang),
+      }).catch(() => {});
+    },
+
+    fetchForYou(page = 1) {
+      return tryFeedSlot('foryou', page);
+    },
+
+    fetchRanking(page = 1) {
+      return tryFeedSlot('ranking', page, { withRank: true });
+    },
+
+    fetchNewReleases(page = 1) {
+      return tryFeedSlot('newest', page);
+    },
+
+    fetchVip(page = 1) {
+      return tryFeedSlot('vip', page, { forceVip: true });
+    },
+
+    ...(supportsAnime
+      ? {
+          fetchAnime(page = 1) {
+            return tryFeedSlot('anime', page);
+          },
+        }
+      : {}),
+
+    async searchDramas(keyword: string, page = 1): Promise<PaginatedResult> {
+      const trimmed = keyword.trim();
+      if (!trimmed) return { items: [], hasMore: false, page };
+      const langVal = langFn(currentAppLang);
+      const keys = discovered.searchKey
+        ? [discovered.searchKey, ...searchKeyCandidates.filter((k) => k !== discovered.searchKey)]
+        : searchKeyCandidates;
+      for (const key of keys) {
+        try {
+          const json = await requestProviderJson(
+            baseUrl,
+            '/search',
+            { [key]: trimmed, page },
+            langVal
+          );
+          const items = extractBookArray(json)
+            .map((raw) => normalizeDrama(raw, id))
+            .filter((d): d is DramaItem => d !== null);
+          if (items.length > 0) {
+            discovered.searchKey = key;
+            return { items, hasMore: items.length >= 10, page };
+          }
+        } catch {
+          // Try next search query parameter convention
+        }
+      }
+      return { items: [], hasMore: false, page };
+    },
+
+    async fetchDetail(bookId: string): Promise<DramaItem | null> {
+      const langVal = langFn(currentAppLang);
+      const idParams = discovered.idParam
+        ? [discovered.idParam, ...idParamCandidates.filter((k) => k !== discovered.idParam)]
+        : idParamCandidates;
+      for (const path of ['/detail', '/allepisode']) {
+        for (const idParam of idParams) {
+          try {
+            const json = await requestProviderJson<Record<string, unknown>>(
+              baseUrl,
+              path,
+              { [idParam]: bookId },
+              langVal
+            );
+            const raw =
+              json?.data && typeof json.data === 'object' && !Array.isArray(json.data)
+                ? (json.data as Record<string, unknown>)
+                : json;
+            const parsed = normalizeDrama(raw, id, undefined, false, bookId);
+            if (parsed) {
+              discovered.idParam = idParam;
+              return parsed;
+            }
+          } catch {
+            // Try next ID parameter convention
+          }
+        }
+      }
+      return null;
+    },
+
+    async fetchAllEpisodes(bookId: string): Promise<EpisodeItem[]> {
+      const langVal = langFn(currentAppLang);
+      const idParams = discovered.idParam
+        ? [discovered.idParam, ...idParamCandidates.filter((k) => k !== discovered.idParam)]
+        : idParamCandidates;
+      const epPaths = discovered.epPath
+        ? [discovered.epPath, ...epPathCandidates.filter((p) => p !== discovered.epPath)]
+        : epPathCandidates;
+
+      for (const epPath of epPaths) {
+        for (const idParam of idParams) {
+          try {
+            const json = await requestProviderJson(
+              baseUrl,
+              epPath,
+              { [idParam]: bookId },
+              langVal
+            );
+            const eps = normalizeEpisodeList(json);
+            if (eps.length > 0) {
+              discovered.idParam = idParam;
+              discovered.epPath = epPath;
+              return eps;
+            }
+          } catch {
+            // Try next endpoint or parameter convention
+          }
+        }
+      }
+      return [];
+    },
+
+    async fetchStream(bookId: string, episode: number): Promise<StreamSource> {
+      const langVal = langFn(currentAppLang);
+      const idParams = discovered.idParam
+        ? [discovered.idParam, ...idParamCandidates.filter((k) => k !== discovered.idParam)]
+        : idParamCandidates;
+      const meta = getCachedEpisodeMeta(id, bookId, episode);
+      let lastError: unknown = null;
+      for (const idParam of idParams) {
+        try {
+          const params: Record<string, string | number> = {
+            [idParam]: bookId,
+            episode,
+            ...(meta?.chapterId ? { chapter_id: meta.chapterId } : {}),
+            ...(meta?.eid ? { eid: meta.eid } : {}),
+          };
+          const json = await requestProviderJson(baseUrl, '/stream', params, langVal);
+          const stream = normalizeStream(json, bookId, episode, id);
+          discovered.idParam = idParam;
+          return stream;
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      throw lastError instanceof Error
+        ? lastError
+        : new Error(`No playable stream returned by ${id} for EP ${episode}.`);
+    },
+  };
+}
+
+export const audioToonProvider = createResilientMolaProvider({ id: 'AudioToon', baseUrl: AUDIOTOON_BASE });
+export const playletProvider = createResilientMolaProvider({ id: 'Playlet', baseUrl: PLAYLET_BASE });
+export const momeShortProvider = createResilientMolaProvider({ id: 'MomeShort', baseUrl: MOMESHORT_BASE });
+export const stoReelProvider = createResilientMolaProvider({ id: 'StoReel', baseUrl: STOREEL_BASE });
+export const myMuseProvider = createResilientMolaProvider({ id: 'MyMuse', baseUrl: MYMUSE_BASE });
+export const huangDouProvider = createResilientMolaProvider({ id: 'HuangDou', baseUrl: HUANGDOU_BASE });
+export const moreShortProvider = createResilientMolaProvider({ id: 'MoreShort', baseUrl: MORESHORT_BASE });
+export const dramaRushProvider = createResilientMolaProvider({ id: 'DramaRush', baseUrl: DRAMARUSH_BASE });
+export const shortswaveProvider = createResilientMolaProvider({ id: 'Shortswave', baseUrl: SHORTSWAVE_BASE });
+export const relalaProvider = createResilientMolaProvider({ id: 'Relala', baseUrl: RELALA_BASE });
+export const sixthShortProvider = createResilientMolaProvider({ id: 'SixthShort', baseUrl: SIXTHSHORT_BASE });
+export const snackShortProvider = createResilientMolaProvider({ id: 'SnackShort', baseUrl: SNACKSHORT_BASE });
+export const soreelProvider = createResilientMolaProvider({ id: 'Soreel', baseUrl: SOREEL_BASE });
+export const starReelProvider = createResilientMolaProvider({ id: 'StarReel', baseUrl: STARREEL_BASE });
+export const storyGoProvider = createResilientMolaProvider({ id: 'StoryGo', baseUrl: STORYGO_BASE });
+export const miniShortProvider = createResilientMolaProvider({ id: 'MiniShort', baseUrl: MINISHORT_BASE });
+export const shortenProvider = createResilientMolaProvider({ id: 'Shorten', baseUrl: SHORTEN_BASE });
+export const veloloProvider = createResilientMolaProvider({ id: 'Velolo', baseUrl: VELOLO_BASE });
+export const reelPineProvider = createResilientMolaProvider({ id: 'ReelPine', baseUrl: REELPINE_BASE });
+export const dynastyShortsProvider = createResilientMolaProvider({
+  id: 'DynastyShorts',
+  label: 'Dynasty Shorts',
+  baseUrl: DYNASTYSHORTS_BASE,
+});
+export const dramaShortsProvider = createResilientMolaProvider({ id: 'DramaShorts', baseUrl: DRAMASHORTS_BASE });
+export const tallFlixProvider = createResilientMolaProvider({ id: 'TallFlix', baseUrl: TALLFLIX_BASE });
+export const qlaxProvider = createResilientMolaProvider({ id: 'Qlax', baseUrl: QLAX_BASE });
+export const shorticalProvider = createResilientMolaProvider({ id: 'Shortical', baseUrl: SHORTICAL_BASE });
+export const luziCineProvider = createResilientMolaProvider({ id: 'LuziCine', baseUrl: LUZICINE_BASE });
+export const zebraShortProvider = createResilientMolaProvider({ id: 'ZebraShort', baseUrl: ZEBRASHORT_BASE });
+export const drakorIdProvider = createResilientMolaProvider({ id: 'DrakorID', baseUrl: DRAKORID_BASE });
+export const drachinRebornProvider = createResilientMolaProvider({ id: 'DrachinReborn', baseUrl: DRACHINREBORN_BASE });
+export const dramaQueenProvider = createResilientMolaProvider({ id: 'DramaQueen', baseUrl: DRAMAQUEEN_BASE });
+export const ansflixProvider = createResilientMolaProvider({ id: 'Ansflix', baseUrl: ANSFLIX_BASE });
+export const lupaCineProvider = createResilientMolaProvider({ id: 'LupaCine', baseUrl: LUPACINE_BASE });
+export const reelLifeProvider = createResilientMolaProvider({ id: 'ReelLife', baseUrl: REELLIFE_BASE });
+export const bstationProvider = createResilientMolaProvider({
+  id: 'Bstation',
+  baseUrl: BSTATION_BASE,
+  supportsAnime: true,
+  defaultPaths: {
+    foryou: ['/anime', '/foryou', '/popular', '/latest', '/trending'],
+    ranking: ['/trending', '/ranking', '/popular', '/anime'],
+    newest: ['/latest', '/terbaru', '/new', '/anime'],
+    anime: ['/anime', '/donghua', '/foryou', '/popular', '/latest'],
+  },
+});
+export const anichinProvider = createResilientMolaProvider({
+  id: 'Anichin',
+  baseUrl: ANICHIN_BASE,
+  supportsAnime: true,
+  defaultPaths: {
+    foryou: ['/latest', '/ongoing', '/donghua', '/foryou', '/popular', '/all'],
+    ranking: ['/popular', '/trending', '/ranking', '/latest'],
+    newest: ['/latest', '/ongoing', '/terbaru', '/new'],
+    anime: ['/donghua', '/anime', '/latest', '/ongoing', '/popular'],
+  },
+});
+export const donghuaQueenProvider = createResilientMolaProvider({
+  id: 'DonghuaQueen',
+  baseUrl: DONGHUAQUEEN_BASE,
+  supportsAnime: true,
+  defaultPaths: {
+    foryou: ['/latest', '/ongoing', '/donghua', '/foryou', '/popular', '/all'],
+    ranking: ['/popular', '/trending', '/ranking', '/latest'],
+    newest: ['/latest', '/ongoing', '/terbaru', '/new'],
+    anime: ['/donghua', '/anime', '/latest', '/ongoing', '/popular'],
+  },
+});
+export const samehadakuProvider = createResilientMolaProvider({
+  id: 'Samehadaku',
+  baseUrl: SAMEHADAKU_BASE,
+  supportsAnime: true,
+  defaultPaths: {
+    foryou: ['/latest', '/ongoing', '/anime', '/foryou', '/popular', '/all'],
+    ranking: ['/popular', '/trending', '/ranking', '/latest'],
+    newest: ['/latest', '/ongoing', '/terbaru', '/new'],
+    anime: ['/anime', '/latest', '/ongoing', '/popular'],
+  },
+});
+export const animeXProvider = createResilientMolaProvider({
+  id: 'AnimeX',
+  baseUrl: ANIMEX_BASE,
+  supportsAnime: true,
+  defaultPaths: {
+    foryou: ['/latest', '/ongoing', '/anime', '/foryou', '/popular', '/all'],
+    ranking: ['/popular', '/trending', '/ranking', '/latest'],
+    newest: ['/latest', '/ongoing', '/terbaru', '/new'],
+    anime: ['/anime', '/latest', '/ongoing', '/popular'],
+  },
+});
+export const winkNovelProvider = createResilientMolaProvider({
+  id: 'WinkNovel',
+  baseUrl: WINKNOVEL_BASE,
+  defaultPaths: {
+    foryou: ['/foryou', '/popular', '/trending', '/hot', '/latest', '/all'],
+    ranking: ['/ranking', '/popular', '/trending', '/hot'],
+    newest: ['/latest', '/terbaru', '/new', '/foryou'],
+  },
+});
+
 export const ALL_PROVIDER_ADAPTERS: Record<ProviderName, DramaProviderAdapter> = {
   DramaBox: dramaBoxProvider,
+  DramaBoxV2: dramaBoxV2Provider,
   NetShort: netShortProvider,
   AnyReel: anyReelProvider,
   Melolo: meloloProvider,
+  MeloLoV2: meloLoV2Provider,
   DramaOra: dramaOraProvider,
   MeloShort: meloShortProvider,
   PetaDrama: petaDramaProvider,
@@ -4515,13 +5175,53 @@ export const ALL_PROVIDER_ADAPTERS: Record<ProviderName, DramaProviderAdapter> =
   SodaReels: sodaReelsProvider,
   BonusTV: bonusTvProvider,
   iQIYI: iqiyiProvider,
+  AudioToon: audioToonProvider,
+  Playlet: playletProvider,
+  MomeShort: momeShortProvider,
+  StoReel: stoReelProvider,
+  MyMuse: myMuseProvider,
+  HuangDou: huangDouProvider,
+  MoreShort: moreShortProvider,
+  DramaRush: dramaRushProvider,
+  Shortswave: shortswaveProvider,
+  Relala: relalaProvider,
+  SixthShort: sixthShortProvider,
+  SnackShort: snackShortProvider,
+  Soreel: soreelProvider,
+  StarReel: starReelProvider,
+  StoryGo: storyGoProvider,
+  MiniShort: miniShortProvider,
+  Shorten: shortenProvider,
+  Velolo: veloloProvider,
+  ReelPine: reelPineProvider,
+  DynastyShorts: dynastyShortsProvider,
+  DramaShorts: dramaShortsProvider,
+  TallFlix: tallFlixProvider,
+  Qlax: qlaxProvider,
+  Shortical: shorticalProvider,
+  LuziCine: luziCineProvider,
+  ZebraShort: zebraShortProvider,
+  DrakorID: drakorIdProvider,
+  DrachinReborn: drachinRebornProvider,
+  DramaQueen: dramaQueenProvider,
+  Ansflix: ansflixProvider,
+  LupaCine: lupaCineProvider,
+  ReelLife: reelLifeProvider,
+  Bstation: bstationProvider,
+  Anichin: anichinProvider,
+  DonghuaQueen: donghuaQueenProvider,
+  Samehadaku: samehadakuProvider,
+  AnimeX: animeXProvider,
+  WinkNovel: winkNovelProvider,
 };
 
 export const ACTIVE_PROVIDER_NAMES: ProviderName[] = [
   'DramaBox',
+  'DramaBoxV2',
   'NetShort',
   'AnyReel',
   'Melolo',
+  'MeloLoV2',
   'DramaOra',
   'MeloShort',
   'PetaDrama',
@@ -4567,6 +5267,44 @@ export const ACTIVE_PROVIDER_NAMES: ProviderName[] = [
   'SodaReels',
   'BonusTV',
   'iQIYI',
+  'AudioToon',
+  'Playlet',
+  'MomeShort',
+  'StoReel',
+  'MyMuse',
+  'HuangDou',
+  'MoreShort',
+  'DramaRush',
+  'Shortswave',
+  'Relala',
+  'SixthShort',
+  'SnackShort',
+  'Soreel',
+  'StarReel',
+  'StoryGo',
+  'MiniShort',
+  'Shorten',
+  'Velolo',
+  'ReelPine',
+  'DynastyShorts',
+  'DramaShorts',
+  'TallFlix',
+  'Qlax',
+  'Shortical',
+  'LuziCine',
+  'ZebraShort',
+  'DrakorID',
+  'DrachinReborn',
+  'DramaQueen',
+  'Ansflix',
+  'LupaCine',
+  'ReelLife',
+  'Bstation',
+  'Anichin',
+  'DonghuaQueen',
+  'Samehadaku',
+  'AnimeX',
+  'WinkNovel',
 ];
 
 export function getProviderAdapter(provider: ProviderName): DramaProviderAdapter {
@@ -4704,6 +5442,13 @@ export const PROVIDER_ENDPOINT_CATALOG: Record<
     { key: 'vip', label: 'VIP', path: '/vip', badgeStyle: 'VIP', fetch: (p) => dramaBoxProvider.fetchVip(p) },
     { key: 'dubbing', label: 'Dubbing', path: '/dubbing', badgeStyle: 'DUB', fetch: (p) => dramaBoxProvider.fetchDubbing!(p) },
   ],
+  DramaBoxV2: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => dramaBoxV2Provider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => dramaBoxV2Provider.fetchRanking(p) },
+    { key: 'terbaru', label: 'Terbaru', path: '/terbaru', badgeStyle: 'NEW', fetch: (p) => dramaBoxV2Provider.fetchNewReleases(p) },
+    { key: 'vip', label: 'VIP', path: '/vip', badgeStyle: 'VIP', fetch: (p) => dramaBoxV2Provider.fetchVip(p) },
+    { key: 'dubbing', label: 'Dubbing', path: '/dubbing', badgeStyle: 'DUB', fetch: (p) => dramaBoxV2Provider.fetchDubbing!(p) },
+  ],
   NetShort: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => netShortProvider.fetchForYou(p) },
     { key: 'trending', label: 'Trending', path: '/trending', ranked: true, fetch: (p) => netShortProvider.fetchRanking(p) },
@@ -4720,6 +5465,13 @@ export const PROVIDER_ENDPOINT_CATALOG: Record<
     { key: 'new_release', label: 'New Release', path: '/new_release', badgeStyle: 'NEW', fetch: (p) => meloloProvider.fetchNewReleases(p) },
     { key: 'all_drama', label: 'All Drama', path: '/all_drama', fetch: (p) => meloloProvider.fetchAllDrama(p) },
     { key: 'anime', label: 'Anime', path: '/anime', badgeStyle: 'ANIME', fetch: (p) => meloloProvider.fetchAnime!(p) },
+  ],
+  MeloLoV2: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => meloLoV2Provider.fetchForYou(p) },
+    { key: 'rank', label: 'Rank', path: '/rank', ranked: true, fetch: (p) => meloLoV2Provider.fetchRanking(p) },
+    { key: 'new_release', label: 'New Release', path: '/new_release', badgeStyle: 'NEW', fetch: (p) => meloLoV2Provider.fetchNewReleases(p) },
+    { key: 'all_drama', label: 'All Drama', path: '/all_drama', fetch: (p) => meloLoV2Provider.fetchAllDrama(p) },
+    { key: 'anime', label: 'Anime', path: '/anime', badgeStyle: 'ANIME', fetch: (p) => meloLoV2Provider.fetchAnime!(p) },
   ],
   DramaOra: [
     { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => dramaOraProvider.fetchForYou(p) },
@@ -4926,6 +5678,166 @@ export const PROVIDER_ENDPOINT_CATALOG: Record<
     { key: 'overdo', label: 'Overdo', path: '/overdo', fetch: (p) => iqiyiProvider.fetchOverdo(p) },
     { key: 'vip', label: 'VIP', path: '/vip', badgeStyle: 'VIP', fetch: (p) => iqiyiProvider.fetchVipList(p) },
   ],
+  AudioToon: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => audioToonProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Popular', path: '/ranking', ranked: true, fetch: (p) => audioToonProvider.fetchRanking(p) },
+  ],
+  Playlet: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => playletProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => playletProvider.fetchRanking(p) },
+  ],
+  MomeShort: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => momeShortProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => momeShortProvider.fetchRanking(p) },
+  ],
+  StoReel: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => stoReelProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => stoReelProvider.fetchRanking(p) },
+  ],
+  MyMuse: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => myMuseProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => myMuseProvider.fetchRanking(p) },
+  ],
+  HuangDou: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => huangDouProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => huangDouProvider.fetchRanking(p) },
+  ],
+  MoreShort: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => moreShortProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => moreShortProvider.fetchRanking(p) },
+  ],
+  DramaRush: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => dramaRushProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => dramaRushProvider.fetchRanking(p) },
+  ],
+  Shortswave: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => shortswaveProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => shortswaveProvider.fetchRanking(p) },
+  ],
+  Relala: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => relalaProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => relalaProvider.fetchRanking(p) },
+  ],
+  SixthShort: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => sixthShortProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => sixthShortProvider.fetchRanking(p) },
+  ],
+  SnackShort: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => snackShortProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => snackShortProvider.fetchRanking(p) },
+  ],
+  Soreel: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => soreelProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => soreelProvider.fetchRanking(p) },
+  ],
+  StarReel: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => starReelProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => starReelProvider.fetchRanking(p) },
+  ],
+  StoryGo: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => storyGoProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => storyGoProvider.fetchRanking(p) },
+  ],
+  MiniShort: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => miniShortProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => miniShortProvider.fetchRanking(p) },
+  ],
+  Shorten: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => shortenProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => shortenProvider.fetchRanking(p) },
+  ],
+  Velolo: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => veloloProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => veloloProvider.fetchRanking(p) },
+  ],
+  ReelPine: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => reelPineProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => reelPineProvider.fetchRanking(p) },
+  ],
+  DynastyShorts: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => dynastyShortsProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => dynastyShortsProvider.fetchRanking(p) },
+  ],
+  DramaShorts: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => dramaShortsProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => dramaShortsProvider.fetchRanking(p) },
+  ],
+  TallFlix: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => tallFlixProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => tallFlixProvider.fetchRanking(p) },
+  ],
+  Qlax: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => qlaxProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => qlaxProvider.fetchRanking(p) },
+  ],
+  Shortical: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => shorticalProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => shorticalProvider.fetchRanking(p) },
+  ],
+  LuziCine: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => luziCineProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => luziCineProvider.fetchRanking(p) },
+  ],
+  ZebraShort: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => zebraShortProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => zebraShortProvider.fetchRanking(p) },
+  ],
+  DrakorID: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => drakorIdProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Popular', path: '/ranking', ranked: true, fetch: (p) => drakorIdProvider.fetchRanking(p) },
+    { key: 'terbaru', label: 'Terbaru', path: '/terbaru', badgeStyle: 'NEW', fetch: (p) => drakorIdProvider.fetchNewReleases(p) },
+  ],
+  DrachinReborn: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => drachinRebornProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Popular', path: '/ranking', ranked: true, fetch: (p) => drachinRebornProvider.fetchRanking(p) },
+    { key: 'terbaru', label: 'Terbaru', path: '/terbaru', badgeStyle: 'NEW', fetch: (p) => drachinRebornProvider.fetchNewReleases(p) },
+  ],
+  DramaQueen: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => dramaQueenProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Popular', path: '/ranking', ranked: true, fetch: (p) => dramaQueenProvider.fetchRanking(p) },
+    { key: 'terbaru', label: 'Terbaru', path: '/terbaru', badgeStyle: 'NEW', fetch: (p) => dramaQueenProvider.fetchNewReleases(p) },
+  ],
+  Ansflix: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => ansflixProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Trending', path: '/ranking', ranked: true, fetch: (p) => ansflixProvider.fetchRanking(p) },
+  ],
+  LupaCine: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => lupaCineProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Trending', path: '/ranking', ranked: true, fetch: (p) => lupaCineProvider.fetchRanking(p) },
+  ],
+  ReelLife: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => reelLifeProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Ranking', path: '/ranking', ranked: true, fetch: (p) => reelLifeProvider.fetchRanking(p) },
+  ],
+  Bstation: [
+    { key: 'anime', label: 'Anime', path: '/anime', badgeStyle: 'ANIME', fetch: (p) => bstationProvider.fetchAnime!(p) },
+    { key: 'ranking', label: 'Trending', path: '/trending', ranked: true, fetch: (p) => bstationProvider.fetchRanking(p) },
+    { key: 'terbaru', label: 'Latest', path: '/latest', badgeStyle: 'NEW', fetch: (p) => bstationProvider.fetchNewReleases(p) },
+  ],
+  Anichin: [
+    { key: 'anime', label: 'Donghua', path: '/donghua', badgeStyle: 'ANIME', fetch: (p) => anichinProvider.fetchAnime!(p) },
+    { key: 'terbaru', label: 'Latest', path: '/latest', badgeStyle: 'NEW', fetch: (p) => anichinProvider.fetchNewReleases(p) },
+    { key: 'ranking', label: 'Popular', path: '/popular', ranked: true, fetch: (p) => anichinProvider.fetchRanking(p) },
+  ],
+  DonghuaQueen: [
+    { key: 'anime', label: 'Donghua', path: '/donghua', badgeStyle: 'ANIME', fetch: (p) => donghuaQueenProvider.fetchAnime!(p) },
+    { key: 'terbaru', label: 'Latest', path: '/latest', badgeStyle: 'NEW', fetch: (p) => donghuaQueenProvider.fetchNewReleases(p) },
+    { key: 'ranking', label: 'Popular', path: '/popular', ranked: true, fetch: (p) => donghuaQueenProvider.fetchRanking(p) },
+  ],
+  Samehadaku: [
+    { key: 'anime', label: 'Anime', path: '/anime', badgeStyle: 'ANIME', fetch: (p) => samehadakuProvider.fetchAnime!(p) },
+    { key: 'terbaru', label: 'Latest', path: '/latest', badgeStyle: 'NEW', fetch: (p) => samehadakuProvider.fetchNewReleases(p) },
+    { key: 'ranking', label: 'Popular', path: '/popular', ranked: true, fetch: (p) => samehadakuProvider.fetchRanking(p) },
+  ],
+  AnimeX: [
+    { key: 'anime', label: 'Anime', path: '/anime', badgeStyle: 'ANIME', fetch: (p) => animeXProvider.fetchAnime!(p) },
+    { key: 'terbaru', label: 'Latest', path: '/latest', badgeStyle: 'NEW', fetch: (p) => animeXProvider.fetchNewReleases(p) },
+    { key: 'ranking', label: 'Popular', path: '/popular', ranked: true, fetch: (p) => animeXProvider.fetchRanking(p) },
+  ],
+  WinkNovel: [
+    { key: 'foryou', label: 'For You', path: '/foryou', fetch: (p) => winkNovelProvider.fetchForYou(p) },
+    { key: 'ranking', label: 'Popular', path: '/ranking', ranked: true, fetch: (p) => winkNovelProvider.fetchRanking(p) },
+  ],
 };
 
 export function getProviderEndpoints(
@@ -5030,6 +5942,9 @@ async function fetchSingleProviderCategoryFeed(
       if (provider === 'Melolo') {
         return meloloProvider.fetchAllDrama(page);
       }
+      if (provider === 'MeloLoV2') {
+        return meloLoV2Provider.fetchAllDrama(page);
+      }
       const specs = PROVIDER_ENDPOINT_CATALOG[provider] ?? [];
       const allSpec = specs.find((s) =>
         ['all_drama', 'alldrama', 'all'].includes(s.key)
@@ -5068,10 +5983,22 @@ export async function fetchSearchCategoryFeed(
 
   const categoryProviders: ProviderName[] =
     effectiveCategory === 'all_drama'
-      ? ['Melolo', 'PetaDrama', 'ShotShort', 'BlinkDrama', 'FlickReels', 'DramaBox']
+      ? ['Melolo', 'MeloLoV2', 'PetaDrama', 'ShotShort', 'BlinkDrama', 'FlickReels', 'DramaBox']
       : effectiveCategory === 'anime'
-      ? ['Melolo', 'NetShort', 'FreeReels', 'GoodShort', 'iQIYI']
-      : ['Melolo', 'DramaBox', 'NetShort', 'AnyReel', 'FreeReels', 'iQIYI'];
+      ? [
+          'Bstation',
+          'Anichin',
+          'DonghuaQueen',
+          'Samehadaku',
+          'AnimeX',
+          'Melolo',
+          'MeloLoV2',
+          'NetShort',
+          'FreeReels',
+          'GoodShort',
+          'iQIYI',
+        ]
+      : ['Melolo', 'DramaBox', 'DramaBoxV2', 'NetShort', 'AnyReel', 'FreeReels', 'iQIYI'];
 
   const settled = await Promise.allSettled(
     categoryProviders.map((name) =>

@@ -72,6 +72,41 @@ export function getDateKeyInTimeZone(
   return fmt.format(date);
 }
 
+export const CANONICAL_REWARDS_TIMEZONE = DEFAULT_FALLBACK_TIMEZONE;
+
+export interface CanonicalResetPeriod {
+  timeZone: string;
+  periodKey: string;
+  previousPeriodKey: string;
+  periodStartAt: Date;
+  nextResetAt: Date;
+}
+
+/**
+ * Returns the single authoritative server reset cycle (00:00 WIB / 17:00 UTC every 24h)
+ * regardless of client display timezone (UTC vs WIB).
+ */
+export function getCanonicalResetPeriod(now: Date = new Date()): CanonicalResetPeriod {
+  const periodKey = getDateKeyInTimeZone(now, CANONICAL_REWARDS_TIMEZONE);
+  const [y, m, d] = periodKey.split('-').map((n) => Number(n));
+  const periodStartMs =
+    Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d)
+      ? Date.UTC(y, m - 1, d, 0, 0, 0, 0) - 7 * 3600_000
+      : now.getTime() - (now.getTime() % 86_400_000);
+  const nextResetMs = periodStartMs + 86_400_000;
+  const previousPeriodKey = getDateKeyInTimeZone(
+    new Date(periodStartMs - 12 * 3600_000),
+    CANONICAL_REWARDS_TIMEZONE
+  );
+  return {
+    timeZone: CANONICAL_REWARDS_TIMEZONE,
+    periodKey,
+    previousPeriodKey,
+    periodStartAt: new Date(periodStartMs),
+    nextResetAt: new Date(nextResetMs),
+  };
+}
+
 /**
  * Backward-compatible alias returning YYYY-MM-DD in Asia/Jakarta or provided timezone.
  */
@@ -3905,6 +3940,8 @@ export interface DailyMissionMilestoneStatus {
 
 export interface UserPointsSummary {
   timeZone?: string;
+  resetPeriodKey?: string;
+  nextResetAt?: string;
   balance: number;
   totalEarned: number;
   totalRedeemed: number;
@@ -4369,63 +4406,27 @@ function normalizeDateKeyString(
   return match ? match[1] : s;
 }
 
-const TIMEZONE_SWITCH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const CHECKIN_MIN_GAP_MS = 20 * 60 * 60 * 1000;
 
 async function resolveUserTimeZonePg(
-  client: PoolClient,
-  userId: string,
-  requestedTz?: string | null,
-  allowWrite = true
-): Promise<{ timeZone: string; todayKey: string; yesterdayKey: string }> {
-  const validRequested = normalizeIanaTimeZone(requestedTz);
-  let effectiveTz = validRequested || DEFAULT_FALLBACK_TIMEZONE;
-
-  try {
-    const res = await client.query<{
-      timezone: string | null;
-      timezone_updated_at: Date | null;
-    }>(`SELECT timezone, timezone_updated_at FROM users WHERE uid = $1 LIMIT 1`, [
-      userId,
-    ]);
-    const row = res.rows[0];
-    if (row) {
-      const storedTz = normalizeIanaTimeZone(row.timezone);
-      const updatedMs =
-        row.timezone_updated_at instanceof Date ? row.timezone_updated_at.getTime() : 0;
-      const canSwitch = !updatedMs || Date.now() - updatedMs >= TIMEZONE_SWITCH_COOLDOWN_MS;
-
-      if (!storedTz && validRequested) {
-        effectiveTz = validRequested;
-        if (allowWrite) {
-          await client.query(
-            `UPDATE users SET timezone = $2, timezone_updated_at = NOW() WHERE uid = $1`,
-            [userId, validRequested]
-          );
-        }
-      } else if (storedTz && validRequested && validRequested !== storedTz) {
-        if (canSwitch && allowWrite) {
-          effectiveTz = validRequested;
-          await client.query(
-            `UPDATE users SET timezone = $2, timezone_updated_at = NOW() WHERE uid = $1`,
-            [userId, validRequested]
-          );
-        } else {
-          effectiveTz = storedTz;
-        }
-      } else if (storedTz) {
-        effectiveTz = storedTz;
-      }
-    }
-  } catch {
-    // Fallback cleanly if user row or column lookup encounters unexpected edge case
-  }
-
-  const now = new Date();
+  _client: PoolClient,
+  _userId: string,
+  _requestedTz?: string | null,
+  _allowWrite = true
+): Promise<{
+  timeZone: string;
+  todayKey: string;
+  yesterdayKey: string;
+  periodStartAt: Date;
+  nextResetAt: Date;
+}> {
+  const canonical = getCanonicalResetPeriod();
   return {
-    timeZone: effectiveTz,
-    todayKey: getDateKeyInTimeZone(now, effectiveTz),
-    yesterdayKey: getDateKeyInTimeZone(new Date(now.getTime() - 86_400_000), effectiveTz),
+    timeZone: canonical.timeZone,
+    todayKey: canonical.periodKey,
+    yesterdayKey: canonical.previousPeriodKey,
+    periodStartAt: canonical.periodStartAt,
+    nextResetAt: canonical.nextResetAt,
   };
 }
 
@@ -4435,13 +4436,10 @@ async function queryUserPointsSummaryOnClient(
   cfg: PayoutRuntimeConfig,
   requestedTz?: string | null
 ): Promise<UserPointsSummary> {
-  const { timeZone, todayKey, yesterdayKey } = await resolveUserTimeZonePg(
-    client,
-    userId,
-    requestedTz,
-    true
-  );
+  const { timeZone, todayKey, yesterdayKey, periodStartAt, nextResetAt } =
+    await resolveUserTimeZonePg(client, userId, requestedTz, true);
   const checkinRef = `checkin:${userId}:${todayKey}`;
+  const checkinPrefix = `checkin:${userId}:%`;
 
   const aggRes = await client.query<{
     total_earned: string;
@@ -4461,7 +4459,8 @@ async function queryUserPointsSummaryOnClient(
          CASE
            WHEN type = 'earn'
             AND reference_id NOT LIKE 'refund:payout:%'
-            AND (created_at AT TIME ZONE $4)::date = $2::date
+            AND created_at >= $4
+            AND created_at < $5
            THEN points
            ELSE 0
          END
@@ -4470,7 +4469,8 @@ async function queryUserPointsSummaryOnClient(
          CASE
            WHEN type = 'earn'
             AND (reference_id LIKE 'watch_min:%' OR reference_id LIKE 'mission_%')
-            AND (created_at AT TIME ZONE $4)::date = $2::date
+            AND created_at >= $4
+            AND created_at < $5
            THEN points
            ELSE 0
          END
@@ -4483,11 +4483,17 @@ async function queryUserPointsSummaryOnClient(
            ELSE NULL
          END
        ) AS last_claim_at,
-       COALESCE(BOOL_OR(reference_id = $3), FALSE) AS checkin_today,
+       COALESCE(
+         BOOL_OR(
+           reference_id = $2
+           OR (reference_id LIKE $3 AND created_at >= $4 AND created_at < $5)
+         ),
+         FALSE
+       ) AS checkin_today,
        COUNT(*)::text AS ledger_total
      FROM points_ledger
      WHERE user_id = $1`,
-    [userId, todayKey, checkinRef, timeZone]
+    [userId, checkinRef, checkinPrefix, periodStartAt, nextResetAt]
   );
 
   const payoutAggRes = await client.query<{
@@ -4520,8 +4526,9 @@ async function queryUserPointsSummaryOnClient(
   const checkinsRes = await client.query<{
     checkin_date: Date | string;
     streak_day: number;
+    created_at?: Date | string;
   }>(
-    `SELECT checkin_date, streak_day
+    `SELECT checkin_date, streak_day, created_at
      FROM daily_checkins
      WHERE user_id = $1
      ORDER BY checkin_date DESC
@@ -4532,22 +4539,37 @@ async function queryUserPointsSummaryOnClient(
   const milestoneRefIds = cfg.dailyMissionMilestones.map(
     (m) => `mission_${m.minutes}m:${userId}:${todayKey}`
   );
+  const milestonePrefix = `mission_%:${userId}:%`;
   const milestoneLedgerRes =
     milestoneRefIds.length > 0
       ? await client.query<{ reference_id: string; created_at: Date }>(
           `SELECT reference_id, created_at
            FROM points_ledger
-           WHERE user_id = $1 AND reference_id = ANY($2::text[])`,
-          [userId, milestoneRefIds]
+           WHERE user_id = $1
+             AND (
+               reference_id = ANY($2::text[])
+               OR (reference_id LIKE $3 AND created_at >= $4 AND created_at < $5)
+             )`,
+          [userId, milestoneRefIds, milestonePrefix, periodStartAt, nextResetAt]
         )
       : { rows: [] };
 
   const milestoneMap = new Map<string, string>();
+  const periodMsStart = periodStartAt.getTime();
+  const periodMsEnd = nextResetAt.getTime();
   for (const row of milestoneLedgerRes.rows) {
-    milestoneMap.set(
-      row.reference_id,
-      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
-    );
+    const iso =
+      row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at);
+    milestoneMap.set(row.reference_id, iso);
+    const createdMs =
+      row.created_at instanceof Date ? row.created_at.getTime() : Date.parse(String(row.created_at));
+    if (Number.isFinite(createdMs) && createdMs >= periodMsStart && createdMs < periodMsEnd) {
+      for (const ms of cfg.dailyMissionMilestones) {
+        if (row.reference_id.startsWith(`mission_${ms.minutes}m:${userId}:`)) {
+          milestoneMap.set(`mission_${ms.minutes}m:${userId}:${todayKey}`, iso);
+        }
+      }
+    }
   }
 
   const agg = aggRes.rows[0];
@@ -4584,13 +4606,25 @@ async function queryUserPointsSummaryOnClient(
       ? Math.max(1, cfg.claimCooldownSeconds - elapsedSec)
       : 0;
 
-  const checkinRows = checkinsRes.rows.map((r) => ({
-    dateKey: normalizeDateKeyString(r.checkin_date, timeZone),
-    streakDay: Math.max(1, Number(r.streak_day) || 1),
-  }));
+  const checkinRows = checkinsRes.rows.map((r) => {
+    const createdMs =
+      r.created_at instanceof Date
+        ? r.created_at.getTime()
+        : r.created_at
+        ? Date.parse(String(r.created_at))
+        : NaN;
+    return {
+      dateKey: normalizeDateKeyString(r.checkin_date, timeZone),
+      streakDay: Math.max(1, Number(r.streak_day) || 1),
+      inCurrentPeriod:
+        Number.isFinite(createdMs) && createdMs >= periodMsStart && createdMs < periodMsEnd,
+    };
+  });
   const recentCheckins = checkinRows.map((r) => r.dateKey).filter(Boolean).slice(0, 7);
-  const todayCheckinRow = checkinRows.find((r) => r.dateKey === todayKey);
-  const yesterdayCheckinRow = checkinRows.find((r) => r.dateKey === yesterdayKey);
+  const todayCheckinRow = checkinRows.find((r) => r.dateKey === todayKey || r.inCurrentPeriod);
+  const yesterdayCheckinRow = checkinRows.find(
+    (r) => r.dateKey === yesterdayKey && !r.inCurrentPeriod
+  );
   const dailyCheckinClaimedToday = Boolean(agg?.checkin_today) || Boolean(todayCheckinRow);
   const checkinStreak = todayCheckinRow
     ? todayCheckinRow.streakDay
@@ -4662,6 +4696,8 @@ async function queryUserPointsSummaryOnClient(
   const { usdAmount, idrAmount } = computePointsConversion(balance, cfg);
   return {
     timeZone,
+    resetPeriodKey: todayKey,
+    nextResetAt: nextResetAt.toISOString(),
     balance,
     totalEarned,
     totalRedeemed,
@@ -4847,21 +4883,29 @@ export async function claimDailyCheckinInDb(input: {
       `points:${input.userId}`,
     ]);
 
-    const { timeZone, todayKey, yesterdayKey } = await resolveUserTimeZonePg(
-      client,
-      input.userId,
-      input.timeZone,
-      true
-    );
+    const { timeZone, todayKey, yesterdayKey, periodStartAt, nextResetAt } =
+      await resolveUserTimeZonePg(client, input.userId, input.timeZone, true);
     const referenceId = `checkin:${input.userId}:${todayKey}`;
+    const checkinPrefix = `checkin:${input.userId}:%`;
 
     const dupCheckin = await client.query<{ user_id: string }>(
-      `SELECT user_id FROM daily_checkins WHERE user_id = $1 AND checkin_date = $2::date LIMIT 1`,
-      [input.userId, todayKey]
+      `SELECT user_id
+       FROM daily_checkins
+       WHERE user_id = $1
+         AND (checkin_date = $2::date OR (created_at >= $3 AND created_at < $4))
+       LIMIT 1`,
+      [input.userId, todayKey, periodStartAt, nextResetAt]
     );
     const dupLedger = await client.query<{ id: string }>(
-      `SELECT id FROM points_ledger WHERE reference_id = $1 LIMIT 1`,
-      [referenceId]
+      `SELECT id
+       FROM points_ledger
+       WHERE user_id = $1
+         AND (
+           reference_id = $2
+           OR (reference_id LIKE $3 AND created_at >= $4 AND created_at < $5)
+         )
+       LIMIT 1`,
+      [input.userId, referenceId, checkinPrefix, periodStartAt, nextResetAt]
     );
     const recentGapCheck = await client.query<{ last_at: Date | null }>(
       `SELECT MAX(created_at) AS last_at FROM daily_checkins WHERE user_id = $1`,
@@ -4892,7 +4936,8 @@ export async function claimDailyCheckinInDb(input: {
            CASE
              WHEN type = 'earn'
               AND reference_id NOT LIKE 'refund:payout:%'
-              AND (created_at AT TIME ZONE $3)::date = $2::date
+              AND created_at >= $2
+              AND created_at < $3
              THEN points
              ELSE 0
            END
@@ -4907,7 +4952,7 @@ export async function claimDailyCheckinInDb(input: {
          ) AS last_claim_at
        FROM points_ledger
        WHERE user_id = $1`,
-      [input.userId, todayKey, timeZone]
+      [input.userId, periodStartAt, nextResetAt]
     );
 
     const telLevelRes = await client.query<{
@@ -5089,7 +5134,7 @@ export async function claimWatchEpisodeInDb(input: {
       `points:${input.userId}`,
     ]);
 
-    const { timeZone, todayKey } = await resolveUserTimeZonePg(
+    const { timeZone, periodStartAt, nextResetAt } = await resolveUserTimeZonePg(
       client,
       input.userId,
       input.timeZone,
@@ -5157,7 +5202,8 @@ export async function claimWatchEpisodeInDb(input: {
            CASE
              WHEN type = 'earn'
               AND reference_id NOT LIKE 'refund:payout:%'
-              AND (created_at AT TIME ZONE $3)::date = $2::date
+              AND created_at >= $2
+              AND created_at < $3
              THEN points
              ELSE 0
            END
@@ -5172,7 +5218,7 @@ export async function claimWatchEpisodeInDb(input: {
          ) AS last_claim_at
        FROM points_ledger
        WHERE user_id = $1`,
-      [input.userId, todayKey, timeZone]
+      [input.userId, periodStartAt, nextResetAt]
     );
 
     const telLevelRes = await client.query<{
@@ -5329,17 +5375,25 @@ export async function claimWatchMilestoneInDb(input: {
       `points:${input.userId}`,
     ]);
 
-    const { timeZone, todayKey } = await resolveUserTimeZonePg(
+    const { timeZone, todayKey, periodStartAt, nextResetAt } = await resolveUserTimeZonePg(
       client,
       input.userId,
       input.timeZone,
       true
     );
     const referenceId = `mission_${validMilestone.minutes}m:${input.userId}:${todayKey}`;
+    const milestonePrefix = `mission_${validMilestone.minutes}m:${input.userId}:%`;
 
     const dupLedger = await client.query<{ id: string }>(
-      `SELECT id FROM points_ledger WHERE reference_id = $1 LIMIT 1`,
-      [referenceId]
+      `SELECT id
+       FROM points_ledger
+       WHERE user_id = $1
+         AND (
+           reference_id = $2
+           OR (reference_id LIKE $3 AND created_at >= $4 AND created_at < $5)
+         )
+       LIMIT 1`,
+      [input.userId, referenceId, milestonePrefix, periodStartAt, nextResetAt]
     );
     if (dupLedger.rows.length > 0) {
       const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
@@ -5377,7 +5431,12 @@ export async function claimWatchMilestoneInDb(input: {
       };
     }
 
-    const stats = await getQuickPointsStatePg(client, input.userId, todayKey, timeZone);
+    const stats = await getQuickPointsStatePg(
+      client,
+      input.userId,
+      periodStartAt,
+      nextResetAt
+    );
     const levelInfo = resolveAccountLevelStatus(
       stats.lifetimeEarnedForLevel,
       verifiedWatchSec,
@@ -6481,8 +6540,8 @@ interface WatchMissionGrantResult {
 async function getQuickPointsStatePg(
   client: PoolClient,
   userId: string,
-  todayKey: string,
-  timeZone: string = DEFAULT_FALLBACK_TIMEZONE
+  periodStartAt: Date,
+  nextResetAt: Date
 ): Promise<{
   balance: number;
   lifetimeEarnedForLevel: number;
@@ -6504,7 +6563,8 @@ async function getQuickPointsStatePg(
          CASE
            WHEN type = 'earn'
             AND reference_id NOT LIKE 'refund:payout:%'
-            AND (created_at AT TIME ZONE $3)::date = $2::date
+            AND created_at >= $2
+            AND created_at < $3
            THEN points
            ELSE 0
          END
@@ -6513,14 +6573,15 @@ async function getQuickPointsStatePg(
          CASE
            WHEN type = 'earn'
             AND (reference_id LIKE 'watch_min:%' OR reference_id LIKE 'mission_%')
-            AND (created_at AT TIME ZONE $3)::date = $2::date
+            AND created_at >= $2
+            AND created_at < $3
            THEN points
            ELSE 0
          END
        ), 0)::text AS today_watch_points
      FROM points_ledger
      WHERE user_id = $1`,
-    [userId, todayKey, timeZone]
+    [userId, periodStartAt, nextResetAt]
   );
   const row = res.rows[0];
   const totalEarned = Math.max(0, Number(row?.total_earned) || 0);
@@ -6541,7 +6602,8 @@ async function grantWatchMissionPointsPg(
   client: PoolClient,
   userId: string,
   todayKey: string,
-  timeZone: string,
+  periodStartAt: Date,
+  nextResetAt: Date,
   todayWatchSeconds: number,
   verifiedWatchSeconds: number,
   cfg: PayoutRuntimeConfig,
@@ -6551,7 +6613,7 @@ async function grantWatchMissionPointsPg(
     `points:${userId}`,
   ]);
 
-  const initial = await getQuickPointsStatePg(client, userId, todayKey, timeZone);
+  const initial = await getQuickPointsStatePg(client, userId, periodStartAt, nextResetAt);
   const initialLevel = resolveAccountLevelStatus(
     initial.lifetimeEarnedForLevel,
     verifiedWatchSeconds,
@@ -6578,14 +6640,29 @@ async function grantWatchMissionPointsPg(
     };
   }
 
-  const existingRes = await client.query<{ reference_id: string }>(
-    `SELECT reference_id
+  const existingRes = await client.query<{ reference_id: string; created_at?: Date }>(
+    `SELECT reference_id, created_at
      FROM points_ledger
      WHERE user_id = $1
-       AND reference_id LIKE $2`,
-    [userId, `watch_min:${userId}:${todayKey}:%`]
+       AND (
+         reference_id LIKE $2
+         OR (reference_id LIKE $3 AND created_at >= $4 AND created_at < $5)
+       )`,
+    [userId, `watch_min:${userId}:${todayKey}:%`, `watch_min:${userId}:%`, periodStartAt, nextResetAt]
   );
-  const existingRefs = new Set(existingRes.rows.map((r) => r.reference_id));
+  const existingRefs = new Set<string>();
+  const periodStartMs = periodStartAt.getTime();
+  const nextResetMs = nextResetAt.getTime();
+  for (const r of existingRes.rows) {
+    existingRefs.add(r.reference_id);
+    const createdMs = r.created_at instanceof Date ? r.created_at.getTime() : NaN;
+    if (Number.isFinite(createdMs) && createdMs >= periodStartMs && createdMs < nextResetMs) {
+      const mMatch = /:m(\d+)$/.exec(r.reference_id);
+      if (mMatch) {
+        existingRefs.add(`watch_min:${userId}:${todayKey}:m${mMatch[1]}`);
+      }
+    }
+  }
 
   let remainingDaily = Math.max(0, cfg.maxDailyEarnPoints - initial.todayEarned);
   let remainingDailyWatch = Math.max(
@@ -6839,7 +6916,7 @@ export async function recordWatchHeartbeatInDb(input: {
       `watch:${input.userId}`,
     ]);
 
-    const { timeZone: effectiveTimeZone, todayKey } = await resolveUserTimeZonePg(
+    const { todayKey, periodStartAt, nextResetAt } = await resolveUserTimeZonePg(
       client,
       input.userId,
       input.timeZone,
@@ -6866,7 +6943,7 @@ export async function recordWatchHeartbeatInDb(input: {
       !sessRow.is_active ||
       (sessRow.expires_at instanceof Date && sessRow.expires_at.getTime() <= nowMs)
     ) {
-      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      const ptsState = await getQuickPointsStatePg(client, input.userId, periodStartAt, nextResetAt);
       await client.query('COMMIT');
       return {
         ok: false,
@@ -6885,7 +6962,7 @@ export async function recordWatchHeartbeatInDb(input: {
 
     const sessionAccumSec = Math.max(0, Number(sessRow.accumulated_sec) || 0);
     if (hasSeq && incomingSeq <= Math.max(0, Number(sessRow.last_seq) || 0)) {
-      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      const ptsState = await getQuickPointsStatePg(client, input.userId, periodStartAt, nextResetAt);
       await client.query('COMMIT');
       return {
         ok: false,
@@ -6939,7 +7016,8 @@ export async function recordWatchHeartbeatInDb(input: {
 
     const lastHbMs =
       row?.last_heartbeat_at instanceof Date ? row.last_heartbeat_at.getTime() : 0;
-    const wallElapsedSec = lastHbMs > 0 ? Math.floor((nowMs - lastHbMs) / 1000) : 0;
+    const wallElapsedMs = lastHbMs > 0 ? Math.max(0, nowMs - lastHbMs) : 0;
+    const wallElapsedSec = lastHbMs > 0 ? Math.round(wallElapsedMs / 1000) : 0;
     const lastSessionId = row?.active_stream_session_id || '';
     const lastMediaKey = row?.active_stream_media_key || '';
     const lastVideoSec = row ? Number(row.last_video_time_sec) || 0 : 0;
@@ -6967,7 +7045,7 @@ export async function recordWatchHeartbeatInDb(input: {
          WHERE user_id = $1`,
         [input.userId, concurrentStrikes, riskFlag.slice(0, 120), suspiciousReason.slice(0, 300)]
       );
-      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      const ptsState = await getQuickPointsStatePg(client, input.userId, periodStartAt, nextResetAt);
       await client.query('COMMIT');
       return {
         ok: false,
@@ -7015,7 +7093,7 @@ export async function recordWatchHeartbeatInDb(input: {
           suspiciousReason,
         ]
       );
-      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      const ptsState = await getQuickPointsStatePg(client, input.userId, periodStartAt, nextResetAt);
       await client.query('COMMIT');
       return {
         ok: true,
@@ -7063,7 +7141,7 @@ export async function recordWatchHeartbeatInDb(input: {
           suspiciousReason,
         ]
       );
-      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      const ptsState = await getQuickPointsStatePg(client, input.userId, periodStartAt, nextResetAt);
       await client.query('COMMIT');
       return {
         ok: true,
@@ -7125,7 +7203,7 @@ export async function recordWatchHeartbeatInDb(input: {
          WHERE session_token = $1`,
         [cleanSessionId, safeVideoTime]
       );
-      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      const ptsState = await getQuickPointsStatePg(client, input.userId, periodStartAt, nextResetAt);
       await client.query('COMMIT');
       return {
         ok: true,
@@ -7144,7 +7222,7 @@ export async function recordWatchHeartbeatInDb(input: {
     }
 
     // 5. Timestamp delta check (reject faster than real time)
-    if (wallElapsedSec < ANTI_CHEAT_DEFAULTS.minHeartbeatIntervalSec) {
+    if (wallElapsedMs < ANTI_CHEAT_DEFAULTS.minHeartbeatIntervalSec * 1000 - 400) {
       fastStrikes += 1;
       if (
         fastStrikes >= ANTI_CHEAT_DEFAULTS.maxFastDeltaStrikes &&
@@ -7161,7 +7239,7 @@ export async function recordWatchHeartbeatInDb(input: {
          WHERE user_id = $1`,
         [input.userId, fastStrikes, riskFlag.slice(0, 120), suspiciousReason.slice(0, 300)]
       );
-      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      const ptsState = await getQuickPointsStatePg(client, input.userId, periodStartAt, nextResetAt);
       await client.query('COMMIT');
       return {
         ok: false,
@@ -7193,7 +7271,7 @@ export async function recordWatchHeartbeatInDb(input: {
          WHERE session_token = $1`,
         [cleanSessionId, safeVideoTime]
       );
-      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      const ptsState = await getQuickPointsStatePg(client, input.userId, periodStartAt, nextResetAt);
       await client.query('COMMIT');
       return {
         ok: true,
@@ -7229,7 +7307,7 @@ export async function recordWatchHeartbeatInDb(input: {
          WHERE session_token = $1`,
         [cleanSessionId, safeVideoTime]
       );
-      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      const ptsState = await getQuickPointsStatePg(client, input.userId, periodStartAt, nextResetAt);
       await client.query('COMMIT');
       return {
         ok: true,
@@ -7254,7 +7332,7 @@ export async function recordWatchHeartbeatInDb(input: {
          WHERE user_id = $1`,
         [input.userId, safeVideoTime]
       );
-      const ptsState = await getQuickPointsStatePg(client, input.userId, todayKey, effectiveTimeZone);
+      const ptsState = await getQuickPointsStatePg(client, input.userId, periodStartAt, nextResetAt);
       await client.query('COMMIT');
       return {
         ok: true,
@@ -7324,7 +7402,8 @@ export async function recordWatchHeartbeatInDb(input: {
       client,
       input.userId,
       todayKey,
-      effectiveTimeZone,
+      periodStartAt,
+      nextResetAt,
       todayWatchSeconds,
       verifiedWatchSeconds,
       cfg,
@@ -7352,11 +7431,11 @@ export async function recordWatchHeartbeatInDb(input: {
           weekly_cnt: string;
         }>(
           `SELECT
-             COUNT(*) FILTER (WHERE (qualified_at AT TIME ZONE $3)::date = $2::date)::text AS daily_cnt,
+             COUNT(*) FILTER (WHERE qualified_at >= $2 AND qualified_at < $3)::text AS daily_cnt,
              COUNT(*) FILTER (WHERE qualified_at >= NOW() - INTERVAL '7 days')::text AS weekly_cnt
            FROM referrals
            WHERE referrer_uid = $1 AND status = 'qualified'`,
-          [pendingRef.referrer_uid, todayKey, effectiveTimeZone]
+          [pendingRef.referrer_uid, periodStartAt, nextResetAt]
         );
         const dailyCnt = Number(quotaRes.rows[0]?.daily_cnt) || 0;
         const weeklyCnt = Number(quotaRes.rows[0]?.weekly_cnt) || 0;

@@ -70,9 +70,9 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
   watchEpisodePoints = 200,
   watchMinutePoints = 20,
   dailyMissionMilestones = [
-    { minutes: 15, bonusPoints: 100 },
-    { minutes: 30, bonusPoints: 200 },
-    { minutes: 60, bonusPoints: 400 },
+    { minutes: 15, bonusPoints: 500 },
+    { minutes: 30, bonusPoints: 1200 },
+    { minutes: 60, bonusPoints: 2800 },
   ],
   levelTiers = [],
   referralBonusPoints = 5000,
@@ -88,7 +88,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
   const formattedMinIdr = `Rp ${minPayoutIdr.toLocaleString('id-ID')}`;
   const formattedRateIdr = `Rp ${usdToIdrRate.toLocaleString('id-ID')}`;
   const milestoneSummaryText = dailyMissionMilestones
-    .map((ms) => `${ms.minutes}m (+${ms.bonusPoints})`)
+    .map((ms) => `${ms.minutes}m (+${ms.bonusPoints.toLocaleString()})`)
     .join(' · ');
   const tierSummaryText =
     levelTiers.length > 0
@@ -101,7 +101,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
     ? [
         {
           q: 'Bagaimana cara mendapatkan poin dari nonton drama di KanoDrama?',
-          a: `Login ke akun KanoDrama Anda lalu tonton drama Asia, short drama China, atau film secara aktif pada kecepatan 1x dengan tab browser tetap terlihat. Server memverifikasi durasi menonton setiap 20 detik dan memberikan +${watchMinutePoints} poin/menit otomatis (maksimal 60 menit/hari), bonus episode baru +${watchEpisodePoints} poin sekali per episode, check-in harian +${dailyCheckinPoints} poin, serta bonus milestone 15m/30m/60m yang dapat diklaim setelah target tercapai hingga batas ${maxDailyEarnPoints.toLocaleString()} poin/hari.`,
+          a: `Login ke akun KanoDrama Anda lalu tonton drama Asia, short drama China, atau film secara aktif pada kecepatan 1x dengan tab browser tetap terlihat. Server memverifikasi durasi menonton setiap 15 detik dan memberikan +${watchMinutePoints} poin/menit otomatis (maksimal 60 menit/hari), bonus episode baru +${watchEpisodePoints} poin sekali per episode, check-in harian +${dailyCheckinPoints} poin, serta bonus milestone 15m/30m/60m yang dapat diklaim setelah target tercapai hingga batas ${maxDailyEarnPoints.toLocaleString()} poin/hari.`,
         },
         {
           q: 'Berapa nilai tukar poin KanoDrama ke saldo DANA, bank lokal, atau USD?',
@@ -113,13 +113,13 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
         },
         {
           q: 'Kapan misi menonton harian dan check-in direset?',
-          a: 'Seluruh progres misi menonton harian, klaim milestone, batas perolehan poin harian, dan klaim check-in direset otomatis setiap pukul 00.00 WIB (Asia/Jakarta) berdasarkan waktu server.',
+          a: 'Seluruh progres misi menonton harian, klaim milestone, batas perolehan poin harian, dan klaim check-in dikunci pada satu periode server dan direset otomatis setiap pukul 00.00 WIB (17.00 UTC) berdasarkan waktu server.',
         },
       ]
     : [
         {
           q: 'How do I earn watch points on KanoDrama?',
-          a: `Sign in and stream dramas or movies actively at 1x speed with the browser tab visible. Our backend watch session verifies active playback and awards +${watchMinutePoints} pts/min automatically (up to 60 min/day), +${watchEpisodePoints} pts per new episode, +${dailyCheckinPoints} pts daily UTC check-in, and claimable 15m/30m/60m mission milestones up to ${maxDailyEarnPoints.toLocaleString()} pts/day.`,
+          a: `Sign in and stream dramas or movies actively at 1x speed with the browser tab visible. Our backend watch session verifies active playback and awards +${watchMinutePoints} pts/min automatically (up to 60 min/day), +${watchEpisodePoints} pts per new episode, +${dailyCheckinPoints} pts daily check-in, and claimable 15m/30m/60m mission milestones up to ${maxDailyEarnPoints.toLocaleString()} pts/day.`,
         },
         {
           q: 'What is the points conversion rate and minimum withdrawal?',
@@ -131,7 +131,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
         },
         {
           q: 'When do daily watch missions and check-ins reset?',
-          a: 'All daily check-ins, milestone claims, daily caps, and watch missions reset automatically at 00:00 UTC.',
+          a: 'All daily check-ins, milestone claims, daily caps, and watch missions are locked to a single canonical server period and reset automatically once per day at 17:00 UTC (00:00 WIB).',
         },
       ];
 
@@ -235,7 +235,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
                   {milestoneSummaryText}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
-                  {isId ? 'Reset otomatis setiap 00.00 WIB' : 'Resets daily at 00:00 UTC'}
+                  {isId ? 'Reset otomatis setiap 00.00 WIB (17.00 UTC)' : 'Resets daily at 17:00 UTC (00:00 WIB)'}
                 </td>
               </tr>
               <tr>
@@ -259,7 +259,7 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
                   +{dailyCheckinPoints} {isId ? 'poin / hari (+bonus streak 7h)' : 'pts / day (+7d streak bonus)'}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
-                  {isId ? 'Satu kali per tanggal WIB' : 'Once per UTC calendar day'}
+                  {isId ? 'Satu kali per periode reset (00.00 WIB)' : 'Once per server reset period (17:00 UTC)'}
                 </td>
               </tr>
               <tr>

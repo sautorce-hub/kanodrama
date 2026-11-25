@@ -281,6 +281,46 @@ const EXTRA_PROVIDER_NAMES: ExtraProviderName[] = [
   'SodaReels',
   'BonusTV',
   'iQIYI',
+  'DramaBoxV2',
+  'MeloLoV2',
+  'AudioToon',
+  'Playlet',
+  'MomeShort',
+  'StoReel',
+  'MyMuse',
+  'HuangDou',
+  'MoreShort',
+  'DramaRush',
+  'Shortswave',
+  'Relala',
+  'SixthShort',
+  'SnackShort',
+  'Soreel',
+  'StarReel',
+  'StoryGo',
+  'MiniShort',
+  'Shorten',
+  'Velolo',
+  'ReelPine',
+  'DynastyShorts',
+  'DramaShorts',
+  'TallFlix',
+  'Qlax',
+  'Shortical',
+  'LuziCine',
+  'ZebraShort',
+  'DrakorID',
+  'DrachinReborn',
+  'DramaQueen',
+  'Ansflix',
+  'LupaCine',
+  'ReelLife',
+  'Bstation',
+  'Anichin',
+  'DonghuaQueen',
+  'Samehadaku',
+  'AnimeX',
+  'WinkNovel',
 ];
 
 interface ExtraProviderFeedBundle {
@@ -309,7 +349,13 @@ function createInitialExtraFeeds(): Record<
         name === 'MoboReels' ||
         name === 'FreeReels' ||
         name === 'GoodShort' ||
-        name === 'iQIYI'
+        name === 'iQIYI' ||
+        name === 'MeloLoV2' ||
+        name === 'Bstation' ||
+        name === 'Anichin' ||
+        name === 'DonghuaQueen' ||
+        name === 'Samehadaku' ||
+        name === 'AnimeX'
           ? { ...IDLE_FEED }
           : undefined,
       dubbing:
@@ -331,6 +377,10 @@ function parseProviderName(raw: string | null | undefined): ProviderName | undef
   if (!raw) return undefined;
   const norm = raw.trim().toLowerCase();
   if (norm === 'stardust') return 'StardustTV';
+  if (norm === 'dramaboxv2' || norm === 'dramabox_v2') return 'DramaBoxV2';
+  if (norm === 'melolov2' || norm === 'melolo_v2') return 'MeloLoV2';
+  if (norm === 'stareel' || norm === 'starreel') return 'StarReel';
+  if (norm === 'dynastyshorts' || norm === 'dynasty_shorts') return 'DynastyShorts';
   if (norm === 'storyreel_v2') return 'StoryReelV2';
   if (norm === 'vibeshort_v2') return 'VibeShortV2';
   if (norm === 'shortmax_v2') return 'ShortMaxV2';
@@ -1392,6 +1442,17 @@ export default function App() {
           const fn = iqiyiProvider.fetchAnime;
           tasks.push(loadExtraFeedSlot(provider, 'anime', (p) => fn(p), 1, false));
         }
+      } else if (
+        (provider === 'MeloLoV2' ||
+          provider === 'Bstation' ||
+          provider === 'Anichin' ||
+          provider === 'DonghuaQueen' ||
+          provider === 'Samehadaku' ||
+          provider === 'AnimeX') &&
+        adapter.fetchAnime
+      ) {
+        const fn = adapter.fetchAnime;
+        tasks.push(loadExtraFeedSlot(provider, 'anime', (p) => fn(p), 1, false));
       }
 
       if (force) {
@@ -2716,21 +2777,39 @@ export default function App() {
     extraFeeds,
   ]);
 
-  // Unified Anime Feed respecting Provider Filter (NetShort + Melolo + MoboReels + FreeReels + GoodShort + iQIYI)
+  // Unified Anime Feed respecting Provider Filter (NetShort + Melolo + MeloLoV2 + MoboReels + FreeReels + GoodShort + iQIYI + Bstation + Anichin + DonghuaQueen + Samehadaku + AnimeX)
   const combinedAnimeItems = useMemo(() => {
     const moboAnime = extraFeeds.MoboReels.anime?.items ?? [];
     const freeReelsAnime = extraFeeds.FreeReels.anime?.items ?? [];
     const goodShortAnime = extraFeeds.GoodShort.anime?.items ?? [];
     const iqiyiAnime = extraFeeds.iQIYI.anime?.items ?? [];
+    const meloV2Anime = extraFeeds.MeloLoV2.anime?.items ?? [];
+    const bstationAnime = extraFeeds.Bstation.anime?.items ?? [];
+    const anichinAnime = extraFeeds.Anichin.anime?.items ?? [];
+    const donghuaQueenAnime = extraFeeds.DonghuaQueen.anime?.items ?? [];
+    const samehadakuAnime = extraFeeds.Samehadaku.anime?.items ?? [];
+    const animeXAnime = extraFeeds.AnimeX.anime?.items ?? [];
     if (selectedProvider === 'Melolo') return mlAnimeFeed.items;
+    if (selectedProvider === 'MeloLoV2') return meloV2Anime;
     if (selectedProvider === 'NetShort') return nsAnimeFeed.items;
     if (selectedProvider === 'MoboReels') return moboAnime;
     if (selectedProvider === 'FreeReels') return freeReelsAnime;
     if (selectedProvider === 'GoodShort') return goodShortAnime;
     if (selectedProvider === 'iQIYI') return iqiyiAnime;
+    if (selectedProvider === 'Bstation') return bstationAnime;
+    if (selectedProvider === 'Anichin') return anichinAnime;
+    if (selectedProvider === 'DonghuaQueen') return donghuaQueenAnime;
+    if (selectedProvider === 'Samehadaku') return samehadakuAnime;
+    if (selectedProvider === 'AnimeX') return animeXAnime;
     return interleaveManyFeeds(
       nsAnimeFeed.items,
       mlAnimeFeed.items,
+      meloV2Anime,
+      bstationAnime,
+      anichinAnime,
+      donghuaQueenAnime,
+      samehadakuAnime,
+      animeXAnime,
       iqiyiAnime,
       moboAnime,
       freeReelsAnime,
@@ -3067,6 +3146,18 @@ export default function App() {
         const frAnimeFeed = extraFeeds.FreeReels.anime ?? IDLE_FEED;
         const gsAnimeFeed = extraFeeds.GoodShort.anime ?? IDLE_FEED;
         const iqAnimeFeed = extraFeeds.iQIYI.anime ?? IDLE_FEED;
+        const animeExtraProviders: ExtraProviderName[] = [
+          'MeloLoV2',
+          'Bstation',
+          'Anichin',
+          'DonghuaQueen',
+          'Samehadaku',
+          'AnimeX',
+        ];
+        const extraAnimeFeeds = animeExtraProviders.map((p) => ({
+          provider: p,
+          feed: extraFeeds[p].anime ?? IDLE_FEED,
+        }));
         return {
           title: t.sections.animeDonghua,
           items:
@@ -3077,28 +3168,32 @@ export default function App() {
             moboAnimeFeed.loading &&
             frAnimeFeed.loading &&
             gsAnimeFeed.loading &&
-            iqAnimeFeed.loading,
+            iqAnimeFeed.loading &&
+            extraAnimeFeeds.every((x) => x.feed.loading),
           loadingMore:
             nsAnimeFeed.loadingMore ||
             mlAnimeFeed.loadingMore ||
             moboAnimeFeed.loadingMore ||
             frAnimeFeed.loadingMore ||
             gsAnimeFeed.loadingMore ||
-            iqAnimeFeed.loadingMore,
+            iqAnimeFeed.loadingMore ||
+            extraAnimeFeeds.some((x) => x.feed.loadingMore),
           error:
             nsAnimeFeed.error &&
             mlAnimeFeed.error &&
             moboAnimeFeed.error &&
             frAnimeFeed.error &&
             gsAnimeFeed.error &&
-            iqAnimeFeed.error,
+            iqAnimeFeed.error &&
+            extraAnimeFeeds.every((x) => x.feed.error),
           hasMore:
             nsAnimeFeed.hasMore ||
             mlAnimeFeed.hasMore ||
             moboAnimeFeed.hasMore ||
             frAnimeFeed.hasMore ||
             gsAnimeFeed.hasMore ||
-            iqAnimeFeed.hasMore,
+            iqAnimeFeed.hasMore ||
+            extraAnimeFeeds.some((x) => x.feed.hasMore),
           badgeStyle: 'ANIME' as const,
           ranked: false,
           onLoadMore: () => {
@@ -3175,6 +3270,21 @@ export default function App() {
                 true
               );
             }
+            for (const { provider, feed } of extraAnimeFeeds) {
+              const fn = ALL_PROVIDER_ADAPTERS[provider].fetchAnime;
+              if (
+                fn &&
+                (selectedProvider === 'All' || selectedProvider === provider)
+              ) {
+                loadExtraFeedSlot(
+                  provider,
+                  'anime',
+                  (p) => fn(p),
+                  feed.page + 1,
+                  true
+                );
+              }
+            }
           },
           onRetry: () => {
             if (netShortProvider.fetchAnime) {
@@ -3201,6 +3311,12 @@ export default function App() {
             if (iqiyiProvider.fetchAnime) {
               const fn = iqiyiProvider.fetchAnime;
               loadExtraFeedSlot('iQIYI', 'anime', (p) => fn(p), 1, false);
+            }
+            for (const { provider } of extraAnimeFeeds) {
+              const fn = ALL_PROVIDER_ADAPTERS[provider].fetchAnime;
+              if (fn) {
+                loadExtraFeedSlot(provider, 'anime', (p) => fn(p), 1, false);
+              }
             }
           },
         };
@@ -3664,7 +3780,7 @@ export default function App() {
                 onSelectTag={openTagRoute}
               />
 
-              {/* Compact Quick Provider Switcher (Single Horizontal Row — All 49 Providers) + Explore Link */}
+              {/* Compact Quick Provider Switcher (Single Horizontal Row — All 89 Providers) + Explore Link */}
               <section
                 className="max-w-[1440px] mx-auto px-4 md:px-8 pt-2 pb-1"
                 aria-label="Provider quick filter"

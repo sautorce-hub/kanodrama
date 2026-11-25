@@ -388,7 +388,7 @@ function normalizeDrama(
     Boolean(rawCover) &&
     !rawCover.startsWith('/api/proxy') &&
     (rawCover.startsWith('http://') ||
-      (provider === 'Melolo' &&
+      ((provider === 'Melolo' || provider === 'MeloLoV2') &&
         (rawCover.toLowerCase().includes('.heic') ||
           rawCover.toLowerCase().includes('fizzopic.org'))));
 
@@ -503,6 +503,7 @@ function interleaveUnique(...lists: CachedDramaItem[][]): CachedDramaItem[] {
 function mapLangForProvider(provider: string, lang: HomeLangCode): string | null {
   switch (provider) {
     case 'DramaBox':
+    case 'DramaBoxV2':
       return lang === 'cn' ? 'zh' : lang;
     case 'NetShort':
       if (lang === 'id') return 'id_ID';
@@ -527,6 +528,7 @@ function mapLangForProvider(provider: string, lang: HomeLangCode): string | null
     case 'FreeReels':
       return lang === 'id' ? 'id-ID' : 'en-US';
     case 'Melolo':
+    case 'MeloLoV2':
     case 'MeloShort':
     case 'DramaVerse':
     case 'MoboReels':
@@ -554,10 +556,12 @@ interface ProviderFeedTarget {
 
 function resolveProviderApiSegment(provider: string): string {
   const map: Record<string, string> = {
-    DramaBox: 'dramaboxv2',
+    DramaBox: 'dramabox',
+    DramaBoxV2: 'dramaboxv2',
     NetShort: 'netshort',
     AnyReel: 'anyreel',
     Melolo: 'melolo',
+    MeloLoV2: 'melolov2',
     DramaOra: 'dramaora',
     MeloShort: 'meloshort',
     PetaDrama: 'petadrama',
@@ -603,6 +607,44 @@ function resolveProviderApiSegment(provider: string): string {
     SodaReels: 'sodareels',
     BonusTV: 'bonustv',
     iQIYI: 'iqiyi',
+    AudioToon: 'audiotoon',
+    Playlet: 'playlet',
+    MomeShort: 'momeshort',
+    StoReel: 'storeel',
+    MyMuse: 'mymuse',
+    HuangDou: 'huangdou',
+    MoreShort: 'moreshort',
+    DramaRush: 'dramarush',
+    Shortswave: 'shortswave',
+    Relala: 'relala',
+    SixthShort: 'sixthshort',
+    SnackShort: 'snackshort',
+    Soreel: 'soreel',
+    StarReel: 'stareel',
+    StoryGo: 'storygo',
+    MiniShort: 'minishort',
+    Shorten: 'shorten',
+    Velolo: 'velolo',
+    ReelPine: 'reelpine',
+    DynastyShorts: 'dynastyshorts',
+    DramaShorts: 'dramashorts',
+    TallFlix: 'tallflix',
+    Qlax: 'qlax',
+    Shortical: 'shortical',
+    LuziCine: 'luzicine',
+    ZebraShort: 'zebrashort',
+    DrakorID: 'drakorid',
+    DrachinReborn: 'drachinreborn',
+    DramaQueen: 'dramaqueen',
+    Ansflix: 'ansflix',
+    LupaCine: 'lupacine',
+    ReelLife: 'reellife',
+    Bstation: 'bstation',
+    Anichin: 'anichin',
+    DonghuaQueen: 'donghuaqueen',
+    Samehadaku: 'samehadaku',
+    AnimeX: 'animex',
+    WinkNovel: 'winknovel',
   };
   return map[provider] ?? provider.toLowerCase();
 }
@@ -611,6 +653,7 @@ function getEndpointsForProvider(provider: string): ProviderFeedTarget {
   const apiSegment = resolveProviderApiSegment(provider);
   switch (provider) {
     case 'DramaBox':
+    case 'DramaBoxV2':
       return {
         provider,
         apiSegment,
@@ -640,6 +683,7 @@ function getEndpointsForProvider(provider: string): ProviderFeedTarget {
         ],
       };
     case 'Melolo':
+    case 'MeloLoV2':
       return {
         provider,
         apiSegment,
@@ -647,6 +691,38 @@ function getEndpointsForProvider(provider: string): ProviderFeedTarget {
           { path: '/rank', role: 'rank', extraQuery: { page_size: 18 } },
           { path: '/foryou', role: 'foryou' },
           { path: '/new_release', role: 'new', extraQuery: { page_size: 12 } },
+        ],
+      };
+    case 'Bstation':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/anime', role: 'foryou' },
+          { path: '/popular', role: 'rank' },
+          { path: '/trending', role: 'new' },
+        ],
+      };
+    case 'Anichin':
+    case 'DonghuaQueen':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/donghua', role: 'foryou' },
+          { path: '/latest', role: 'new' },
+          { path: '/popular', role: 'rank' },
+        ],
+      };
+    case 'Samehadaku':
+    case 'AnimeX':
+      return {
+        provider,
+        apiSegment,
+        endpoints: [
+          { path: '/anime', role: 'foryou' },
+          { path: '/latest', role: 'new' },
+          { path: '/popular', role: 'rank' },
         ],
       };
     case 'CubeTV':
@@ -726,46 +802,60 @@ async function fetchUpstreamFeed(
   withRank: boolean,
   extraQuery?: Record<string, string | number>
 ): Promise<CachedDramaItem[]> {
-  const url = new URL(`${MOLATV_API_BASE}/${apiSegment}${endpointPath}`);
-  url.searchParams.set('page', '1');
-  const langParam = mapLangForProvider(provider, lang);
-  if (langParam) url.searchParams.set('lang', langParam);
-  if (extraQuery) {
-    for (const [k, v] of Object.entries(extraQuery)) {
-      url.searchParams.set(k, String(v));
-    }
-  }
-  url.searchParams.set('token', token);
+  const candidates = Array.from(
+    new Set([endpointPath, '/foryou', '/hot', '/popular', '/latest', '/anime', '/donghua'])
+  );
 
-  try {
-    const res = await fetch(url.toString(), {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(7500),
-    });
-    if (!res.ok) return [];
-    const rawText = await res.text();
-    let json: unknown;
+  for (const pathCandidate of candidates) {
+    const url = new URL(`${MOLATV_API_BASE}/${apiSegment}${pathCandidate}`);
+    url.searchParams.set('page', '1');
+    const langParam = mapLangForProvider(provider, lang);
+    if (langParam) url.searchParams.set('lang', langParam);
+    if (extraQuery) {
+      for (const [k, v] of Object.entries(extraQuery)) {
+        url.searchParams.set(k, String(v));
+      }
+    }
+    url.searchParams.set('token', token);
+
     try {
-      json = JSON.parse(rawText);
+      const res = await fetch(url.toString(), {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(7500),
+      });
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 400) continue;
+        return [];
+      }
+      const rawText = await res.text();
+      let json: unknown;
+      try {
+        json = JSON.parse(rawText);
+      } catch {
+        continue;
+      }
+      const rawList = extractBookArray(json);
+
+      const out: CachedDramaItem[] = [];
+      const seen = new Set<string>();
+      rawList.forEach((raw, idx) => {
+        const item = normalizeDrama(raw, provider, withRank ? idx : undefined);
+        if (item && !seen.has(item.bookId)) {
+          seen.add(item.bookId);
+          out.push(item);
+        }
+      });
+      if (out.length > 0 || pathCandidate !== endpointPath) {
+        if (out.length > 0) return out;
+      } else {
+        return out;
+      }
     } catch {
       return [];
     }
-    const rawList = extractBookArray(json);
-
-    const out: CachedDramaItem[] = [];
-    const seen = new Set<string>();
-    rawList.forEach((raw, idx) => {
-      const item = normalizeDrama(raw, provider, withRank ? idx : undefined);
-      if (item && !seen.has(item.bookId)) {
-        seen.add(item.bookId);
-        out.push(item);
-      }
-    });
-    return out;
-  } catch {
-    return [];
   }
+  return [];
 }
 
 async function readHomeFromDb(
@@ -853,9 +943,10 @@ async function buildHomePayloadFromUpstream(
       role: 'rank' | 'foryou' | 'new';
       extraQuery?: Record<string, string | number>;
     }> = [
-      { provider: 'DramaBox', apiSegment: 'dramaboxv2', path: '/ranking', role: 'rank' },
-      { provider: 'DramaBox', apiSegment: 'dramaboxv2', path: '/foryou', role: 'foryou' },
-      { provider: 'DramaBox', apiSegment: 'dramaboxv2', path: '/terbaru', role: 'new' },
+      { provider: 'DramaBox', apiSegment: 'dramabox', path: '/ranking', role: 'rank' },
+      { provider: 'DramaBox', apiSegment: 'dramabox', path: '/foryou', role: 'foryou' },
+      { provider: 'DramaBox', apiSegment: 'dramabox', path: '/terbaru', role: 'new' },
+      { provider: 'DramaBoxV2', apiSegment: 'dramaboxv2', path: '/ranking', role: 'rank' },
       { provider: 'NetShort', apiSegment: 'netshort', path: '/trending', role: 'rank' },
       { provider: 'NetShort', apiSegment: 'netshort', path: '/foryou', role: 'foryou' },
       { provider: 'AnyReel', apiSegment: 'anyreel', path: '/asian', role: 'rank' },
@@ -1304,10 +1395,12 @@ export async function getCachedMolaApiResponse(cacheKey: string): Promise<{
 }
 
 const MOLA_SEGMENT_TO_PROVIDER: Record<string, string> = {
-  dramaboxv2: 'DramaBox',
+  dramabox: 'DramaBox',
+  dramaboxv2: 'DramaBoxV2',
   netshort: 'NetShort',
   anyreel: 'AnyReel',
   melolo: 'Melolo',
+  melolov2: 'MeloLoV2',
   dramaora: 'DramaOra',
   meloshort: 'MeloShort',
   petadrama: 'PetaDrama',
@@ -1353,6 +1446,44 @@ const MOLA_SEGMENT_TO_PROVIDER: Record<string, string> = {
   sodareels: 'SodaReels',
   bonustv: 'BonusTV',
   iqiyi: 'iQIYI',
+  audiotoon: 'AudioToon',
+  playlet: 'Playlet',
+  momeshort: 'MomeShort',
+  storeel: 'StoReel',
+  mymuse: 'MyMuse',
+  huangdou: 'HuangDou',
+  moreshort: 'MoreShort',
+  dramarush: 'DramaRush',
+  shortswave: 'Shortswave',
+  relala: 'Relala',
+  sixthshort: 'SixthShort',
+  snackshort: 'SnackShort',
+  soreel: 'Soreel',
+  stareel: 'StarReel',
+  storygo: 'StoryGo',
+  minishort: 'MiniShort',
+  shorten: 'Shorten',
+  velolo: 'Velolo',
+  reelpine: 'ReelPine',
+  dynastyshorts: 'DynastyShorts',
+  dramashorts: 'DramaShorts',
+  tallflix: 'TallFlix',
+  qlax: 'Qlax',
+  shortical: 'Shortical',
+  luzicine: 'LuziCine',
+  zebrashort: 'ZebraShort',
+  drakorid: 'DrakorID',
+  drachinreborn: 'DrachinReborn',
+  dramaqueen: 'DramaQueen',
+  ansflix: 'Ansflix',
+  lupacine: 'LupaCine',
+  reellife: 'ReelLife',
+  bstation: 'Bstation',
+  anichin: 'Anichin',
+  donghuaqueen: 'DonghuaQueen',
+  samehadaku: 'Samehadaku',
+  animex: 'AnimeX',
+  winknovel: 'WinkNovel',
 };
 
 export function resolveProviderFromMolaSegment(segment: string): string {

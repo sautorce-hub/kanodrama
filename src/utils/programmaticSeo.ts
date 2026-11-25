@@ -48,7 +48,7 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     description:
       'Watch free trending CEO vertical short dramas, secret boss romances, and office power-couple mini-series in crisp HD on KanoDrama.',
     intro:
-      'Discover binge-worthy CEO short dramas featuring dominant tech moguls, contract marriages, hidden identities, and unforgettable boardroom twists across 49+ global platforms.',
+      'Discover binge-worthy CEO short dramas featuring dominant tech moguls, contract marriages, hidden identities, and unforgettable boardroom twists across 89+ global platforms.',
     genre: 'CEO',
     sort: 'popular',
     searchFallbackQuery: 'CEO',
@@ -233,7 +233,7 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     h1: 'Completed Vertical Short Dramas — Watch Free Full Seasons',
     title: 'Watch Free Completed Short Dramas Full Seasons | KanoDrama',
     description:
-      'Watch free 100% completed vertical short drama series from premiere to finale in crisp HD across 49+ platforms on KanoDrama.',
+      'Watch free 100% completed vertical short drama series from premiere to finale in crisp HD across 89+ platforms on KanoDrama.',
     intro:
       'Skip the wait for weekly updates. Browse full-length completed short drama seasons sorted by top viewer ratings and ready for marathon streaming.',
     status: 'Completed',
@@ -291,7 +291,7 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     h1: 'Best Vertical Short Dramas & Viral Mini-Series Worldwide',
     title: 'Watch Free Best Vertical Short Dramas Worldwide | KanoDrama',
     description:
-      'Watch free the most-watched vertical 9:16 short dramas trending globally across DramaBox, NetShort, ReelShort, and 45+ platforms on KanoDrama.',
+      'Watch free the most-watched vertical 9:16 short dramas trending globally across DramaBox, NetShort, ReelShort, and 85+ platforms on KanoDrama.',
     intro:
       'Your global gateway to the top vertical micro-dramas taking over mobile screens—ranked by real-time views, completion rates, and audience ratings.',
     sort: 'popular',
@@ -341,7 +341,7 @@ function buildDynamicFaqs(topicTitle: string): ProgrammaticFaqItem[] {
   return [
     {
       q: `Where can I watch free ${topicTitle} online in HD?`,
-      a: `You can watch free ${topicTitle} directly on KanoDrama in crisp 9:16 vertical theater or wide cinema mode across 49+ connected short-drama platforms with instant episode switching.`,
+      a: `You can watch free ${topicTitle} directly on KanoDrama in crisp 9:16 vertical theater or wide cinema mode across 89+ connected short-drama platforms with instant episode switching.`,
     },
     {
       q: `Are ${topicTitle} updated with English subtitles?`,
@@ -453,7 +453,7 @@ export function resolveProgrammaticLanding(
     titleCandidate.length > 70
       ? `Watch Free ${readableLabel} Dramas HD | KanoDrama`
       : titleCandidate;
-  const rawDesc = `Watch free top ${readableLabel.toLowerCase()} vertical short dramas and binge-worthy Asian mini-series in full HD across 49+ platforms on KanoDrama.`;
+  const rawDesc = `Watch free top ${readableLabel.toLowerCase()} vertical short dramas and binge-worthy Asian mini-series in full HD across 89+ platforms on KanoDrama.`;
   const description =
     rawDesc.length > 158 ? `${rawDesc.slice(0, 155).trim()}...` : rawDesc;
 
