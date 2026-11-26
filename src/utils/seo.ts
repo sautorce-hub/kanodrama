@@ -12,6 +12,7 @@ import {
   buildOgImageEndpointUrl,
   DEFAULT_SITE_ORIGIN,
   detectLanguageFromContent,
+  formatProviderDisplayName,
   generateMetadata,
   getHtmlLangTag,
   getOgLocaleTag,
@@ -175,6 +176,9 @@ const INVALID_SEO_TEXT_VALUES = new Set([
   '-',
 ]);
 
+const GENERIC_FALLBACK_DESC_RE =
+  /^(?:(?:Watch|Stream)(?:\s+free)?\s+.+\s+(?:in\s+(?:Full\s+)?HD\s+)?on\s+KanoDrama\.?|Nonton\s+streaming\s+.+\s+di\s+MolaTV\.?)$/i;
+
 export function cleanSeoDescription(raw: unknown): string {
   if (typeof raw !== 'string') return '';
   const collapsed = raw
@@ -183,6 +187,7 @@ export function cleanSeoDescription(raw: unknown): string {
     .trim();
   if (!collapsed) return '';
   if (INVALID_SEO_TEXT_VALUES.has(collapsed.toLowerCase())) return '';
+  if (GENERIC_FALLBACK_DESC_RE.test(collapsed)) return '';
   return collapsed;
 }
 
@@ -197,6 +202,7 @@ function isGenericEpisodeLabel(rawTitle: string, episodeNumber: number): boolean
 
 export interface DramaSeoFallbackInput {
   title: string;
+  providerName?: string;
   episodeNumber?: number;
   episodeCount?: number;
   episodeTitle?: string;
@@ -210,6 +216,9 @@ export function buildDramaFallbackDescription(
 ): string {
   const rawTitle = cleanSeoDescription(input.title) || 'Short Drama';
   const title = stripLeadingWatchPrefix(rawTitle) || rawTitle;
+  const providerLabel = formatProviderDisplayName(input.providerName);
+  const providerPhraseId = providerLabel ? ` di ${providerLabel}` : '';
+  const providerPhraseEn = providerLabel ? ` on ${providerLabel}` : '';
   const epCount = Math.max(1, Math.floor(Number(input.episodeCount) || 1));
   const hasSpecificEpisode =
     typeof input.episodeNumber === 'number' &&
@@ -223,39 +232,43 @@ export function buildDramaFallbackDescription(
     epTitle &&
     !isGenericEpisodeLabel(epTitle, epNum) &&
     epTitle.toLowerCase() !== title.toLowerCase()
-      ? ` (${epTitle})`
+      ? ` — ${epTitle}`
       : '';
   const cleanTags = (input.tags || [])
     .map((tg) => cleanSeoDescription(tg))
     .filter(Boolean)
-    .slice(0, 3);
-  const tagsSuffix =
-    cleanTags.length > 0 ? ` Genre: ${cleanTags.join(', ')}.` : '';
+    .slice(0, 2);
   const lang: LanguageCode = input.lang ?? 'en';
+  const tagsSuffix =
+    cleanTags.length > 0
+      ? lang === 'cn'
+        ? ` 类型：${cleanTags.join('、')}。`
+        : ` Genre: ${cleanTags.join(', ')}.`
+      : '';
 
   if (input.isMovie && epCount <= 1 && (!hasSpecificEpisode || epNum <= 1)) {
     const movieTemplates: Record<LanguageCode, string> = {
-      id: `Nonton gratis film ${title} kualitas Full HD lengkap dengan subtitle di KanoDrama.${tagsSuffix}`,
-      en: `Watch free ${title} in Full HD online with subtitles on KanoDrama.${tagsSuffix}`,
-      cn: `在 KanoDrama 免费高清在线观看电影《${title}》。${tagsSuffix}`,
-      vi: `Xem miễn phí phim ${title} Full HD với phụ đề tại KanoDrama.${tagsSuffix}`,
-      es: `Ver gratis la película ${title} en calidad Full HD con subtítulos en KanoDrama.${tagsSuffix}`,
-      ko: `KanoDrama에서 영화 ${title}을(를) Full HD 자막과 함께 무료 감상하세요.${tagsSuffix}`,
-      ja: `KanoDramaで映画『${title}』をFull HD字幕付きで無料視聴。${tagsSuffix}`,
-      th: `ดูฟรีภาพยนตร์ ${title} ความคมชัด Full HD พร้อมซับไตเติลที่ KanoDrama${tagsSuffix}`,
-      ms: `Tonton percuma filem ${title} dalam kualiti Full HD dengan sari kata di KanoDrama.${tagsSuffix}`,
-      tl: `Panoorin nang libre ang pelikulang ${title} sa Full HD na may subtitle sa KanoDrama.${tagsSuffix}`,
+      id: `Nonton film ${title} sub Indo Full HD gratis tanpa iklan di KanoDrama${providerPhraseId ? ` (${providerLabel})` : ''}.${tagsSuffix}`,
+      en: `Watch ${title} full movie ad-free in Full HD with subtitles on KanoDrama.${tagsSuffix}`,
+      cn: `在 KanoDrama 免费无广告高清在线观看电影《${title}》。${tagsSuffix}`,
+      vi: `Xem miễn phí phim ${title} Full HD không quảng cáo với phụ đề tại KanoDrama.${tagsSuffix}`,
+      es: `Ver gratis la película ${title} en Full HD sin anuncios en KanoDrama.${tagsSuffix}`,
+      ko: `KanoDrama에서 영화 ${title}을(를) 광고 없이 Full HD로 무료 감상하세요.${tagsSuffix}`,
+      ja: `KanoDramaで映画『${title}』を広告なしFull HD字幕付きで無料視聴。${tagsSuffix}`,
+      th: `ดูฟรีภาพยนตร์ ${title} ความคมชัด Full HD ไม่มีโฆษณาที่ KanoDrama${tagsSuffix}`,
+      ms: `Tonton percuma filem ${title} dalam kualiti Full HD tanpa iklan di KanoDrama.${tagsSuffix}`,
+      tl: `Panoorin nang libre at walang ads ang ${title} sa Full HD sa KanoDrama.${tagsSuffix}`,
     };
     return (movieTemplates[lang] || movieTemplates.en).trim();
   }
 
   if (hasSpecificEpisode) {
     const epTemplates: Record<LanguageCode, string> = {
-      id: `Nonton gratis ${title} Episode ${epNum}${epTitlePart} dari ${epCount} episode sub Indo kualitas HD di KanoDrama.${tagsSuffix}`,
-      en: `Watch free ${title} Episode ${epNum}${epTitlePart} (${epCount} episodes) online in crisp HD on KanoDrama.${tagsSuffix}`,
-      cn: `在 KanoDrama 免费在线高清观看 ${title} 第${epNum}集${epTitlePart}（全${epCount}集）。${tagsSuffix}`,
+      id: `Streaming ${title} Episode ${epNum}${epTitlePart} (${epCount} ep) sub Indo HD${providerPhraseId} gratis tanpa iklan di KanoDrama.${tagsSuffix}`,
+      en: `Stream ${title} Episode ${epNum}${epTitlePart} (${epCount} eps) ad-free in crisp HD${providerPhraseEn} with subtitles on KanoDrama.${tagsSuffix}`,
+      cn: `在 KanoDrama 免费无广告高清观看 ${title} 第${epNum}集${epTitlePart}（全${epCount}集）。${tagsSuffix}`,
       vi: `Xem miễn phí ${title} Tập ${epNum}${epTitlePart} (${epCount} tập) chất lượng HD tại KanoDrama.${tagsSuffix}`,
-      es: `Ver gratis ${title} Episodio ${epNum}${epTitlePart} (${epCount} episodios) en calidad HD en KanoDrama.${tagsSuffix}`,
+      es: `Ver gratis ${title} Episodio ${epNum}${epTitlePart} (${epCount} episodios) sin anuncios en HD en KanoDrama.${tagsSuffix}`,
       ko: `KanoDrama에서 ${title} ${epNum}화${epTitlePart} (총 ${epCount}부작)을 선명한 HD 화질로 무료 감상하세요.${tagsSuffix}`,
       ja: `KanoDramaで${title} 第${epNum}話${epTitlePart}（全${epCount}話）を高画質HDで無料視聴。${tagsSuffix}`,
       th: `ดูฟรี ${title} ตอนที่ ${epNum}${epTitlePart} (ทั้งหมด ${epCount} ตอน) คมชัดระดับ HD ได้ที่ KanoDrama${tagsSuffix}`,
@@ -266,9 +279,9 @@ export function buildDramaFallbackDescription(
   }
 
   const seriesTemplates: Record<LanguageCode, string> = {
-    id: `Nonton gratis ${title} full episode (${epCount} episode) subtitle Indonesia kualitas HD di KanoDrama.${tagsSuffix}`,
-    en: `Watch free ${title} full episodes (${epCount} episodes) online in crisp HD vertical cinema mode on KanoDrama.${tagsSuffix}`,
-    cn: `在 KanoDrama 免费高清观看 ${title} 全集（共${epCount}集）。${tagsSuffix}`,
+    id: `Sinopsis & nonton ${title} full ${epCount} episode sub Indo HD${providerPhraseId} gratis tanpa iklan di KanoDrama.${tagsSuffix}`,
+    en: `Read synopsis & watch ${title} (${epCount} episodes) ad-free in crisp HD${providerPhraseEn} with subtitles on KanoDrama.${tagsSuffix}`,
+    cn: `在 KanoDrama 免费无广告高清观看 ${title} 全集（共${epCount}集）。${tagsSuffix}`,
     vi: `Xem miễn phí trọn bộ ${title} (${epCount} tập) chất lượng HD tại KanoDrama.${tagsSuffix}`,
     es: `Ver gratis todos los episodios de ${title} (${epCount} episodios) en calidad HD en KanoDrama.${tagsSuffix}`,
     ko: `KanoDrama에서 ${title} 전편 (${epCount}부작)을 선명한 HD로 무료 시청하세요.${tagsSuffix}`,
@@ -282,6 +295,7 @@ export function buildDramaFallbackDescription(
 
 export function resolveDramaSeoDescriptionFields(input: {
   title: string;
+  providerName?: string;
   rawDescription?: string | null;
   episodeNumber?: number;
   episodeCount?: number;
@@ -313,6 +327,7 @@ export function resolveDramaSeoDescriptionFields(input: {
 
   const seriesFallback = buildDramaFallbackDescription({
     title: cleanTitle,
+    providerName: input.providerName,
     episodeCount: epCount,
     isMovie: isSingleMovie,
     lang: input.lang,
@@ -341,6 +356,7 @@ export function resolveDramaSeoDescriptionFields(input: {
   } else {
     episodeDescription = buildDramaFallbackDescription({
       title: cleanTitle,
+      providerName: input.providerName,
       episodeNumber: safeEp,
       episodeCount: epCount,
       episodeTitle: cleanEpTitle,
@@ -352,18 +368,18 @@ export function resolveDramaSeoDescriptionFields(input: {
 
   return {
     seriesDescription:
-      seriesDescription || `Watch free ${cleanTitle} online in HD on KanoDrama.`,
+      seriesDescription || `Watch ${cleanTitle} ad-free in HD on KanoDrama.`,
     episodeLabel,
     episodeDescription:
       episodeDescription ||
-      `Watch free ${episodeLabel} online in HD on KanoDrama.`,
+      `Watch ${episodeLabel} ad-free in HD on KanoDrama.`,
   };
 }
 
 export function buildDramaSeoMetadata(
   drama: DramaItem,
   originUrl: string,
-  _lang: LanguageCode = 'en'
+  lang?: LanguageCode
 ) {
   const cleanOrigin = originUrl.replace(/\/$/, '');
   const path = getDramaPath(drama.bookId, drama.title, drama.provider, drama.slug);
@@ -372,14 +388,15 @@ export function buildDramaSeoMetadata(
     drama.mediaType === 'movie' ||
     drama.provider === 'LK21' ||
     drama.provider === 'LookSeries';
-  const contentLang = detectLanguageFromContent(drama, 'en');
+  const effectiveLang = lang ?? detectLanguageFromContent(drama, 'en');
   const rawDesc =
     cleanSeoDescription(drama.description) ||
     buildDramaFallbackDescription({
       title: drama.title,
+      providerName: drama.provider,
       episodeCount: epCount,
       isMovie,
-      lang: contentLang,
+      lang: effectiveLang,
       tags: drama.tags,
     });
   const displayTitle = isMovie
@@ -387,21 +404,20 @@ export function buildDramaSeoMetadata(
     : drama.title;
   const meta = generateMetadata({
     page: isMovie ? 'movie' : 'drama',
-    lang: contentLang,
+    lang: effectiveLang,
     origin: cleanOrigin,
     pathname: path,
     title: displayTitle,
     description: rawDesc,
+    providerName: drama.provider,
     episodeCount: epCount,
+    tags: drama.tags,
     image: toAbsoluteOgImage(drama.cover, cleanOrigin),
     keywords: [
       drama.title,
-      `Watch Free ${drama.title} online`,
+      effectiveLang === 'id' ? `Nonton ${drama.title} Sub Indo` : `Watch ${drama.title} HD online`,
       'KanoDrama',
-      'Kano Drama',
-      'Vertical short drama',
-      'Asian mini series',
-      drama.provider,
+      formatProviderDisplayName(drama.provider),
       ...drama.tags,
     ],
   });
@@ -963,28 +979,30 @@ export function syncProgrammaticLandingSeo(
 export function syncDramaDocumentSeo(
   drama: DramaItem,
   episodes: EpisodeItem[],
-  _lang: LanguageCode = 'en'
+  lang?: LanguageCode
 ) {
   const origin = getSeoOrigin();
   const isMovie =
     drama.mediaType === 'movie' ||
     drama.provider === 'LK21' ||
     drama.provider === 'LookSeries';
-  const contentLang = detectLanguageFromContent(drama, 'en');
+  const effectiveLang = lang ?? detectLanguageFromContent(drama, 'en');
   const path = getDramaPath(drama.bookId, drama.title, drama.provider, drama.slug);
   const epCount = Math.max(1, episodes.length || drama.chapterCount || 1);
   const urlEpRaw = Number(new URLSearchParams(window.location.search).get('ep'));
   const activeEp =
     Number.isFinite(urlEpRaw) && urlEpRaw >= 1 ? Math.floor(urlEpRaw) : 1;
+  const activeEpTitle = episodes.find((e) => Number(e.episodeNumber) === activeEp)?.title;
   const { seriesDescription, episodeDescription } =
     resolveDramaSeoDescriptionFields({
       title: drama.title,
+      providerName: drama.provider,
       rawDescription: drama.description,
       episodeNumber: activeEp,
       episodeCount: epCount,
-      episodeTitle: episodes.find((e) => Number(e.episodeNumber) === activeEp)?.title,
+      episodeTitle: activeEpTitle,
       isMovie,
-      lang: contentLang,
+      lang: effectiveLang,
       tags: drama.tags,
     });
   const displayTitle = isMovie
@@ -992,25 +1010,27 @@ export function syncDramaDocumentSeo(
     : drama.title;
   const meta = generateMetadata({
     page: isMovie ? 'movie' : 'drama',
-    lang: contentLang,
+    lang: effectiveLang,
     origin,
     pathname: path,
     title: displayTitle,
     description: activeEp > 1 ? episodeDescription : seriesDescription,
+    providerName: drama.provider,
     episodeCount: epCount,
     episodeNumber: activeEp > 1 ? activeEp : undefined,
+    episodeTitle: activeEp > 1 ? activeEpTitle : undefined,
+    tags: drama.tags,
     image: toAbsoluteOgImage(drama.cover, origin),
     keywords: [
       drama.title,
       'KanoDrama',
-      'Kano Drama',
-      drama.provider,
+      formatProviderDisplayName(drama.provider),
       ...drama.tags,
     ],
   });
   applyMetadataToDocument(meta);
   upsertJsonLdScript(
-    buildDramaJsonLd(drama, episodes, origin, activeEp, contentLang)
+    buildDramaJsonLd(drama, episodes, origin, activeEp, effectiveLang)
   );
 }
 
@@ -1018,7 +1038,7 @@ export function syncEpisodePlayerSeo(
   drama: DramaItem,
   episodeNumber: number,
   episodes: EpisodeItem[] = [],
-  _lang: LanguageCode = 'en'
+  lang?: LanguageCode
 ) {
   const origin = getSeoOrigin();
   const safeEpisodeNumber = Math.max(1, Math.floor(Number(episodeNumber) || 1));
@@ -1026,7 +1046,7 @@ export function syncEpisodePlayerSeo(
     drama.mediaType === 'movie' ||
     drama.provider === 'LK21' ||
     drama.provider === 'LookSeries';
-  const contentLang = detectLanguageFromContent(drama, 'en');
+  const effectiveLang = lang ?? detectLanguageFromContent(drama, 'en');
   const detailPath = getDramaPath(
     drama.bookId,
     drama.title,
@@ -1047,12 +1067,13 @@ export function syncEpisodePlayerSeo(
   );
   const { episodeDescription } = resolveDramaSeoDescriptionFields({
     title: drama.title,
+    providerName: drama.provider,
     rawDescription: drama.description,
     episodeNumber: safeEpisodeNumber,
     episodeCount: epCount,
     episodeTitle: activeEp?.title,
     isMovie,
-    lang: contentLang,
+    lang: effectiveLang,
     tags: drama.tags,
   });
   const displayTitle = isMovie
@@ -1060,15 +1081,18 @@ export function syncEpisodePlayerSeo(
     : drama.title;
   const meta = generateMetadata({
     page: isMovie ? 'movie' : 'drama',
-    lang: contentLang,
+    lang: effectiveLang,
     origin,
     pathname: detailPath,
     title: displayTitle,
     description: episodeDescription,
+    providerName: drama.provider,
     episodeCount: epCount,
     episodeNumber: isMovie && epCount <= 1 && safeEpisodeNumber <= 1 ? undefined : safeEpisodeNumber,
+    episodeTitle: activeEp?.title,
+    tags: drama.tags,
     image: toAbsoluteOgImage(drama.cover, origin),
-    keywords: [drama.title, 'KanoDrama', 'Kano Drama', drama.provider, ...drama.tags],
+    keywords: [drama.title, 'KanoDrama', formatProviderDisplayName(drama.provider), ...drama.tags],
   });
 
   const primaryImg = meta.openGraph.images[0];
@@ -1096,7 +1120,7 @@ export function syncEpisodePlayerSeo(
   upsertCanonicalLink(meta.canonicalUrl);
   upsertHreflangLinks(meta.canonicalUrl);
   upsertJsonLdScript(
-    buildDramaJsonLd(drama, episodes, origin, safeEpisodeNumber, contentLang)
+    buildDramaJsonLd(drama, episodes, origin, safeEpisodeNumber, effectiveLang)
   );
 }
 

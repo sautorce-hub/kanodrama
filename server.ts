@@ -126,6 +126,7 @@ import {
   buildOgImageEndpointUrl,
   DEFAULT_SITE_ORIGIN,
   detectLanguageFromContent,
+  formatProviderDisplayName,
   generateMetadata,
   getHtmlLangTag,
   getOgLocaleTag,
@@ -1778,8 +1779,7 @@ async function fetchDramaForSsr(
             title,
             cover: normalizedCover,
             description: cleanText(
-              raw.description ?? raw.introduction ?? raw.synopsis ?? raw.intro ?? raw.summary,
-              `Watch free ${title} full episodes in HD on KanoDrama.`
+              raw.description ?? raw.introduction ?? raw.synopsis ?? raw.intro ?? raw.summary
             ),
             chapterCount:
               Number(raw.chapterCount ?? raw.totalEpisodes ?? raw.episodeCount ?? 1) || 1,
@@ -2106,20 +2106,23 @@ function injectDramaSeoIntoHtml(
   const epCount = Math.max(1, episodes.length || drama.chapterCount || 1);
   const effectiveLang =
     explicitQueryLang ??
-    detectLanguageFromContent(
-      {
-        title: drama.title,
-        description: drama.description,
-        tags: drama.tags,
-        provider: drama.provider,
-      },
-      'en'
-    );
+    (_pref !== 'auto'
+      ? _ssrLang
+      : detectLanguageFromContent(
+          {
+            title: drama.title,
+            description: drama.description,
+            tags: drama.tags,
+            provider: drama.provider,
+          },
+          _ssrLang
+        ));
   const isId = effectiveLang === 'id';
   const activeEpisode = episodes.find((ep) => Number(ep.episodeNumber) === safeEp);
   const { seriesDescription, episodeDescription } =
     resolveDramaSeoDescriptionFields({
       title: drama.title,
+      providerName: drama.provider,
       rawDescription: drama.description,
       episodeNumber: safeEp,
       episodeCount: epCount,
@@ -2134,14 +2137,13 @@ function injectDramaSeoIntoHtml(
     description: seriesDescription,
   };
   const ogImage = toAbsoluteImageUrl(drama.cover || DEFAULT_OG_IMAGE_PATH, brandOrigin);
+  const providerDisplay = formatProviderDisplayName(drama.provider);
   const keywordsList = [
     drama.title,
-    isId ? `Nonton Gratis ${drama.title} Sub Indo` : `Watch Free ${drama.title} online`,
+    isId ? `Nonton ${drama.title} Sub Indo` : `Watch ${drama.title} HD online`,
     'KanoDrama',
     'kano-drama.live',
-    'Short Drama',
-    'Drama Pendek',
-    drama.provider,
+    providerDisplay,
     ...drama.tags,
   ].filter(Boolean);
 
@@ -2153,8 +2155,11 @@ function injectDramaSeoIntoHtml(
     title: drama.title,
     description:
       isWatchRoute || safeEp > 1 ? episodeDescription : seriesDescription,
+    providerName: drama.provider,
     episodeCount: epCount,
     episodeNumber: isWatchRoute || safeEp > 1 ? safeEp : undefined,
+    episodeTitle: isWatchRoute || safeEp > 1 ? activeEpisode?.title : undefined,
+    tags: drama.tags,
     keywords: keywordsList,
     image: ogImage,
   });
@@ -2415,16 +2420,18 @@ function injectMovieSeoIntoHtml(
   const movieProviderLabel = movie.app === 'lookseries' ? 'LookSeries' : 'LK21';
   const effectiveLang =
     explicitQueryLang ??
-    detectLanguageFromContent(
-      {
-        title: movie.title,
-        description: rawDesc,
-        tags: movie.genres,
-        area: movie.area,
-        provider: movieProviderLabel,
-      },
-      'en'
-    );
+    (_pref !== 'auto'
+      ? _ssrLang
+      : detectLanguageFromContent(
+          {
+            title: movie.title,
+            description: rawDesc,
+            tags: movie.genres,
+            area: movie.area,
+            provider: movieProviderLabel,
+          },
+          _ssrLang
+        ));
   const isId = effectiveLang === 'id';
   const cleanMovieBaseTitle =
     stripLeadingWatchPrefix(movie.title || '') || movie.title || 'HD Movie';
@@ -2444,6 +2451,7 @@ function injectMovieSeoIntoHtml(
   const { seriesDescription, episodeDescription } =
     resolveDramaSeoDescriptionFields({
       title: movie.title,
+      providerName: movieProviderLabel,
       rawDescription: rawDesc,
       episodeNumber: safeEp,
       episodeCount: Math.max(1, episodes.length),
@@ -2458,8 +2466,8 @@ function injectMovieSeoIntoHtml(
   );
   const keywordsList = [
     isId
-      ? `Nonton Gratis ${cleanMovieBaseTitle} Sub Indo`
-      : `Watch Free ${cleanMovieBaseTitle} online`,
+      ? `Nonton ${cleanMovieBaseTitle} Sub Indo`
+      : `Watch ${cleanMovieBaseTitle} HD online`,
     `${cleanMovieBaseTitle} full movie HD`,
     'KanoDrama',
     'kano-drama.live',
@@ -2468,7 +2476,6 @@ function injectMovieSeoIntoHtml(
     movie.area,
     movie.year,
     movie.director,
-    'watch free movies HD',
   ].filter(Boolean);
 
   const meta = generateMetadata({
@@ -2481,8 +2488,11 @@ function injectMovieSeoIntoHtml(
       isWatchRoute || (isSeries && safeEp > 1)
         ? episodeDescription
         : seriesDescription,
+    providerName: movieProviderLabel,
     episodeCount: Math.max(1, episodes.length),
-    episodeNumber: isSeries && safeEp > 1 ? safeEp : undefined,
+    episodeNumber: isSeries && (isWatchRoute || safeEp > 1) ? safeEp : undefined,
+    episodeTitle: isSeries && (isWatchRoute || safeEp > 1) ? activeMovieEp?.title : undefined,
+    tags: movie.genres,
     keywords: keywordsList,
     image: ogImage,
   });
@@ -2825,7 +2835,7 @@ function buildSsrHomeRootHtml(
 
   return `<main class="max-w-6xl mx-auto px-4 py-8 text-[#FAFAFA]">
     <header>
-      <h1>${isId ? 'KanoDrama — Platform Streaming Drama Pendek, Serial Asia &amp; Film Sub Indo Gratis' : 'KanoDrama — Free Short Dramas, Asian Series &amp; HD Movies Streaming'}</h1>
+      <h1>${isId ? 'KanoDrama — Nonton Drama Pendek, Serial Asia &amp; Film Sub Indo Gratis Tanpa Iklan' : 'KanoDrama — Watch Short Dramas, Asian Series &amp; HD Movies Ad-Free'}</h1>
       <p>${escapeHtmlAttr(description)}</p>
     </header>
     <nav aria-label="Main Categories">
@@ -3266,9 +3276,10 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
           .join('')}</ul>`
       : '';
 
+  const providerDisplay = formatProviderDisplayName(provider);
   const ssrProviderBodyHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
-    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <a href="${brandOrigin}/providers">Providers</a> / <span>${escapeHtmlAttr(provider)}</span></nav>
-    <h1>${escapeHtmlAttr(provider)} Short Dramas on KanoDrama</h1>
+    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <a href="${brandOrigin}/providers">Providers</a> / <span>${escapeHtmlAttr(providerDisplay)}</span></nav>
+    <h1>${ssrLang === 'id' ? `Nonton Drama Pendek ${escapeHtmlAttr(providerDisplay)} Sub Indo HD di KanoDrama` : `Watch ${escapeHtmlAttr(providerDisplay)} Short Dramas Free in HD on KanoDrama`}</h1>
     <p>${escapeHtmlAttr(meta.description)}</p>
     ${ssrItemsHtml}
     <nav aria-label="Provider Navigation"><a href="${brandOrigin}/providers">All Providers</a> · <a href="${brandOrigin}/explore">Explore Dramas</a> · <a href="${brandOrigin}/movies">HD Movies</a></nav>

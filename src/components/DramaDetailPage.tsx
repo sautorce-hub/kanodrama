@@ -197,9 +197,13 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
 
         if (epsRes.status === 'fulfilled') {
           setEpisodes(eps);
-          if (mergedMovie) {
-            syncDramaDocumentSeo(mergedMovie, eps, language);
-          } else if (movieRes.status === 'rejected') {
+          if (mergedMovie && !/^\/[a-z0-9_]+\/watch\//i.test(window.location.pathname)) {
+            const effectiveLang = syncLanguageFromContent(
+              mergedMovie,
+              isLookSeries || mergedMovie.provider === 'LK21' ? 'id' : undefined
+            );
+            syncDramaDocumentSeo(mergedMovie, eps, effectiveLang);
+          } else if (!mergedMovie && movieRes.status === 'rejected') {
             setError(
               movieRes.reason instanceof Error
                 ? movieRes.reason.message
@@ -262,9 +266,10 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
 
       if (episodesRes.status === 'fulfilled') {
         setEpisodes(resolvedEps);
-        if (mergedDrama) {
-          syncDramaDocumentSeo(mergedDrama, resolvedEps, language);
-        } else if (detailRes.status === 'rejected') {
+        if (mergedDrama && !/^\/[a-z0-9_]+\/watch\//i.test(window.location.pathname)) {
+          const effectiveLang = syncLanguageFromContent(mergedDrama);
+          syncDramaDocumentSeo(mergedDrama, resolvedEps, effectiveLang);
+        } else if (!mergedDrama && detailRes.status === 'rejected') {
           setError(
             detailRes.reason instanceof Error
               ? detailRes.reason.message
@@ -306,7 +311,9 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
           ? 'id'
           : undefined
       );
-      syncDramaDocumentSeo(initialDrama, initialEpisodes, effectiveLang);
+      if (!/^\/[a-z0-9_]+\/watch\//i.test(window.location.pathname)) {
+        syncDramaDocumentSeo(initialDrama, initialEpisodes, effectiveLang);
+      }
     }
     if (initialNotFound && !initialDrama) {
       setLoading(false);
@@ -367,15 +374,17 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
           ? 'id'
           : undefined
       );
-      syncDramaDocumentSeo(detail, episodes, effectiveLang);
+      const isWatchPathname = /^\/[a-z0-9_]+\/watch\//i.test(
+        window.location.pathname
+      );
+      if (!isWatchPathname) {
+        syncDramaDocumentSeo(detail, episodes, effectiveLang);
+      }
       const canonicalPath = getDramaPath(
         detail.bookId,
         detail.title,
         detail.provider,
         detail.slug
-      );
-      const isWatchPathname = /^\/[a-z0-9_]+\/watch\//i.test(
-        window.location.pathname
       );
       if (isWatchPathname) {
         return;

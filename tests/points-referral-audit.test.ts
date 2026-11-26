@@ -22,6 +22,7 @@ import {
   notifyAdminTelegramNewWithdrawal,
 } from '../server/telegramNotify';
 import { getProductionReferralUrl } from '../src/config/auth';
+import { generateMetadata } from '../src/i18n/helpers';
 
 interface MemUser {
   uid: string;
@@ -3639,5 +3640,129 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       assert.match(html, /property="og:image:secure_url" content="https:\/\/kano-drama\.live\/og-image\.jpg"/);
       assert.match(html, /name="twitter:image" content="https:\/\/kano-drama\.live\/og-image\.jpg"/);
     }
+  });
+
+  await t.test('18. Upgraded SEO title, meta description, Open Graph, and Twitter metadata across Home, Provider, Rewards, Account, Detail, and Watch', async () => {
+    const { mockPool } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    const [
+      homeIdHtml,
+      homeEnHtml,
+      providersIdHtml,
+      provHubIdHtml,
+      provHubEnHtml,
+      rewardsIdHtml,
+      rewardsEnHtml,
+      accountIdHtml,
+      accountEnHtml,
+      providerRedirectRes,
+    ] = await Promise.all([
+      fetch(`${baseUrl}/?lang=id`).then((r) => r.text()),
+      fetch(`${baseUrl}/?lang=en`).then((r) => r.text()),
+      fetch(`${baseUrl}/providers?lang=id`).then((r) => r.text()),
+      fetch(`${baseUrl}/provider/dramaboxv2?lang=id`).then((r) => r.text()),
+      fetch(`${baseUrl}/provider/dramaboxv2?lang=en`).then((r) => r.text()),
+      fetch(`${baseUrl}/rewards?lang=id`).then((r) => r.text()),
+      fetch(`${baseUrl}/rewards?lang=en`).then((r) => r.text()),
+      fetch(`${baseUrl}/account?lang=id`).then((r) => r.text()),
+      fetch(`${baseUrl}/account?lang=en`).then((r) => r.text()),
+      fetch(`${baseUrl}/provider`, { redirect: 'manual' }),
+    ]);
+
+    assert.equal(providerRedirectRes.status, 301);
+    assert.equal(providerRedirectRes.headers.get('location'), '/providers');
+
+    const extractMeta = (html: string) => ({
+      title: html.match(/<title>([^<]+)<\/title>/i)?.[1] ?? '',
+      desc: html.match(/<meta\s+name="description"\s+content="([^"]+)"/i)?.[1] ?? '',
+      ogTitle: html.match(/<meta\s+property="og:title"\s+content="([^"]+)"/i)?.[1] ?? '',
+      ogDesc: html.match(/<meta\s+property="og:description"\s+content="([^"]+)"/i)?.[1] ?? '',
+      twTitle: html.match(/<meta\s+name="twitter:title"\s+content="([^"]+)"/i)?.[1] ?? '',
+      twDesc: html.match(/<meta\s+name="twitter:description"\s+content="([^"]+)"/i)?.[1] ?? '',
+      canonical: html.match(/<link\s+rel="canonical"\s+href="([^"]+)"/i)?.[1] ?? '',
+    });
+
+    const hId = extractMeta(homeIdHtml);
+    assert.match(hId.title, /Drama Pendek.*Serial Asia.*Film Sub Indo HD/i);
+    assert.match(hId.desc, /drama pendek/i);
+    assert.match(hId.desc, /Drama China/i);
+    assert.match(hId.desc, /tanpa iklan/i);
+    assert.match(hId.desc, /poin reward/i);
+    assert.ok(!hId.desc.endsWith('...'), 'Home ID description must not be truncated');
+    assert.equal(hId.ogTitle, hId.title);
+    assert.equal(hId.ogDesc, hId.desc);
+    assert.equal(hId.twTitle, hId.title);
+    assert.equal(hId.twDesc, hId.desc);
+    assert.equal(hId.canonical, 'https://kano-drama.live/');
+
+    const hEn = extractMeta(homeEnHtml);
+    assert.match(hEn.title, /Short Dramas.*Asian Series.*HD Movies Ad-Free/i);
+    assert.match(hEn.desc, /without ads/i);
+    assert.match(hEn.desc, /daily rewards/i);
+    assert.ok(!hEn.desc.endsWith('...'), 'Home EN description must not be truncated');
+    assert.doesNotMatch(hEn.desc, /\bWIB\b/);
+
+    const pDirId = extractMeta(providersIdHtml);
+    assert.match(pDirId.title, /82\+ Provider Drama Pendek/i);
+    assert.match(pDirId.desc, /DramaBox V2/i);
+    assert.equal(pDirId.canonical, 'https://kano-drama.live/providers');
+
+    const pId = extractMeta(provHubIdHtml);
+    assert.match(pId.title, /DramaBox V2.*Sub Indo/i);
+    assert.match(pId.desc, /DramaBox V2.*tanpa iklan/i);
+    assert.equal(pId.canonical, 'https://kano-drama.live/provider/dramaboxv2');
+
+    const pEn = extractMeta(provHubEnHtml);
+    assert.match(pEn.title, /DramaBox V2.*Ad-Free/i);
+    assert.match(pEn.desc, /DramaBox V2.*without ads/i);
+
+    const rId = extractMeta(rewardsIdHtml);
+    assert.match(rId.title, /Poin &amp; Reward.*DANA.*USDT/i);
+    assert.ok(!rId.desc.endsWith('...'), `Rewards ID description truncated: ${rId.desc}`);
+    assert.match(rId.desc, /\+5\.000/);
+    assert.match(rId.desc, /DANA, Bank &amp; USDT/i);
+
+    const rEn = extractMeta(rewardsEnHtml);
+    assert.match(rEn.title, /Earn Points.*PayPal, Wise &amp; USDT/i);
+    assert.ok(!rEn.desc.endsWith('...'), `Rewards EN description truncated: ${rEn.desc}`);
+    assert.match(rEn.desc, /\+5,000/);
+    assert.doesNotMatch(rEn.desc, /\bWIB\b|Rp\s*50/i);
+
+    const aId = extractMeta(accountIdHtml);
+    assert.match(aId.title, /Akun Saya.*Riwayat Tontonan.*Saldo Poin/i);
+    assert.match(aId.desc, /profil KanoDrama.*penarikan poin/i);
+    assert.equal(aId.canonical, 'https://kano-drama.live/account');
+
+    const aEn = extractMeta(accountEnHtml);
+    assert.match(aEn.title, /My Account.*Watch History.*Points Balance/i);
+    assert.match(aEn.desc, /profile.*points balance/i);
+
+    const detailId = generateMetadata({
+      page: 'drama',
+      lang: 'id',
+      pathname: '/dramaboxv2/detail/pewaris-kopi-malam',
+      title: 'Pewaris Kopi Malam',
+      providerName: 'DramaBoxV2',
+      episodeCount: 68,
+    });
+    assert.match(detailId.title, /Nonton Pewaris Kopi Malam Sub Indo Full Episode \(68 Eps\) HD \| KanoDrama/);
+    assert.match(detailId.description, /Sinopsis & nonton Pewaris Kopi Malam.*68 episode.*DramaBox V2.*tanpa iklan/);
+    assert.equal(detailId.canonicalUrl, 'https://kano-drama.live/dramaboxv2/detail/pewaris-kopi-malam');
+
+    const watchEn = generateMetadata({
+      page: 'drama',
+      lang: 'en',
+      pathname: '/dramaboxv2/detail/pewaris-kopi-malam',
+      title: 'Night Coffee Heiress',
+      providerName: 'DramaBoxV2',
+      episodeCount: 68,
+      episodeNumber: 12,
+      episodeTitle: 'The Secret Ledger',
+    });
+    assert.match(watchEn.title, /Watch Night Coffee Heiress Episode 12 Ad-Free HD \(68 Eps\) \| KanoDrama/);
+    assert.match(watchEn.description, /Episode 12 of 68 — The Secret Ledger.*DramaBox V2/);
+    assert.equal(watchEn.openGraph.title, watchEn.title);
+    assert.equal(watchEn.twitter.description, watchEn.description);
   });
 });
