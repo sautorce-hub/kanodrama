@@ -65,6 +65,8 @@ import {
   fetchHomeCatalog,
   getPeekCachedHomeCatalog,
   getPeekCachedHomeEntry,
+  hasHomeItems,
+  peekSsrHomeBootstrap,
 } from './services/homeService';
 import {
   fetchLk21Detail,
@@ -384,6 +386,14 @@ function parseProviderName(raw: string | null | undefined): ProviderName | undef
   return ACTIVE_PROVIDER_NAMES.find((p) => p.toLowerCase() === norm);
 }
 
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function parseProviderRouteFromLocation(): {
   provider?: ProviderName;
   invalidSlug?: string;
@@ -391,7 +401,7 @@ function parseProviderRouteFromLocation(): {
   if (typeof window === 'undefined') return null;
   const match = window.location.pathname.match(/^\/provider\/([^/]+)\/?$/i);
   if (!match) return null;
-  const rawSlug = decodeURIComponent(match[1]).trim();
+  const rawSlug = safeDecodeURIComponent(match[1]).trim();
   if (!rawSlug) return null;
   const matched = parseProviderFromRouteSlug(rawSlug);
   if (matched && matched !== 'LK21' && matched !== 'LookSeries') {
@@ -548,7 +558,7 @@ function parseDramaRouteFromLocation(): {
   if (scopedRouteMatch && isKnownProviderRouteSlug(scopedRouteMatch[1])) {
     const routeProvSlug = scopedRouteMatch[1].toLowerCase();
     const routeMode = scopedRouteMatch[2].toLowerCase() as 'detail' | 'watch';
-    const segment = decodeURIComponent(scopedRouteMatch[3]);
+    const segment = safeDecodeURIComponent(scopedRouteMatch[3]);
     const normSegment = segment.toLowerCase();
     const pathEp = scopedRouteMatch[4] ? Number(scopedRouteMatch[4]) : 0;
     const queryEp = Number(params.get('ep'));
@@ -697,7 +707,7 @@ function parseDramaRouteFromLocation(): {
   // Legacy fallback: /movie/{slug}
   const movieMatch = window.location.pathname.match(/^\/movie\/([^/]+)/i);
   if (movieMatch) {
-    const slug = decodeURIComponent(movieMatch[1]).toLowerCase();
+    const slug = safeDecodeURIComponent(movieMatch[1]).toLowerCase();
     const queryEp = Number(params.get('ep'));
     const hasWatchEp = Number.isFinite(queryEp) && queryEp >= 1;
     const isLookSeriesSlug =
@@ -778,7 +788,7 @@ function parseDramaRouteFromLocation(): {
       (parseProviderFromRouteSlug(providerMatch[1]) as ProviderName | undefined) ??
       parseProviderName(providerMatch[1]) ??
       'DramaBoxV2';
-    const bookId = decodeURIComponent(providerMatch[2]);
+    const bookId = safeDecodeURIComponent(providerMatch[2]);
     const ssr = window.__INITIAL_DRAMA__;
     if (ssr && ssr.bookId === bookId) {
       if (ssr.drama) saveDramaLookupCache(ssr.drama);
@@ -801,7 +811,7 @@ function parseDramaRouteFromLocation(): {
 
   const slugOrIdMatch = window.location.pathname.match(/^\/drama\/([^/]+)/);
   if (slugOrIdMatch) {
-    const segment = decodeURIComponent(slugOrIdMatch[1]);
+    const segment = safeDecodeURIComponent(slugOrIdMatch[1]);
     const normSegment = segment.toLowerCase();
     const ssr = window.__INITIAL_DRAMA__;
     if (
@@ -887,15 +897,38 @@ function parseSeoLandingFromPath(pathname: string): SeoLandingRouteState | null 
   const match = pathname.match(/^\/(genre|category|tag)\/([^/]+)(?:\/([^/]+))?/i);
   if (!match) return null;
   const basePath = match[1].toLowerCase() as 'genre' | 'tag' | 'category';
-  const slug = decodeURIComponent(match[2]).trim().toLowerCase();
-  const modifier = match[3] ? decodeURIComponent(match[3]).trim().toLowerCase() : undefined;
+  const slug = safeDecodeURIComponent(match[2]).trim().toLowerCase();
+  const modifier = match[3] ? safeDecodeURIComponent(match[3]).trim().toLowerCase() : undefined;
   if (!slug) return null;
   return { basePath, slug, modifier };
 }
 
 function parseSeoLandingFromLocation(): SeoLandingRouteState | null {
   if (typeof window === 'undefined') return null;
-  return parseSeoLandingFromPath(window.location.pathname);
+  try {
+    return parseSeoLandingFromPath(window.location.pathname);
+  } catch {
+    return null;
+  }
+}
+
+function readInitialHomeBootstrap(
+  lang: LanguageCode,
+  provider: ProviderId
+): HomeCatalogResponse | null {
+  try {
+    const peeked = getPeekCachedHomeCatalog(lang, provider);
+    if (hasHomeItems(peeked)) {
+      return peeked;
+    }
+    const ssrHome = peekSsrHomeBootstrap(provider);
+    if (hasHomeItems(ssrHome)) {
+      return ssrHome;
+    }
+  } catch {
+    // Ignore hydration peek errors
+  }
+  return null;
 }
 
 function interleaveManyFeeds(...lists: DramaItem[][]): DramaItem[] {
@@ -950,13 +983,23 @@ export default function App() {
     dismissToast,
   } = useDramaContext();
 
-  const [activeTab, setActiveTab] = useState<NavTab>(() => parseTabFromLocation());
+  const [activeTab, setActiveTab] = useState<NavTab>(() => {
+    try {
+      return parseTabFromLocation();
+    } catch {
+      return 'home';
+    }
+  });
   const [selectedProvider, setSelectedProvider] = useState<ProviderId>(() => {
-    const routeProv = parseProviderRouteFromLocation()?.provider;
-    if (routeProv) return routeProv;
-    const initialTab = parseTabFromLocation();
-    if (initialTab === 'home' || initialTab === 'explore') {
-      return readPersistedProviderFilter();
+    try {
+      const routeProv = parseProviderRouteFromLocation()?.provider;
+      if (routeProv) return routeProv;
+      const initialTab = parseTabFromLocation();
+      if (initialTab === 'home' || initialTab === 'explore') {
+        return readPersistedProviderFilter();
+      }
+    } catch {
+      // Ignore location/storage errors
     }
     return 'All';
   });
@@ -973,30 +1016,47 @@ export default function App() {
     }
   }, [activeTab, selectedProvider]);
   const [invalidProviderSlug, setInvalidProviderSlug] = useState<string | null>(
-    () => parseProviderRouteFromLocation()?.invalidSlug ?? null
+    () => {
+      try {
+        return parseProviderRouteFromLocation()?.invalidSlug ?? null;
+      } catch {
+        return null;
+      }
+    }
   );
   const [languageLoading, setLanguageLoading] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState<boolean>(
-    () =>
-      typeof window !== 'undefined' &&
-      window.location.pathname.toLowerCase() === '/search'
+    () => {
+      try {
+        return (
+          typeof window !== 'undefined' &&
+          window.location.pathname.toLowerCase() === '/search'
+        );
+      } catch {
+        return false;
+      }
+    }
   );
   const [providerHubOpen, setProviderHubOpen] = useState(false);
   const [dashboardSubTab, setDashboardSubTab] = useState<
     'profile' | 'rewards' | 'watchlist' | 'history' | 'comments'
   >(() => {
-    if (typeof window === 'undefined') return 'profile';
-    const p = window.location.pathname.toLowerCase();
-    const tabParam = new URLSearchParams(window.location.search).get('tab')?.toLowerCase();
-    if (
-      p === '/rewards' ||
-      p.startsWith('/rewards/') ||
-      p === '/referral' ||
-      p.startsWith('/referral/') ||
-      tabParam === 'rewards' ||
-      tabParam === 'referral'
-    ) {
-      return 'rewards';
+    try {
+      if (typeof window === 'undefined') return 'profile';
+      const p = window.location.pathname.toLowerCase();
+      const tabParam = new URLSearchParams(window.location.search).get('tab')?.toLowerCase();
+      if (
+        p === '/rewards' ||
+        p.startsWith('/rewards/') ||
+        p === '/referral' ||
+        p.startsWith('/referral/') ||
+        tabParam === 'rewards' ||
+        tabParam === 'referral'
+      ) {
+        return 'rewards';
+      }
+    } catch {
+      // Ignore
     }
     return 'profile';
   });
@@ -1009,7 +1069,13 @@ export default function App() {
 
   // Programmatic SEO Landing Route State (/genre/*, /category/*, /tag/*)
   const [activeSeoLanding, setActiveSeoLanding] =
-    useState<SeoLandingRouteState | null>(() => parseSeoLandingFromLocation());
+    useState<SeoLandingRouteState | null>(() => {
+      try {
+        return parseSeoLandingFromLocation();
+      } catch {
+        return null;
+      }
+    });
 
   // Watchlist Folder & Watch Status State
   const [activeFolderId, setActiveFolderId] = useState<string>('all');
@@ -1028,16 +1094,39 @@ export default function App() {
     notFound?: boolean;
     mode?: 'detail' | 'watch';
     watchEpisode?: number;
-  } | null>(() => parseDramaRouteFromLocation());
+  } | null>(() => {
+    try {
+      return parseDramaRouteFromLocation();
+    } catch {
+      return null;
+    }
+  });
   const [moviesPool, setMoviesPool] = useState<DramaItem[]>([]);
 
   // Database-cached Home Catalog (Zero-latency SSR/PostgreSQL cache)
+  const initialHomeBootstrapRef = useRef<HomeCatalogResponse | null | undefined>(
+    undefined
+  );
+  if (initialHomeBootstrapRef.current === undefined) {
+    initialHomeBootstrapRef.current = readInitialHomeBootstrap(
+      language,
+      selectedProvider
+    );
+  }
   const [homeCatalog, setHomeCatalog] = useState<HomeCatalogResponse | null>(
-    () => getPeekCachedHomeCatalog(language, selectedProvider)
+    () => initialHomeBootstrapRef.current ?? null
   );
-  const [homeLoading, setHomeLoading] = useState<boolean>(
-    () => !getPeekCachedHomeCatalog(language, selectedProvider)
-  );
+  const homeCatalogRef = useRef<HomeCatalogResponse | null>(homeCatalog);
+  useEffect(() => {
+    homeCatalogRef.current = homeCatalog;
+  }, [homeCatalog]);
+  const [homeLoading, setHomeLoading] = useState<boolean>(() => {
+    try {
+      return !hasHomeItems(initialHomeBootstrapRef.current);
+    } catch {
+      return false;
+    }
+  });
   const [homeError, setHomeError] = useState<string | null>(null);
   const exploreHydratedKeyRef = useRef<string | null>(null);
 
@@ -1500,6 +1589,7 @@ export default function App() {
   );
 
   const homeRequestSeqRef = useRef(0);
+  const homeInFlightCountRef = useRef(0);
 
   const loadHomeFromCache = useCallback(
     async (
@@ -1508,67 +1598,127 @@ export default function App() {
       forceBypassClient = false
     ) => {
       const requestId = ++homeRequestSeqRef.current;
+      let countedInFlight = false;
 
-      if (forceBypassClient) {
-        clearClientHomeCache(langToLoad, providerToLoad);
-      } else {
-        const peek = getPeekCachedHomeEntry(langToLoad, providerToLoad);
-        if (peek) {
-          setHomeCatalog(peek.data);
-          setHomeLoading(false);
-          setHomeError(null);
-
-          if (peek.isStale) {
-            void fetchHomeCatalog(langToLoad, providerToLoad, false)
-              .then((fresh) => {
-                if (homeRequestSeqRef.current !== requestId) return;
-                if (
-                  fresh &&
-                  (fresh.heroSpotlights.length > 0 ||
-                    fresh.trendingTop.length > 0 ||
-                    fresh.hotReleases.length > 0 ||
-                    fresh.catalogGrid.length > 0)
-                ) {
-                  setHomeCatalog(fresh);
-                }
-              })
-              .catch(() => {
-                // Keep cached Home data intact if background revalidation fails
-              });
-          }
-          return;
-        }
-      }
-
-      setHomeLoading(true);
-      setHomeError(null);
       try {
+        if (forceBypassClient) {
+          clearClientHomeCache(langToLoad, providerToLoad);
+        } else {
+          const peek = getPeekCachedHomeEntry(langToLoad, providerToLoad);
+          if (peek && hasHomeItems(peek.data)) {
+            setHomeCatalog(peek.data);
+            setHomeLoading(false);
+            setHomeError(null);
+
+            if (peek.isStale) {
+              void fetchHomeCatalog(langToLoad, providerToLoad, false)
+                .then((fresh) => {
+                  if (homeRequestSeqRef.current !== requestId) return;
+                  if (hasHomeItems(fresh)) {
+                    setHomeCatalog(fresh);
+                  }
+                })
+                .catch(() => {
+                  // Keep cached Home data intact if background revalidation fails
+                })
+                .finally(() => {
+                  setHomeLoading(false);
+                });
+            }
+            return;
+          }
+        }
+
+        const ssrSeed = !forceBypassClient
+          ? peekSsrHomeBootstrap(providerToLoad)
+          : null;
+        const hasVisibleCatalog =
+          hasHomeItems(ssrSeed) ||
+          (!forceBypassClient &&
+            hasHomeItems(homeCatalogRef.current) &&
+            (homeCatalogRef.current?.provider || 'All') === providerToLoad);
+
+        if (hasHomeItems(ssrSeed) && !hasHomeItems(homeCatalogRef.current)) {
+          setHomeCatalog(ssrSeed);
+        }
+
+        // Never block initial render with skeletons if SSR __INITIAL_HOME__ or existing catalog is already present
+        setHomeLoading(!hasVisibleCatalog);
+        setHomeError(null);
+
+        homeInFlightCountRef.current += 1;
+        countedInFlight = true;
+
         const res = await fetchHomeCatalog(
           langToLoad,
           providerToLoad,
           forceBypassClient
         );
-        if (homeRequestSeqRef.current !== requestId) return;
-        setHomeCatalog(res);
-      } catch (err) {
-        if (homeRequestSeqRef.current !== requestId) return;
-        const staleFallback = getPeekCachedHomeEntry(langToLoad, providerToLoad);
-        if (staleFallback) {
-          setHomeCatalog(staleFallback.data);
+        if (homeRequestSeqRef.current === requestId) {
+          if (hasHomeItems(res) || !hasVisibleCatalog) {
+            setHomeCatalog(res);
+          }
           setHomeError(null);
-        } else {
+        }
+      } catch (err) {
+        const staleFallback =
+          getPeekCachedHomeEntry(langToLoad, providerToLoad)?.data ??
+          peekSsrHomeBootstrap(providerToLoad);
+        if (hasHomeItems(staleFallback)) {
+          if (homeRequestSeqRef.current === requestId) {
+            setHomeCatalog(staleFallback);
+            setHomeError(null);
+          }
+        } else if (
+          homeRequestSeqRef.current === requestId &&
+          !hasHomeItems(homeCatalogRef.current)
+        ) {
           setHomeError(
             err instanceof Error ? err.message : 'Failed to load cached catalog'
           );
         }
       } finally {
-        if (homeRequestSeqRef.current === requestId) {
+        if (countedInFlight) {
+          homeInFlightCountRef.current = Math.max(
+            0,
+            homeInFlightCountRef.current - 1
+          );
+        }
+        if (
+          homeRequestSeqRef.current === requestId ||
+          homeInFlightCountRef.current === 0 ||
+          hasHomeItems(homeCatalogRef.current) ||
+          hasHomeItems(peekSsrHomeBootstrap(providerToLoad))
+        ) {
           setHomeLoading(false);
         }
       }
     },
     []
   );
+
+  // Immediately clear homeLoading on mount if window.__INITIAL_HOME__ already holds catalog items
+  useEffect(() => {
+    try {
+      const ssrSeed = peekSsrHomeBootstrap(selectedProvider);
+      if (hasHomeItems(ssrSeed)) {
+        setHomeCatalog((prev) => (hasHomeItems(prev) ? prev : ssrSeed));
+        setHomeLoading(false);
+        setHomeError(null);
+      }
+    } catch {
+      setHomeLoading(false);
+    }
+  }, [selectedProvider]);
+
+  // Watchdog: ensure homeLoading can never remain stuck true past fetch timeout
+  useEffect(() => {
+    if (!homeLoading) return;
+    const watchdog = window.setTimeout(() => {
+      setHomeLoading(false);
+    }, 16000);
+    return () => window.clearTimeout(watchdog);
+  }, [homeLoading]);
 
   // Initial Home load uses single cached backend endpoint (/api/home) instead of 65 live calls
   useEffect(() => {
@@ -3952,7 +4102,7 @@ export default function App() {
                 title={t.sections.trendingNow}
                 icon={<Flame className="w-4 h-4 cd-accent-text shrink-0" />}
                 items={homeCatalog?.trendingTop ?? []}
-                loading={homeLoading}
+                loading={homeLoading && !(homeCatalog?.trendingTop?.length)}
                 error={homeError}
                 ranked
                 myListIds={myListIds}
@@ -3994,7 +4144,7 @@ export default function App() {
                   title={t.sections.hotPicks}
                   icon={<Sparkles className="w-4 h-4 text-[#D4AF37] shrink-0" />}
                   items={homeCatalog?.hotReleases ?? []}
-                  loading={homeLoading}
+                  loading={homeLoading && !(homeCatalog?.hotReleases?.length)}
                   error={homeError}
                   badgeStyle="NEW"
                   myListIds={myListIds}

@@ -453,9 +453,13 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       }
     } catch {
+      // Ignore storage/navigator access errors in Incognito or restricted contexts
+    }
+    try {
+      setActiveAppLanguage('en');
+    } catch {
       // Ignore
     }
-    setActiveAppLanguage('en');
     return 'en';
   });
 
@@ -1464,16 +1468,25 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
 
   // Capture ?ref= query parameter once on mount
   useEffect(() => {
-    captureReferralCodeFromUrl();
+    try {
+      captureReferralCodeFromUrl();
+    } catch {
+      // Ignore URL/storage errors in restricted contexts
+    }
   }, []);
 
   // Preload Google Identity Services config & hydrate Express session sequentially before guest fallback
   useEffect(() => {
     let cancelled = false;
-    void preloadGoogleAuth();
+    try {
+      void Promise.resolve(preloadGoogleAuth()).catch(() => {});
+    } catch {
+      // Ignore synchronous preload failures
+    }
 
-    void fetchCurrentAuthSession(sessionTokenRef.current)
-      .then((sessionState) => {
+    const hydrateSession = async () => {
+      try {
+        const sessionState = await fetchCurrentAuthSession(sessionTokenRef.current);
         if (cancelled) return;
         if (typeof sessionState.gmailLoginCount === 'number') {
           setGmailLoginCount(Math.max(0, Math.floor(sessionState.gmailLoginCount)));
@@ -1523,8 +1536,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           void hydrateWatchHistoryFromPostgres(visitorId, null);
           void hydrateLikesFromPostgres(visitorId, null);
         }
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) {
           activeActorUidRef.current = null;
           setUser(null);
@@ -1532,12 +1544,14 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           void hydrateWatchHistoryFromPostgres(visitorId, null);
           void hydrateLikesFromPostgres(visitorId, null);
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) {
           setAuthLoading(false);
         }
-      });
+      }
+    };
+
+    void hydrateSession();
 
     return () => {
       cancelled = true;
@@ -3352,7 +3366,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     [myListItems]
   );
 
-  const t = TRANSLATIONS[language];
+  const t = TRANSLATIONS[language] ?? TRANSLATIONS.en;
 
   const value = useMemo(
     () => ({

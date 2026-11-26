@@ -232,3 +232,116 @@ test('3. LookSeries emergency fallback populates Home cache if all primary drama
     }
   );
 });
+
+test('4. Client homeService hydrates immediately from window.__INITIAL_HOME__ across language mismatch and blocked Incognito storage', async () => {
+  const { readFileSync } = await import('node:fs');
+  const indexHtml = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(indexHtml, /crookedagreement/i);
+  assert.doesNotMatch(indexHtml, /popunder|in-page\s*push|multitag/i);
+
+  const {
+    clearClientHomeCache,
+    fetchHomeCatalog,
+    getPeekCachedHomeCatalog,
+    getPeekCachedHomeEntry,
+    hasHomeItems,
+    peekSsrHomeBootstrap,
+  } = await import('../src/services/homeService.ts');
+
+  const prevWindow = (globalThis as { window?: unknown }).window;
+  const prevFetch = globalThis.fetch;
+
+  const throwingStorage = {
+    get length() {
+      return 0;
+    },
+    key() {
+      throw new Error('SecurityError: storage disabled');
+    },
+    getItem() {
+      throw new Error('SecurityError: storage disabled');
+    },
+    setItem() {
+      throw new Error('SecurityError: storage disabled');
+    },
+    removeItem() {
+      throw new Error('SecurityError: storage disabled');
+    },
+  };
+
+  const mockSsrHome = {
+    lang: 'en' as const,
+    provider: 'All' as const,
+    heroSpotlights: [
+      {
+        bookId: 'hero-1',
+        title: 'SSR Hero Drama',
+        cover: 'https://img.kano-drama.live/hero-1.jpg',
+        description: 'SSR spotlight description',
+        chapterCount: 50,
+        tags: ['Romance'],
+        isVip: false,
+        provider: 'DramaBoxV2' as const,
+      },
+    ],
+    trendingTop: [],
+    hotReleases: [],
+    catalogGrid: [
+      {
+        bookId: 'grid-1',
+        title: 'SSR Grid Drama',
+        cover: 'https://img.kano-drama.live/grid-1.jpg',
+        description: 'SSR grid description',
+        chapterCount: 40,
+        tags: ['CEO'],
+        isVip: false,
+        provider: 'DramaBoxV2' as const,
+      },
+    ],
+    providerCounts: { all: 2 },
+    updatedAt: Date.now(),
+    expiresAt: Date.now() + 300_000,
+    cached: true,
+    stale: false,
+    source: 'ssr-cache',
+  };
+
+  (globalThis as { window?: unknown }).window = {
+    __INITIAL_HOME__: mockSsrHome,
+    sessionStorage: throwingStorage,
+    localStorage: throwingStorage,
+  };
+
+  try {
+    clearClientHomeCache();
+    assert.equal(hasHomeItems(peekSsrHomeBootstrap('All')), true);
+
+    // Even when client resolves to 'id' while SSR bootstrap was 'en' (typical Incognito mismatch),
+    // catalog must hydrate immediately with isStale=true so homeLoading starts false.
+    const peekMismatch = getPeekCachedHomeEntry('id', 'All');
+    assert.ok(peekMismatch);
+    assert.equal(peekMismatch.isStale, true);
+    assert.equal(peekMismatch.data.heroSpotlights.length, 1);
+    assert.equal(peekMismatch.data.catalogGrid.length, 1);
+
+    const directCatalog = getPeekCachedHomeCatalog('id', 'All');
+    assert.ok(directCatalog && directCatalog.catalogGrid.length === 1);
+
+    // If background /api/home fails, fetchHomeCatalog preserves SSR bootstrap instead of failing home
+    globalThis.fetch = (async () =>
+      new Response('Upstream unavailable', { status: 503 })) as typeof fetch;
+
+    const recovered = await fetchHomeCatalog('id', 'All', false);
+    assert.equal(recovered.heroSpotlights.length, 1);
+    assert.equal(recovered.catalogGrid.length, 1);
+    assert.equal(recovered.stale, true);
+  } finally {
+    clearClientHomeCache();
+    globalThis.fetch = prevFetch;
+    if (prevWindow === undefined) {
+      delete (globalThis as { window?: unknown }).window;
+    } else {
+      (globalThis as { window?: unknown }).window = prevWindow;
+    }
+  }
+});

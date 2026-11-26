@@ -23,8 +23,10 @@ function cacheKey(lang: LanguageCode, provider: ProviderId): string {
   return `${lang}:${provider}`;
 }
 
-function hasHomeItems(data: Partial<HomeCatalogResponse> | null | undefined): boolean {
-  if (!data) return false;
+export function hasHomeItems(
+  data: Partial<HomeCatalogResponse> | null | undefined
+): boolean {
+  if (!data || typeof data !== 'object') return false;
   return (
     (Array.isArray(data.heroSpotlights) && data.heroSpotlights.length > 0) ||
     (Array.isArray(data.trendingTop) && data.trendingTop.length > 0) ||
@@ -33,19 +35,68 @@ function hasHomeItems(data: Partial<HomeCatalogResponse> | null | undefined): bo
   );
 }
 
+function normalizeSsrHomeData(
+  raw: Partial<HomeCatalogResponse>,
+  fallbackLang: LanguageCode,
+  provider: ProviderId
+): HomeCatalogResponse {
+  return {
+    lang: raw.lang ?? fallbackLang,
+    provider: raw.provider ?? provider,
+    heroSpotlights: Array.isArray(raw.heroSpotlights) ? raw.heroSpotlights : [],
+    trendingTop: Array.isArray(raw.trendingTop) ? raw.trendingTop : [],
+    hotReleases: Array.isArray(raw.hotReleases) ? raw.hotReleases : [],
+    catalogGrid: Array.isArray(raw.catalogGrid) ? raw.catalogGrid : [],
+    providerCounts:
+      raw.providerCounts && typeof raw.providerCounts === 'object'
+        ? raw.providerCounts
+        : {},
+    updatedAt: Number(raw.updatedAt) || Date.now(),
+    expiresAt: Number(raw.expiresAt) || Date.now() + HOME_CLIENT_TTL_MS,
+    cached: Boolean(raw.cached),
+    stale: Boolean(raw.stale),
+    source: String(raw.source || 'ssr-bootstrap'),
+  };
+}
+
+export function peekSsrHomeBootstrap(
+  provider: ProviderId = 'All'
+): HomeCatalogResponse | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const ssrHome = (window as Window & { __INITIAL_HOME__?: HomeCatalogResponse })
+      .__INITIAL_HOME__;
+    if (
+      ssrHome &&
+      typeof ssrHome === 'object' &&
+      (ssrHome.provider || 'All') === provider &&
+      hasHomeItems(ssrHome)
+    ) {
+      return normalizeSsrHomeData(ssrHome, ssrHome.lang || 'en', provider);
+    }
+  } catch {
+    // Ignore malformed SSR bootstrap payload
+  }
+  return null;
+}
+
 function persistClientEntry(key: string, entry: StoredClientHomeEntry): void {
   memoryHomeCache.set(key, entry);
   if (typeof window === 'undefined') return;
-  const serialized = JSON.stringify(entry);
   try {
-    window.sessionStorage.setItem(`${STORAGE_PREFIX}${key}`, serialized);
+    const serialized = JSON.stringify(entry);
+    try {
+      window.sessionStorage.setItem(`${STORAGE_PREFIX}${key}`, serialized);
+    } catch {
+      // Ignore storage quota / private mode errors
+    }
+    try {
+      window.localStorage.setItem(`${STORAGE_PREFIX}${key}`, serialized);
+    } catch {
+      // Ignore storage quota / private mode errors
+    }
   } catch {
-    // Ignore storage quota errors
-  }
-  try {
-    window.localStorage.setItem(`${STORAGE_PREFIX}${key}`, serialized);
-  } catch {
-    // Ignore storage quota errors
+    // Ignore serialization errors
   }
 }
 
@@ -56,23 +107,27 @@ function readStoredEntry(key: string): StoredClientHomeEntry | null {
   }
   if (typeof window === 'undefined') return null;
 
-  for (const store of [window.sessionStorage, window.localStorage]) {
+  for (const storeName of ['sessionStorage', 'localStorage'] as const) {
     try {
+      const store = window[storeName];
+      if (!store) continue;
       const raw = store.getItem(`${STORAGE_PREFIX}${key}`);
       if (!raw) continue;
       const parsed = JSON.parse(raw) as Partial<StoredClientHomeEntry>;
       if (parsed?.data && hasHomeItems(parsed.data)) {
         const entry: StoredClientHomeEntry = {
-          updatedAt: Number(parsed.updatedAt) || Number(parsed.data.updatedAt) || Date.now(),
+          updatedAt:
+            Number(parsed.updatedAt) || Number(parsed.data.updatedAt) || Date.now(),
           expiresAt: Number(parsed.expiresAt) || Date.now() + HOME_CLIENT_TTL_MS,
-          staleUntil: Number(parsed.staleUntil) || Date.now() + HOME_CLIENT_SWR_MAX_AGE_MS,
+          staleUntil:
+            Number(parsed.staleUntil) || Date.now() + HOME_CLIENT_SWR_MAX_AGE_MS,
           data: parsed.data,
         };
         memoryHomeCache.set(key, entry);
         return entry;
       }
     } catch {
-      // Ignore corrupt storage read
+      // Ignore corrupt storage read or restricted Incognito storage access
     }
   }
   return null;
@@ -88,23 +143,28 @@ function hydrateFromSsrBootstrap(
       .__INITIAL_HOME__;
     if (
       ssrHome &&
-      (ssrHome.lang === lang || !ssrHome.lang) &&
+      typeof ssrHome === 'object' &&
       (ssrHome.provider || 'All') === provider &&
       hasHomeItems(ssrHome)
     ) {
       const now = Date.now();
-      const serverExpires = Number(ssrHome.expiresAt) || 0;
-      const clientExpires = ssrHome.stale
+      const langMatches = !ssrHome.lang || ssrHome.lang === lang;
+      const normalizedData = normalizeSsrHomeData(ssrHome, lang, provider);
+      const serverExpires = Number(normalizedData.expiresAt) || 0;
+      const isBootstrapStale = Boolean(normalizedData.stale) || !langMatches;
+      const clientExpires = isBootstrapStale
         ? now - 1
         : Math.min(
             serverExpires > now ? serverExpires : now + HOME_CLIENT_TTL_MS,
             now + HOME_CLIENT_TTL_MS
           );
       const entry: StoredClientHomeEntry = {
-        updatedAt: Number(ssrHome.updatedAt) || now,
+        updatedAt: Number(normalizedData.updatedAt) || now,
         expiresAt: clientExpires,
         staleUntil: now + HOME_CLIENT_SWR_MAX_AGE_MS,
-        data: ssrHome,
+        data: isBootstrapStale
+          ? { ...normalizedData, cached: true, stale: true }
+          : normalizedData,
       };
       persistClientEntry(cacheKey(lang, provider), entry);
       return entry;
@@ -119,21 +179,35 @@ export function getPeekCachedHomeEntry(
   lang: LanguageCode,
   provider: ProviderId
 ): PeekHomeCacheResult | null {
-  const key = cacheKey(lang, provider);
-  const now = Date.now();
-  const ssrEntry = hydrateFromSsrBootstrap(lang, provider);
-  const stored = readStoredEntry(key) ?? ssrEntry;
-  if (!stored || !hasHomeItems(stored.data)) {
-    return null;
-  }
-  if (now <= stored.expiresAt && !stored.data.stale) {
-    return { data: stored.data, isStale: false };
-  }
-  if (now <= stored.staleUntil) {
-    return {
-      data: { ...stored.data, cached: true, stale: true },
-      isStale: true,
-    };
+  try {
+    const key = cacheKey(lang, provider);
+    const now = Date.now();
+    const ssrEntry = hydrateFromSsrBootstrap(lang, provider);
+    const stored = readStoredEntry(key) ?? ssrEntry;
+    if (!stored || !hasHomeItems(stored.data)) {
+      if (ssrEntry && hasHomeItems(ssrEntry.data)) {
+        return { data: ssrEntry.data, isStale: true };
+      }
+      return null;
+    }
+    const langMismatch = Boolean(stored.data.lang && stored.data.lang !== lang);
+    if (now <= stored.expiresAt && !stored.data.stale && !langMismatch) {
+      return { data: stored.data, isStale: false };
+    }
+    if (now <= stored.staleUntil) {
+      return {
+        data: { ...stored.data, cached: true, stale: true },
+        isStale: true,
+      };
+    }
+    if (ssrEntry && hasHomeItems(ssrEntry.data)) {
+      return {
+        data: { ...ssrEntry.data, cached: true, stale: true },
+        isStale: true,
+      };
+    }
+  } catch {
+    // Never throw during cache peek
   }
   return null;
 }
@@ -142,7 +216,11 @@ export function getPeekCachedHomeCatalog(
   lang: LanguageCode,
   provider: ProviderId
 ): HomeCatalogResponse | null {
-  return getPeekCachedHomeEntry(lang, provider)?.data ?? null;
+  try {
+    return getPeekCachedHomeEntry(lang, provider)?.data ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function clearClientHomeCache(
@@ -169,8 +247,10 @@ export function clearClientHomeCache(
 
   memoryHomeCache.clear();
   if (typeof window !== 'undefined') {
-    for (const store of [window.sessionStorage, window.localStorage]) {
+    for (const storeName of ['sessionStorage', 'localStorage'] as const) {
       try {
+        const store = window[storeName];
+        if (!store) continue;
         const toRemove: string[] = [];
         for (let i = 0; i < store.length; i++) {
           const k = store.key(i);
@@ -256,15 +336,17 @@ export async function fetchHomeCatalog(
         return data;
       }
 
-      // Preserve existing stale cache instead of overwriting Home with empty data
-      const fallback = readStoredEntry(key);
+      // Preserve existing stale cache or SSR bootstrap instead of overwriting Home with empty data
+      const fallback =
+        readStoredEntry(key) ?? hydrateFromSsrBootstrap(lang, provider);
       if (fallback && hasHomeItems(fallback.data)) {
         return { ...fallback.data, stale: true, cached: true };
       }
 
       return data;
     } catch (err) {
-      const stale = readStoredEntry(key);
+      const stale =
+        readStoredEntry(key) ?? hydrateFromSsrBootstrap(lang, provider);
       if (stale && hasHomeItems(stale.data)) {
         return { ...stale.data, stale: true, cached: true };
       }
