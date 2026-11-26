@@ -5,7 +5,7 @@ export const EPISODE_REDIRECT_AD_URLS = [
   'https://uplcm.com/4/12095259',
 ] as const;
 
-export const POPUNDER_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes strict cooldown
+export const POPUNDER_COOLDOWN_MS = 45 * 1000; // 45 seconds strict cooldown
 
 const POPUNDER_SCRIPT_HOST_PATH =
   '//crookedagreement.com/ccD/9.6FbX2h5-lsS/WzQs9/NtzSYy2JM/TjY/2AMTS-0G3SN/jOYpx-NhjgYj1U';
