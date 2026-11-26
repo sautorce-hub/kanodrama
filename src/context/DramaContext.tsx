@@ -326,6 +326,16 @@ interface DramaContextValue {
     meta?: ToastMeta
   ) => void;
   dismissToast: (id: string) => void;
+  liveBadgeMap: Record<
+    string,
+    {
+      dailyViews: number;
+      totalViews: number;
+      likesCount?: number;
+      commentsCount?: number;
+      trendBadge?: 'HOT' | 'TRENDING';
+    }
+  >;
   getDramaLiveStats: (
     bookId: string,
     provider?: MediaProviderName
@@ -443,25 +453,41 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           setActiveAppLanguage(urlLang);
           return urlLang;
         }
-      }
-      const saved = normalizeLanguageCode(
-        localStorage.getItem(LANG_STORAGE_KEY) ||
-          localStorage.getItem('coffee_drama_lang_v3')
-      );
-      if (saved) {
-        setActiveAppLanguage(saved);
-        return saved;
-      }
-      const cookieData = readLanguageFromClientCookies();
-      if (cookieData.lang) {
-        setActiveAppLanguage(cookieData.lang);
-        return cookieData.lang;
-      }
-      if (typeof navigator !== 'undefined') {
-        const navLang = normalizeLanguageCode(navigator.language);
-        if (navLang) {
-          setActiveAppLanguage(navLang);
-          return navLang;
+        const savedPref = normalizeLanguagePreference(
+          localStorage.getItem(LANG_PREF_STORAGE_KEY)
+        );
+        const cookieData = readLanguageFromClientCookies();
+        const effectivePref = savedPref || cookieData.pref || 'auto';
+
+        if (effectivePref !== 'auto') {
+          const explicitLang = normalizeLanguageCode(effectivePref);
+          if (explicitLang) {
+            setActiveAppLanguage(explicitLang);
+            return explicitLang;
+          }
+        } else {
+          const ssrGeo = (
+            window as Window & {
+              __INITIAL_GEO_LANG__?: { lang?: string; countryCode?: string | null };
+            }
+          ).__INITIAL_GEO_LANG__;
+          const ssrGeoLang = normalizeLanguageCode(ssrGeo?.lang);
+          if (ssrGeoLang) {
+            setActiveAppLanguage(ssrGeoLang);
+            return ssrGeoLang;
+          }
+          if (cookieData.lang) {
+            setActiveAppLanguage(cookieData.lang);
+            return cookieData.lang;
+          }
+          const savedLang = normalizeLanguageCode(
+            localStorage.getItem(LANG_STORAGE_KEY) ||
+              localStorage.getItem('coffee_drama_lang_v3')
+          );
+          if (savedLang) {
+            setActiveAppLanguage(savedLang);
+            return savedLang;
+          }
         }
       }
     } catch {
@@ -495,6 +521,25 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     languageRef.current = language;
   }, [language]);
+  const languagePrefRef = useRef<LanguagePreference>(languagePreference);
+  useEffect(() => {
+    languagePrefRef.current = languagePreference;
+  }, [languagePreference]);
+  const geoResolvedLangRef = useRef<LanguageCode | null>(
+    typeof window !== 'undefined'
+      ? (() => {
+          const ssrGeo = (
+            window as Window & {
+              __INITIAL_GEO_LANG__?: { lang?: string; countryCode?: string | null };
+            }
+          ).__INITIAL_GEO_LANG__;
+          if (ssrGeo?.countryCode) {
+            return ssrGeo.countryCode.toUpperCase() === 'ID' ? 'id' : 'en';
+          }
+          return null;
+        })()
+      : null
+  );
   const popupLoginInFlightRef = useRef<boolean>(false);
   const [pointsBalance, setPointsBalance] = useState<number | null>(null);
   const [pointsDbConnected, setPointsDbConnected] = useState<boolean | null>(null);
@@ -1806,8 +1851,94 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, [language, languagePreference]);
 
+  const resolveAutoIpLanguage = useCallback(
+    async (applyToState: boolean, forceRefresh = false): Promise<LanguageCode> => {
+      let resolved: LanguageCode | null = forceRefresh
+        ? null
+        : geoResolvedLangRef.current;
+
+      if (!resolved && typeof window !== 'undefined') {
+        try {
+          const res = await fetch('/api/geo/language', { cache: 'no-store' });
+          if (res.ok) {
+            const data = (await res.json()) as {
+              countryCode?: string | null;
+              language?: string;
+              isLocalIp?: boolean;
+            };
+            if (data.countryCode) {
+              resolved =
+                data.countryCode.trim().toUpperCase() === 'ID' ? 'id' : 'en';
+            } else if (!data.isLocalIp) {
+              resolved = normalizeLanguageCode(data.language) === 'id' ? 'id' : 'en';
+            } else {
+              // Local loopback dev fallback: check visitor's public IP from browser
+              try {
+                const extRes = await fetch('https://api.country.is/', {
+                  signal: AbortSignal.timeout(2200),
+                });
+                if (extRes.ok) {
+                  const extData = (await extRes.json()) as { country?: string };
+                  if (extData?.country) {
+                    resolved =
+                      extData.country.trim().toUpperCase() === 'ID' ? 'id' : 'en';
+                  }
+                }
+              } catch {
+                // Ignore external lookup timeout on localhost
+              }
+            }
+          }
+        } catch {
+          // Ignore transient geo lookup error
+        }
+      }
+
+      const finalLang: LanguageCode = resolved ?? 'en';
+      if (resolved) {
+        geoResolvedLangRef.current = resolved;
+      }
+
+      if (
+        applyToState &&
+        languagePrefRef.current === 'auto' &&
+        finalLang !== languageRef.current
+      ) {
+        languageRef.current = finalLang;
+        setActiveAppLanguage(finalLang);
+        setLanguageRaw(finalLang);
+        writeLanguageCookies(finalLang, 'auto');
+        if (typeof document !== 'undefined') {
+          document.documentElement.lang = getHtmlLangTag(finalLang);
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('kd:change-language', {
+              detail: { lang: finalLang, pref: 'auto', silent: true },
+            })
+          );
+        }
+      }
+
+      return finalLang;
+    },
+    []
+  );
+
+  // On initial mount, when preference is 'auto' (and no ?lang= override), detect IP country
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const urlLang = normalizeLanguageCode(
+      new URLSearchParams(window.location.search).get('lang')
+    );
+    if (urlLang || languagePreference !== 'auto') return;
+    if (geoResolvedLangRef.current) return;
+    void resolveAutoIpLanguage(true);
+  }, [languagePreference, resolveAutoIpLanguage]);
+
   const setLanguageState = useCallback((lang: LanguageCode) => {
     languageRef.current = lang;
+    languagePrefRef.current = lang;
     setActiveAppLanguage(lang);
     setLanguageRaw(lang);
     setLanguagePreferenceRaw(lang);
@@ -1825,6 +1956,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const setLanguagePreference = useCallback(
     (pref: LanguagePreference): LanguageCode => {
+      languagePrefRef.current = pref;
       setLanguagePreferenceRaw(pref);
       if (pref !== 'auto') {
         languageRef.current = pref;
@@ -1842,48 +1974,45 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         }
         return pref;
       }
-      const navFallback =
-        (typeof navigator !== 'undefined'
-          ? normalizeLanguageCode(navigator.language)
-          : null) || language;
-      writeLanguageCookies(navFallback, 'auto');
+
+      const ipLang: LanguageCode =
+        geoResolvedLangRef.current ??
+        (languageRef.current === 'id' || languageRef.current === 'en'
+          ? languageRef.current
+          : 'en');
+      languageRef.current = ipLang;
+      setActiveAppLanguage(ipLang);
+      setLanguageRaw(ipLang);
+      writeLanguageCookies(ipLang, 'auto');
+      if (typeof document !== 'undefined') {
+        document.documentElement.lang = getHtmlLangTag(ipLang);
+      }
       try {
+        localStorage.setItem(LANG_STORAGE_KEY, ipLang);
         localStorage.setItem(LANG_PREF_STORAGE_KEY, 'auto');
       } catch {
         // Ignore
       }
-      return navFallback;
+      void resolveAutoIpLanguage(true, true);
+      return ipLang;
     },
-    [language]
+    [resolveAutoIpLanguage]
   );
 
   const syncLanguageFromContent = useCallback(
     (
-      input:
+      _input:
         | Partial<DramaItem>
         | ContentLanguageSignal
         | string
         | null
         | undefined,
-      apiLang?: string | null
+      _apiLang?: string | null
     ): LanguageCode => {
-      if (languagePreference !== 'auto') {
-        return language;
-      }
-      const explicitApi = normalizeLanguageCode(apiLang);
-      const detected = explicitApi ?? detectLanguageFromContent(input, language);
-      if (detected !== language) {
-        languageRef.current = detected;
-        setActiveAppLanguage(detected);
-        setLanguageRaw(detected);
-        writeLanguageCookies(detected, 'auto');
-        if (typeof document !== 'undefined') {
-          document.documentElement.lang = getHtmlLangTag(detected);
-        }
-      }
-      return detected;
+      // Auto mode follows visitor IP (Indonesia -> 'id', outside Indonesia -> 'en')
+      return language;
     },
-    [language, languagePreference]
+    [language]
   );
 
   const openAuthModal = useCallback(
@@ -2779,23 +2908,72 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
             dramaId: drama.bookId,
             provider: drama.provider,
             episodeNumber: episode,
+            drama: {
+              title: drama.title,
+              slug: drama.slug,
+              cover: drama.cover,
+              description: drama.description,
+              chapterCount: drama.chapterCount,
+              tags: drama.tags,
+              isVip: drama.isVip,
+              mediaType: drama.mediaType,
+              quality: drama.quality,
+              rating: drama.rating,
+              playCount: drama.playCount,
+            },
           }),
         })
           .then((r) => (r.ok ? r.json() : null))
-          .then((data: { siteTotalViews?: number } | null) => {
-            if (
-              data &&
-              typeof data.siteTotalViews === 'number' &&
-              typeof window !== 'undefined'
-            ) {
-              window.dispatchEvent(
-                new CustomEvent('kd:view-recorded', {
-                  detail: { siteTotalViews: data.siteTotalViews },
-                })
-              );
+          .then(
+            (
+              data: {
+                ok?: boolean;
+                dailyViews?: number;
+                totalViews?: number;
+                siteTotalViews?: number;
+              } | null
+            ) => {
+              if (data) {
+                if (
+                  typeof data.dailyViews === 'number' ||
+                  typeof data.totalViews === 'number'
+                ) {
+                  setLiveBadgeMap((prev) => {
+                    const cur = prev[dramaKey];
+                    return {
+                      ...prev,
+                      [dramaKey]: {
+                        ...cur,
+                        dailyViews:
+                          typeof data.dailyViews === 'number'
+                            ? Math.max(cur?.dailyViews ?? 0, data.dailyViews)
+                            : cur?.dailyViews ?? 0,
+                        totalViews:
+                          typeof data.totalViews === 'number'
+                            ? Math.max(cur?.totalViews ?? 0, data.totalViews)
+                            : cur?.totalViews ?? 0,
+                        trendBadge: cur?.trendBadge || 'HOT',
+                      },
+                    };
+                  });
+                }
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(
+                    new CustomEvent('kd:view-recorded', {
+                      detail: {
+                        dramaId: drama.bookId,
+                        provider: drama.provider,
+                        dailyViews: data.dailyViews,
+                        totalViews: data.totalViews,
+                        siteTotalViews: data.siteTotalViews,
+                      },
+                    })
+                  );
+                }
+              }
+              void refreshLiveBadges();
             }
-            void refreshLiveBadges();
-          })
+          )
           .catch(() => {});
       }
 
@@ -3657,6 +3835,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       toasts,
       pushToast,
       dismissToast,
+      liveBadgeMap,
       getDramaLiveStats,
     }),
     [
@@ -3751,6 +3930,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       toasts,
       pushToast,
       dismissToast,
+      liveBadgeMap,
       getDramaLiveStats,
     ]
   );

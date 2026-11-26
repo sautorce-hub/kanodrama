@@ -793,6 +793,22 @@ const SCHEMA_STATEMENTS: string[] = [
        fast_delta_strikes = 0,
        concurrent_tab_strikes = 0
    WHERE risk_flag LIKE '%concurrent_streams%' OR risk_flag LIKE '%heartbeat_flood%'`,
+
+  `CREATE TABLE IF NOT EXISTS video_stats_items (
+    drama_id TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'DramaBoxV2',
+    media_type TEXT NOT NULL DEFAULT 'drama',
+    title TEXT NOT NULL DEFAULT '',
+    slug TEXT NOT NULL DEFAULT '',
+    cover TEXT NOT NULL DEFAULT '',
+    chapter_count INT NOT NULL DEFAULT 1,
+    item_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (drama_id, provider)
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_video_stats_items_updated
+   ON video_stats_items (updated_at DESC)`,
 ];
 
 export async function ensureDatabaseReady(): Promise<boolean> {
@@ -2026,18 +2042,201 @@ export async function updateFavoriteFolderInDb(
   return Boolean(res && (res.rowCount ?? 0) > 0);
 }
 
+export interface VideoStatsItemMetaInput {
+  title?: string;
+  slug?: string;
+  cover?: string;
+  description?: string;
+  chapterCount?: number;
+  tags?: string[];
+  isVip?: boolean;
+  mediaType?: 'drama' | 'movie';
+  quality?: string;
+  rating?: number;
+  playCount?: string;
+}
+
+export interface MostWatchedVideoRecord {
+  dramaId: string;
+  provider: string;
+  mediaType: 'drama' | 'movie';
+  dailyViews: number;
+  totalViews: number;
+  likesCount: number;
+  commentsCount: number;
+  updatedAt: number;
+  item: Record<string, unknown> | null;
+}
+
+interface FallbackVideoStatEntry {
+  dramaId: string;
+  provider: string;
+  mediaType: 'drama' | 'movie';
+  totalViews: number;
+  dailyViewsByDate: Record<string, number>;
+  updatedAt: number;
+  item?: Record<string, unknown> | null;
+}
+
+const VIDEO_STATS_FALLBACK_PATH = path.resolve(
+  process.cwd(),
+  '.cache',
+  'video-stats.json'
+);
+let videoStatsFallbackStore: Record<string, FallbackVideoStatEntry> | null = null;
+let videoStatsPersistTimer: NodeJS.Timeout | null = null;
+
+function isTestProcessForStats(): boolean {
+  return (
+    Boolean(process.env.NODE_TEST_CONTEXT) ||
+    process.argv.some((a) => a.includes('.test.'))
+  );
+}
+
+function loadVideoStatsFallbackStore(): Record<string, FallbackVideoStatEntry> {
+  if (videoStatsFallbackStore) return videoStatsFallbackStore;
+  if (!isTestProcessForStats()) {
+    try {
+      if (fs.existsSync(VIDEO_STATS_FALLBACK_PATH)) {
+        const raw = JSON.parse(
+          fs.readFileSync(VIDEO_STATS_FALLBACK_PATH, 'utf-8')
+        ) as Record<string, FallbackVideoStatEntry>;
+        if (raw && typeof raw === 'object') {
+          videoStatsFallbackStore = raw;
+          return videoStatsFallbackStore;
+        }
+      }
+    } catch {
+      // Ignore corrupt fallback cache
+    }
+  }
+  videoStatsFallbackStore = {};
+  return videoStatsFallbackStore;
+}
+
+function scheduleVideoStatsFallbackSave(): void {
+  if (isTestProcessForStats()) return;
+  if (videoStatsPersistTimer) return;
+  videoStatsPersistTimer = setTimeout(() => {
+    videoStatsPersistTimer = null;
+    try {
+      const store = loadVideoStatsFallbackStore();
+      const dir = path.dirname(VIDEO_STATS_FALLBACK_PATH);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const tmp = `${VIDEO_STATS_FALLBACK_PATH}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(store), 'utf-8');
+      fs.renameSync(tmp, VIDEO_STATS_FALLBACK_PATH);
+    } catch (err) {
+      console.warn(
+        '[VideoStatsFallback] Disk snapshot write failed:',
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }, 400);
+  videoStatsPersistTimer.unref();
+}
+
+function normalizeVideoItemMetaJson(
+  dramaId: string,
+  provider: string,
+  mediaType: 'drama' | 'movie',
+  meta?: VideoStatsItemMetaInput | null
+): Record<string, unknown> | null {
+  if (!meta) return null;
+  const title = typeof meta.title === 'string' ? meta.title.trim() : '';
+  const cover = typeof meta.cover === 'string' ? meta.cover.trim() : '';
+  if (!title && !cover) return null;
+  const chapterCount = Math.max(1, Number(meta.chapterCount) || 1);
+  return {
+    id: dramaId,
+    bookId: dramaId,
+    title: title || dramaId,
+    ...(typeof meta.slug === 'string' && meta.slug.trim()
+      ? { slug: meta.slug.trim() }
+      : {}),
+    cover,
+    description:
+      typeof meta.description === 'string' ? meta.description.trim() : '',
+    chapterCount,
+    episodes: chapterCount,
+    tags: Array.isArray(meta.tags)
+      ? meta.tags.filter((t) => typeof t === 'string' && t.trim()).slice(0, 8)
+      : [],
+    isVip: Boolean(meta.isVip),
+    provider,
+    mediaType,
+    ...(typeof meta.quality === 'string' && meta.quality.trim()
+      ? { quality: meta.quality.trim() }
+      : {}),
+    ...(typeof meta.rating === 'number' && Number.isFinite(meta.rating)
+      ? { rating: meta.rating }
+      : {}),
+    ...(typeof meta.playCount === 'string' && meta.playCount.trim()
+      ? { playCount: meta.playCount.trim() }
+      : {}),
+  };
+}
+
 export async function recordVideoViewInDb(
   dramaId: string,
   provider: string,
-  episodeNumber = 1
+  episodeNumber = 1,
+  itemMeta?: VideoStatsItemMetaInput | null
 ): Promise<{ dailyViews: number; totalViews: number; siteTotalViews: number }> {
   const safeEp = Math.max(1, Math.floor(Number(episodeNumber) || 1));
-  const mediaType =
-    provider === 'LK21' || provider === 'LookSeries' ? 'movie' : 'drama';
+  const mediaType: 'drama' | 'movie' =
+    itemMeta?.mediaType === 'movie' ||
+    provider === 'LK21' ||
+    provider === 'LookSeries'
+      ? 'movie'
+      : 'drama';
   const wibDate = getJakartaDateKey();
+  const normalizedMeta = normalizeVideoItemMetaJson(
+    dramaId,
+    provider,
+    mediaType,
+    itemMeta
+  );
+
+  // Always keep fallback store synchronized so views persist even if DB is disconnected
+  const fallbackStore = loadVideoStatsFallbackStore();
+  const fallbackKey = `${provider}:${dramaId}`;
+  const existingFallback = fallbackStore[fallbackKey] || {
+    dramaId,
+    provider,
+    mediaType,
+    totalViews: 0,
+    dailyViewsByDate: {},
+    updatedAt: Date.now(),
+    item: null,
+  };
+  existingFallback.totalViews = (Number(existingFallback.totalViews) || 0) + 1;
+  existingFallback.dailyViewsByDate[wibDate] =
+    (Number(existingFallback.dailyViewsByDate[wibDate]) || 0) + 1;
+  existingFallback.updatedAt = Date.now();
+  existingFallback.mediaType = mediaType;
+  if (normalizedMeta) {
+    existingFallback.item = {
+      ...(existingFallback.item || {}),
+      ...normalizedMeta,
+    };
+  }
+  fallbackStore[fallbackKey] = existingFallback;
+  scheduleVideoStatsFallbackSave();
+
+  const activePool = getPool();
+  if (!activePool || !(await ensureDatabaseReady()) || !dbAvailable) {
+    return {
+      dailyViews: existingFallback.dailyViewsByDate[wibDate] || 1,
+      totalViews: existingFallback.totalViews || 1,
+      siteTotalViews: existingFallback.totalViews || 1,
+    };
+  }
 
   // Update both episode-level (episode_number = safeEp) and drama-level aggregate (episode_number = 0)
-  const epRes = await dbQuery<{ daily_views: string; total_views: string }>(
+  await dbQuery(
     `INSERT INTO video_stats (drama_id, provider, media_type, episode_number, stat_date, daily_views, total_views, updated_at)
      VALUES ($1, $2, $3, $4, $5::date, 1, 1, NOW())
      ON CONFLICT (drama_id, provider, episode_number, stat_date)
@@ -2045,8 +2244,7 @@ export async function recordVideoViewInDb(
        media_type = EXCLUDED.media_type,
        daily_views = video_stats.daily_views + 1,
        total_views = video_stats.total_views + 1,
-       updated_at = NOW()
-     RETURNING daily_views::text, total_views::text`,
+       updated_at = NOW()`,
     [dramaId, provider, mediaType, safeEp, wibDate]
   );
 
@@ -2061,6 +2259,38 @@ export async function recordVideoViewInDb(
        updated_at = NOW()`,
     [dramaId, provider, mediaType, wibDate]
   );
+
+  if (normalizedMeta) {
+    await dbQuery(
+      `INSERT INTO video_stats_items (
+         drama_id, provider, media_type, title, slug, cover, chapter_count, item_json, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW())
+       ON CONFLICT (drama_id, provider)
+       DO UPDATE SET
+         media_type = EXCLUDED.media_type,
+         title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE video_stats_items.title END,
+         slug = CASE WHEN EXCLUDED.slug <> '' THEN EXCLUDED.slug ELSE video_stats_items.slug END,
+         cover = CASE WHEN EXCLUDED.cover <> '' THEN EXCLUDED.cover ELSE video_stats_items.cover END,
+         chapter_count = GREATEST(video_stats_items.chapter_count, EXCLUDED.chapter_count),
+         item_json = CASE
+           WHEN EXCLUDED.title <> '' OR EXCLUDED.cover <> ''
+             THEN video_stats_items.item_json || EXCLUDED.item_json
+           ELSE video_stats_items.item_json
+         END,
+         updated_at = NOW()`,
+      [
+        dramaId,
+        provider,
+        mediaType,
+        String(normalizedMeta.title || ''),
+        String(normalizedMeta.slug || ''),
+        String(normalizedMeta.cover || ''),
+        Math.max(1, Number(normalizedMeta.chapterCount) || 1),
+        JSON.stringify(normalizedMeta),
+      ]
+    );
+  }
 
   // Also bump global site total_views (cumulative all-time, starting from 0)
   const siteTotRes = await dbQuery<{ total_views: string }>(
@@ -2082,10 +2312,28 @@ export async function recordVideoViewInDb(
     [wibDate]
   );
 
-  const row = epRes?.rows[0];
+  const aggRes = await dbQuery<{ daily_views: string; total_views: string }>(
+    `SELECT
+       COALESCE(SUM(CASE WHEN stat_date = $3::date THEN daily_views ELSE 0 END), 0)::text AS daily_views,
+       COALESCE(SUM(total_views), 0)::text AS total_views
+     FROM video_stats
+     WHERE drama_id = $1 AND provider = $2 AND episode_number = 0`,
+    [dramaId, provider, wibDate]
+  );
+
+  const aggRow = aggRes?.rows[0];
+  const dbDaily = Number(aggRow?.daily_views ?? 1);
+  const dbTotal = Number(aggRow?.total_views ?? 1);
+  existingFallback.totalViews = Math.max(existingFallback.totalViews, dbTotal);
+  existingFallback.dailyViewsByDate[wibDate] = Math.max(
+    existingFallback.dailyViewsByDate[wibDate] || 0,
+    dbDaily
+  );
+  scheduleVideoStatsFallbackSave();
+
   return {
-    dailyViews: Number(row?.daily_views ?? 1),
-    totalViews: Number(row?.total_views ?? 1),
+    dailyViews: dbDaily,
+    totalViews: dbTotal,
     siteTotalViews: Number(siteTotRes?.rows[0]?.total_views ?? 1),
   };
 }
@@ -2104,6 +2352,20 @@ export async function getDramaStatsFromDb(
   userLiked?: boolean;
 }> {
   const wibDate = getJakartaDateKey();
+  const activePool = getPool();
+  if (!activePool || !(await ensureDatabaseReady()) || !dbAvailable) {
+    const store = loadVideoStatsFallbackStore();
+    const entry = store[`${provider}:${dramaId}`];
+    return {
+      dramaId,
+      provider,
+      dailyViews: Number(entry?.dailyViewsByDate?.[wibDate] ?? 0),
+      totalViews: Number(entry?.totalViews ?? 0),
+      likesCount: 0,
+      commentsCount: 0,
+    };
+  }
+
   const [viewsRes, likesRes, commentsRes, userLikedRes] = await Promise.all([
     dbQuery<{ daily_views: string; total_views: string }>(
       `SELECT
@@ -2156,6 +2418,30 @@ export async function getTopDailyStatsFromDb(
   const safeLimit = Math.min(100, Math.max(1, Math.floor(limitCount)));
   const safeOffset = Math.max(0, Math.floor(offsetCount));
   const wibDate = getJakartaDateKey();
+
+  const activePool = getPool();
+  if (!activePool || !(await ensureDatabaseReady()) || !dbAvailable) {
+    const store = loadVideoStatsFallbackStore();
+    return Object.values(store)
+      .filter((e) => (Number(e.totalViews) || 0) > 0)
+      .sort((a, b) => {
+        const totDiff = (Number(b.totalViews) || 0) - (Number(a.totalViews) || 0);
+        if (totDiff !== 0) return totDiff;
+        const aDaily = Number(a.dailyViewsByDate?.[wibDate] ?? 0);
+        const bDaily = Number(b.dailyViewsByDate?.[wibDate] ?? 0);
+        return bDaily - aDaily;
+      })
+      .slice(safeOffset, safeOffset + safeLimit)
+      .map((e) => ({
+        dramaId: e.dramaId,
+        provider: e.provider,
+        dailyViews: Number(e.dailyViewsByDate?.[wibDate] ?? 0),
+        totalViews: Number(e.totalViews) || 0,
+        likesCount: 0,
+        commentsCount: 0,
+      }));
+  }
+
   const res = await dbQuery<{
     drama_id: string;
     provider: string;
@@ -2164,10 +2450,21 @@ export async function getTopDailyStatsFromDb(
     likes_count: string;
     comments_count: string;
   }>(
-    `SELECT drama_id, provider, daily_views::text, total_views::text, likes_count::text, comments_count::text
+    `SELECT
+       drama_id,
+       provider,
+       COALESCE(SUM(CASE WHEN stat_date = $1::date THEN daily_views ELSE 0 END), 0)::text AS daily_views,
+       COALESCE(SUM(total_views), 0)::text AS total_views,
+       COALESCE(MAX(likes_count), 0)::text AS likes_count,
+       COALESCE(SUM(comments_count), 0)::text AS comments_count
      FROM video_stats
-     WHERE stat_date = $1::date AND episode_number = 0
-     ORDER BY daily_views DESC, total_views DESC
+     WHERE episode_number = 0
+     GROUP BY drama_id, provider
+     HAVING COALESCE(SUM(total_views), 0) > 0
+     ORDER BY
+       COALESCE(SUM(total_views), 0) DESC,
+       COALESCE(SUM(CASE WHEN stat_date = $1::date THEN daily_views ELSE 0 END), 0) DESC,
+       MAX(updated_at) DESC
      LIMIT $2 OFFSET $3`,
     [wibDate, safeLimit, safeOffset]
   );
@@ -2181,6 +2478,135 @@ export async function getTopDailyStatsFromDb(
     likesCount: Number(r.likes_count) || 0,
     commentsCount: Number(r.comments_count) || 0,
   }));
+}
+
+export async function getMostWatchedVideosFromDb(
+  limitCount = 24,
+  offsetCount = 0,
+  providerFilter = 'All'
+): Promise<{ items: MostWatchedVideoRecord[]; total: number }> {
+  const safeLimit = Math.min(100, Math.max(1, Math.floor(limitCount)));
+  const safeOffset = Math.max(0, Math.floor(offsetCount));
+  const cleanProv =
+    providerFilter && providerFilter.trim().toLowerCase() !== 'all'
+      ? providerFilter.trim()
+      : '';
+  const wibDate = getJakartaDateKey();
+
+  const activePool = getPool();
+  if (!activePool || !(await ensureDatabaseReady()) || !dbAvailable) {
+    const store = loadVideoStatsFallbackStore();
+    const filtered = Object.values(store)
+      .filter((e) => {
+        if ((Number(e.totalViews) || 0) <= 0) return false;
+        if (cleanProv && e.provider.toLowerCase() !== cleanProv.toLowerCase()) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const totDiff = (Number(b.totalViews) || 0) - (Number(a.totalViews) || 0);
+        if (totDiff !== 0) return totDiff;
+        const aDaily = Number(a.dailyViewsByDate?.[wibDate] ?? 0);
+        const bDaily = Number(b.dailyViewsByDate?.[wibDate] ?? 0);
+        if (bDaily !== aDaily) return bDaily - aDaily;
+        return (b.updatedAt || 0) - (a.updatedAt || 0);
+      });
+
+    return {
+      total: filtered.length,
+      items: filtered.slice(safeOffset, safeOffset + safeLimit).map((e) => ({
+        dramaId: e.dramaId,
+        provider: e.provider,
+        mediaType: e.mediaType,
+        dailyViews: Number(e.dailyViewsByDate?.[wibDate] ?? 0),
+        totalViews: Number(e.totalViews) || 0,
+        likesCount: 0,
+        commentsCount: 0,
+        updatedAt: e.updatedAt || Date.now(),
+        item: e.item || null,
+      })),
+    };
+  }
+
+  const res = await dbQuery<{
+    drama_id: string;
+    provider: string;
+    media_type: string;
+    daily_views: string;
+    total_views: string;
+    likes_count: string;
+    comments_count: string;
+    updated_at: Date;
+    meta_json: Record<string, unknown> | null;
+    catalog_json: Record<string, unknown> | null;
+    movie_json: Record<string, unknown> | null;
+    total_count: string;
+  }>(
+    `SELECT
+       vs.drama_id,
+       vs.provider,
+       MAX(vs.media_type) AS media_type,
+       COALESCE(SUM(CASE WHEN vs.stat_date = $1::date THEN vs.daily_views ELSE 0 END), 0)::text AS daily_views,
+       COALESCE(SUM(vs.total_views), 0)::text AS total_views,
+       COALESCE(MAX(vs.likes_count), 0)::text AS likes_count,
+       COALESCE(SUM(vs.comments_count), 0)::text AS comments_count,
+       MAX(vs.updated_at) AS updated_at,
+       vsi.item_json AS meta_json,
+       dc.drama_json AS catalog_json,
+       mv.movie_json AS movie_json,
+       COUNT(*) OVER()::text AS total_count
+     FROM video_stats vs
+     LEFT JOIN video_stats_items vsi
+       ON vsi.drama_id = vs.drama_id AND vsi.provider = vs.provider
+     LEFT JOIN drama_catalog dc
+       ON dc.drama_id = vs.drama_id AND dc.provider = vs.provider
+     LEFT JOIN movies mv
+       ON (mv.slug = vs.drama_id OR mv.movie_id = vs.drama_id)
+       AND vs.provider IN ('LK21', 'LookSeries')
+     WHERE vs.episode_number = 0
+       AND ($2 = '' OR LOWER(vs.provider) = LOWER($2))
+     GROUP BY vs.drama_id, vs.provider, vsi.item_json, dc.drama_json, mv.movie_json
+     HAVING COALESCE(SUM(vs.total_views), 0) > 0
+     ORDER BY
+       COALESCE(SUM(vs.total_views), 0) DESC,
+       COALESCE(SUM(CASE WHEN vs.stat_date = $1::date THEN vs.daily_views ELSE 0 END), 0) DESC,
+       MAX(vs.updated_at) DESC
+     LIMIT $3 OFFSET $4`,
+    [wibDate, cleanProv, safeLimit, safeOffset]
+  );
+
+  if (!res || res.rows.length === 0) {
+    return { items: [], total: 0 };
+  }
+
+  const total = Number(res.rows[0].total_count) || res.rows.length;
+  return {
+    total,
+    items: res.rows.map((r) => {
+      const mergedItem =
+        (r.catalog_json && typeof r.catalog_json === 'object' ? r.catalog_json : null) ||
+        (r.movie_json && typeof r.movie_json === 'object' ? r.movie_json : null) ||
+        (r.meta_json && typeof r.meta_json === 'object' ? r.meta_json : null);
+      return {
+        dramaId: r.drama_id,
+        provider: r.provider,
+        mediaType:
+          r.media_type === 'movie' ||
+          r.provider === 'LK21' ||
+          r.provider === 'LookSeries'
+            ? 'movie'
+            : 'drama',
+        dailyViews: Number(r.daily_views) || 0,
+        totalViews: Number(r.total_views) || 0,
+        likesCount: Number(r.likes_count) || 0,
+        commentsCount: Number(r.comments_count) || 0,
+        updatedAt:
+          r.updated_at instanceof Date ? r.updated_at.getTime() : Date.now(),
+        item: mergedItem,
+      };
+    }),
+  };
 }
 
 export interface SiteVisitorStats {
@@ -2999,6 +3425,44 @@ export async function getTrendingStatsMapFromDb(
   limit = 200
 ): Promise<Record<string, LiveDramaBadgeStat>> {
   const wibDate = getJakartaDateKey();
+  const safeLimit = Math.min(500, Math.max(10, limit));
+  const activePool = getPool();
+  if (!activePool || !(await ensureDatabaseReady()) || !dbAvailable) {
+    const store = loadVideoStatsFallbackStore();
+    const sorted = Object.values(store)
+      .filter((e) => (Number(e.totalViews) || 0) > 0)
+      .sort((a, b) => {
+        const totDiff = (Number(b.totalViews) || 0) - (Number(a.totalViews) || 0);
+        if (totDiff !== 0) return totDiff;
+        return (
+          Number(b.dailyViewsByDate?.[wibDate] ?? 0) -
+          Number(a.dailyViewsByDate?.[wibDate] ?? 0)
+        );
+      })
+      .slice(0, safeLimit);
+
+    const fallbackMap: Record<string, LiveDramaBadgeStat> = {};
+    sorted.forEach((entry, index) => {
+      const dailyViews = Number(entry.dailyViewsByDate?.[wibDate] ?? 0);
+      const totalViews = Number(entry.totalViews) || 0;
+      const key = `${entry.provider}:${entry.dramaId}`;
+      let trendBadge: 'HOT' | 'TRENDING' | undefined;
+      if (dailyViews > 0 && index < 12) {
+        trendBadge = 'HOT';
+      } else if (totalViews > 0 && index < 36) {
+        trendBadge = 'TRENDING';
+      }
+      fallbackMap[key] = {
+        dailyViews,
+        totalViews,
+        likesCount: 0,
+        commentsCount: 0,
+        trendBadge,
+      };
+    });
+    return fallbackMap;
+  }
+
   const res = await dbQuery<{
     drama_id: string;
     provider: string;
@@ -3021,10 +3485,10 @@ export async function getTrendingStatsMapFromDb(
         OR COALESCE(SUM(CASE WHEN stat_date = $2::date THEN daily_views ELSE 0 END), 0) > 0
         OR COALESCE(MAX(likes_count), 0) > 0
      ORDER BY
-       COALESCE(SUM(CASE WHEN stat_date = $2::date THEN daily_views ELSE 0 END), 0) DESC,
-       COALESCE(SUM(total_views), 0) DESC
+       COALESCE(SUM(total_views), 0) DESC,
+       COALESCE(SUM(CASE WHEN stat_date = $2::date THEN daily_views ELSE 0 END), 0) DESC
      LIMIT $1`,
-    [Math.min(500, Math.max(10, limit)), wibDate]
+    [safeLimit, wibDate]
   );
 
   const map: Record<string, LiveDramaBadgeStat> = {};

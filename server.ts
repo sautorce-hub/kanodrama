@@ -27,6 +27,7 @@ import {
   filterCatalogFromDb,
   getDramaStatsFromDb,
   getJakartaDateKey,
+  getMostWatchedVideosFromDb,
   getPayoutRuntimeConfig,
   getSiteVisitorStatsFromDb,
   getTopDailyStatsFromDb,
@@ -1850,6 +1851,191 @@ async function fetchDramaForSsr(
   return { drama, episodes };
 }
 
+const IP_COUNTRY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const IP_COUNTRY_MISS_TTL_MS = 5 * 60 * 1000;
+const ipCountryCache = new Map<
+  string,
+  { countryCode: string | null; expiresAt: number }
+>();
+
+function extractProxyCountryCode(req: Request): string | null {
+  const headerNames = [
+    'cf-ipcountry',
+    'x-vercel-ip-country',
+    'x-appengine-country',
+    'cloudfront-viewer-country',
+    'x-country-code',
+    'fly-client-country',
+  ];
+  for (const name of headerNames) {
+    const raw = (req.get(name) || '').trim().toUpperCase();
+    if (/^[A-Z]{2}$/.test(raw) && raw !== 'XX' && raw !== 'T1' && raw !== 'ZZ') {
+      return raw;
+    }
+  }
+  return null;
+}
+
+function isPrivateOrLocalIp(ip: string): boolean {
+  const clean = (ip || '').trim().toLowerCase();
+  if (!clean) return true;
+  if (
+    clean === '127.0.0.1' ||
+    clean === '::1' ||
+    clean === '0.0.0.0' ||
+    clean === 'localhost'
+  ) {
+    return true;
+  }
+  if (clean.startsWith('10.') || clean.startsWith('192.168.') || clean.startsWith('169.254.')) {
+    return true;
+  }
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(clean)) {
+    return true;
+  }
+  if (clean.startsWith('fe80:') || clean.startsWith('fc') || clean.startsWith('fd')) {
+    return true;
+  }
+  return false;
+}
+
+function mapCountryCodeToLanguage(countryCode: string | null | undefined): LanguageCode {
+  return (countryCode || '').trim().toUpperCase() === 'ID' ? 'id' : 'en';
+}
+
+function setIpCountryCache(ip: string, countryCode: string | null): void {
+  if (!ip) return;
+  if (ipCountryCache.size >= 5000) {
+    const oldest = ipCountryCache.keys().next().value;
+    if (oldest) ipCountryCache.delete(oldest);
+  }
+  ipCountryCache.set(ip, {
+    countryCode,
+    expiresAt: Date.now() + (countryCode ? IP_COUNTRY_CACHE_TTL_MS : IP_COUNTRY_MISS_TTL_MS),
+  });
+}
+
+async function lookupPublicIpCountryCode(ip: string): Promise<string | null> {
+  if (!ip || isPrivateOrLocalIp(ip)) return null;
+  const cached = ipCountryCache.get(ip);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.countryCode;
+  }
+  if (
+    process.env.KD_DISABLE_AUTO_LISTEN === '1' ||
+    Boolean(process.env.NODE_TEST_CONTEXT) ||
+    process.argv.some((arg) => arg.includes('.test.'))
+  ) {
+    return null;
+  }
+
+  let detected: string | null = null;
+  try {
+    const res = await fetch(`https://api.country.is/${encodeURIComponent(ip)}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(650),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { country?: string };
+      const cc = (data?.country || '').trim().toUpperCase();
+      if (/^[A-Z]{2}$/.test(cc)) {
+        detected = cc;
+      }
+    }
+  } catch {
+    // Try secondary geo endpoint below
+  }
+
+  if (!detected) {
+    try {
+      const res = await fetch(
+        `https://ipwho.is/${encodeURIComponent(ip)}?fields=success,country_code`,
+        {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.timeout(650),
+        }
+      );
+      if (res.ok) {
+        const data = (await res.json()) as {
+          success?: boolean;
+          country_code?: string;
+        };
+        const cc = (data?.country_code || '').trim().toUpperCase();
+        if (data?.success !== false && /^[A-Z]{2}$/.test(cc)) {
+          detected = cc;
+        }
+      }
+    } catch {
+      // Ignore transient geo lookup timeout
+    }
+  }
+
+  setIpCountryCache(ip, detected);
+  return detected;
+}
+
+function detectIpGeoSync(req: Request): {
+  lang: LanguageCode;
+  countryCode: string | null;
+  source: string;
+  isLocalIp: boolean;
+} {
+  const proxyCountry = extractProxyCountryCode(req);
+  if (proxyCountry) {
+    return {
+      lang: mapCountryCodeToLanguage(proxyCountry),
+      countryCode: proxyCountry,
+      source: 'proxy-header',
+      isLocalIp: false,
+    };
+  }
+  const ip = extractClientIpNormalized(req);
+  const localIp = isPrivateOrLocalIp(ip);
+  if (!localIp) {
+    const cached = ipCountryCache.get(ip);
+    if (cached && cached.expiresAt > Date.now() && cached.countryCode) {
+      return {
+        lang: mapCountryCodeToLanguage(cached.countryCode),
+        countryCode: cached.countryCode,
+        source: 'ip-cache',
+        isLocalIp: false,
+      };
+    }
+  }
+  return {
+    lang: 'en',
+    countryCode: null,
+    source: localIp ? 'local-fallback' : 'default-fallback',
+    isLocalIp: localIp,
+  };
+}
+
+async function detectIpGeoForRequest(req: Request): Promise<{
+  lang: LanguageCode;
+  countryCode: string | null;
+  source: string;
+  isLocalIp: boolean;
+}> {
+  const syncGeo = detectIpGeoSync(req);
+  if (syncGeo.countryCode) {
+    return syncGeo;
+  }
+  const ip = extractClientIpNormalized(req);
+  if (isPrivateOrLocalIp(ip)) {
+    return syncGeo;
+  }
+  const lookedUp = await lookupPublicIpCountryCode(ip);
+  if (lookedUp) {
+    return {
+      lang: mapCountryCodeToLanguage(lookedUp),
+      countryCode: lookedUp,
+      source: 'ip-lookup',
+      isLocalIp: false,
+    };
+  }
+  return syncGeo;
+}
+
 function resolveRequestLanguage(req: Request): {
   lang: LanguageCode;
   pref: LanguagePreference;
@@ -1863,7 +2049,7 @@ function resolveRequestLanguage(req: Request): {
   }
 
   const cookieData = parseCookieHeaderLanguage(req.headers.cookie);
-  if (cookieData.lang) {
+  if (cookieData.lang && cookieData.pref !== 'auto') {
     return {
       lang: cookieData.lang,
       pref: cookieData.pref ?? cookieData.lang,
@@ -1871,22 +2057,53 @@ function resolveRequestLanguage(req: Request): {
     };
   }
 
-  const acceptLang = req.headers['accept-language'];
-  if (typeof acceptLang === 'string' && acceptLang.trim()) {
-    for (const part of acceptLang.split(',')) {
-      const code = part.split(';')[0]?.trim();
-      const normalized = normalizeLanguageCode(code);
-      if (normalized) {
-        return {
-          lang: normalized,
-          pref: cookieData.pref ?? 'auto',
-          queryLang: null,
-        };
-      }
-    }
+  const geo = detectIpGeoSync(req);
+  return {
+    lang: geo.lang,
+    pref: cookieData.pref ?? 'auto',
+    queryLang: null,
+  };
+}
+
+async function resolveRequestLanguageWithGeo(req: Request): Promise<{
+  lang: LanguageCode;
+  pref: LanguagePreference;
+  queryLang: LanguageCode | null;
+  countryCode: string | null;
+  geoSource: string;
+}> {
+  const queryLang = normalizeLanguageCode(
+    typeof req.query.lang === 'string' ? req.query.lang : null
+  );
+  if (queryLang) {
+    return {
+      lang: queryLang,
+      pref: queryLang,
+      queryLang,
+      countryCode: null,
+      geoSource: 'query',
+    };
   }
 
-  return { lang: 'en', pref: cookieData.pref ?? 'auto', queryLang: null };
+  const cookieData = parseCookieHeaderLanguage(req.headers.cookie);
+  if (cookieData.lang && cookieData.pref !== 'auto') {
+    return {
+      lang: cookieData.lang,
+      pref: cookieData.pref ?? cookieData.lang,
+      queryLang: null,
+      countryCode: null,
+      geoSource: 'cookie',
+    };
+  }
+
+  const geo = await detectIpGeoForRequest(req);
+  return {
+    lang: geo.lang,
+    pref: cookieData.pref ?? 'auto',
+    queryLang: null,
+    countryCode: geo.countryCode,
+    geoSource: geo.source,
+  };
 }
 
 function applyHtmlLangTag(html: string, lang: LanguageCode): string {
@@ -3472,6 +3689,29 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         service: 'kano-drama-ssr',
         db: { ok: false, latencyMs: 0, engine: 'error' },
         error: err instanceof Error ? err.message : 'Health check failed',
+      });
+    }
+  });
+
+  app.get('/api/geo/language', async (req: Request, res: Response) => {
+    try {
+      const geo = await detectIpGeoForRequest(req);
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        countryCode: geo.countryCode,
+        language: geo.lang,
+        source: geo.source,
+        isLocalIp: geo.isLocalIp,
+      });
+    } catch {
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        countryCode: null,
+        language: 'en',
+        source: 'error-fallback',
+        isLocalIp: false,
       });
     }
   });
@@ -7697,8 +7937,42 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         res.status(400).json({ ok: false, error: 'dramaId is required' });
         return;
       }
+      const rawDrama =
+        req.body?.drama && typeof req.body.drama === 'object'
+          ? (req.body.drama as Record<string, unknown>)
+          : null;
+      const itemMeta = rawDrama
+        ? {
+            title: cleanText(rawDrama.title),
+            slug: cleanText(rawDrama.slug),
+            cover: cleanText(rawDrama.cover),
+            description: cleanText(rawDrama.description),
+            chapterCount: Math.max(1, Number(rawDrama.chapterCount) || 1),
+            tags: Array.isArray(rawDrama.tags)
+              ? rawDrama.tags.filter((t): t is string => typeof t === 'string')
+              : [],
+            isVip: Boolean(rawDrama.isVip),
+            mediaType: (rawDrama.mediaType === 'movie' ||
+            provider === 'LK21' ||
+            provider === 'LookSeries'
+              ? 'movie'
+              : 'drama') as 'drama' | 'movie',
+            quality: cleanText(rawDrama.quality),
+            rating:
+              typeof rawDrama.rating === 'number' && Number.isFinite(rawDrama.rating)
+                ? rawDrama.rating
+                : undefined,
+            playCount: cleanText(rawDrama.playCount),
+          }
+        : null;
+
+      const result = await recordVideoViewInDb(
+        dramaId,
+        provider,
+        episodeNumber,
+        itemMeta
+      );
       if (isDatabaseEnabled()) {
-        const result = await recordVideoViewInDb(dramaId, provider, episodeNumber);
         cumulativeViews = Math.max(
           cumulativeViews,
           toSafeVisitorInt(result.siteTotalViews)
@@ -7710,14 +7984,72 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       scheduleFallbackVisitorStatsSave();
       res.json({
         ok: true,
-        dailyViews: 1,
-        totalViews: 1,
+        dailyViews: result.dailyViews,
+        totalViews: result.totalViews,
         siteTotalViews: cumulativeViews,
       });
     } catch (err) {
       res.status(500).json({
         ok: false,
         error: err instanceof Error ? err.message : 'Failed to record view',
+      });
+    }
+  });
+
+  app.get('/api/trending', async (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 24));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
+      const providerFilter = cleanText(req.query.provider, 'All');
+      const { items, total } = await getMostWatchedVideosFromDb(
+        limit,
+        offset,
+        providerFilter
+      );
+      const formatted = items
+        .map((row, idx) => {
+          const raw = row.item || {};
+          const title = cleanText(raw.title);
+          const cover = cleanText(raw.cover);
+          if (!title && !cover) return null;
+          const chapterCount = Math.max(
+            1,
+            Number(raw.chapterCount) || Number(raw.episodes) || 1
+          );
+          return {
+            ...raw,
+            id: row.dramaId,
+            bookId: row.dramaId,
+            title: title || row.dramaId,
+            slug: cleanText(raw.slug) || slugifyTitle(title || row.dramaId),
+            cover,
+            description: cleanText(raw.description),
+            chapterCount,
+            tags: Array.isArray(raw.tags) ? raw.tags : [],
+            isVip: Boolean(raw.isVip),
+            provider: row.provider,
+            mediaType: row.mediaType,
+            rank: offset + idx + 1,
+            dailyViews: row.dailyViews,
+            totalViews: row.totalViews,
+            trendBadge: row.dailyViews > 0 && offset + idx < 4 ? 'HOT' : 'TRENDING',
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ok: true,
+        items: formatted,
+        total,
+        limit,
+        offset,
+        source: isDatabaseEnabled() ? 'postgresql' : 'fallback-cache',
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Failed to load trending videos',
       });
     }
   });
@@ -7747,7 +8079,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   app.get('/api/stats/badges', async (_req: Request, res: Response) => {
     try {
       const stats = await getTrendingStatsMapFromDb(250);
-      res.setHeader('Cache-Control', 'public, max-age=15');
+      res.setHeader('Cache-Control', 'no-store');
       res.json({ ok: true, stats });
     } catch (err) {
       res.status(500).json({
@@ -8701,7 +9033,9 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         lang: ssrLang,
         pref: ssrLangPref,
         queryLang: ssrQueryLang,
-      } = resolveRequestLanguage(req);
+        countryCode: ssrGeoCountry,
+        geoSource: ssrGeoSource,
+      } = await resolveRequestLanguageWithGeo(req);
       const htmlPath = IS_PROD
         ? path.resolve(distDir, 'index.html')
         : path.resolve(rootDir, 'index.html');
@@ -9611,6 +9945,18 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           ? 'grid'
           : 'home';
         html = replaceRootWithBrowserShell(html, bootVariant);
+      }
+
+      if (ssrLangPref === 'auto' || ssrGeoCountry) {
+        const geoLangPayload = {
+          lang: ssrLang,
+          countryCode: ssrGeoCountry,
+          source: ssrGeoSource,
+        };
+        const geoBootstrapScript = `<script>window.__INITIAL_GEO_LANG__=${JSON.stringify(
+          geoLangPayload
+        ).replace(/<\/script>/gi, '<\\/script>')};</script>`;
+        html = html.replace('</head>', `${geoBootstrapScript}\n  </head>`);
       }
 
       if (isNotFoundResponse || isPrivateResponse) {

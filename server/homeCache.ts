@@ -5,6 +5,7 @@ import {
   type LiveDramaBadgeStat,
   dbQuery,
   ensureDatabaseReady,
+  getMostWatchedVideosFromDb,
   getTrendingStatsMapFromDb,
   isDatabaseEnabled,
   listCatalogForSitemapFromDb,
@@ -300,17 +301,124 @@ export function attachLiveBadgesToItems(
   });
 }
 
+function hydrateWatchedRecordToCachedItem(
+  row: {
+    dramaId: string;
+    provider: string;
+    mediaType: 'drama' | 'movie';
+    dailyViews: number;
+    totalViews: number;
+    item: Record<string, unknown> | null;
+  },
+  fallbackByKey: Map<string, CachedDramaItem>,
+  idx: number
+): CachedDramaItem | null {
+  const key = `${row.provider}:${row.dramaId}`;
+  const fallback = fallbackByKey.get(key);
+  const raw = row.item || {};
+  const title = cleanText(raw.title) || fallback?.title || '';
+  if (!title) return null;
+  const cover = cleanText(raw.cover) || fallback?.cover || '';
+  const slug = cleanText(raw.slug) || fallback?.slug || slugifyTitle(title);
+  const chapterCount = Math.max(
+    1,
+    toPositiveNumber(raw.chapterCount, 0) ||
+      toPositiveNumber(raw.episodes, 0) ||
+      fallback?.chapterCount ||
+      1
+  );
+  const tags = Array.isArray(raw.tags)
+    ? (raw.tags as unknown[]).filter((t): t is string => typeof t === 'string' && Boolean(t.trim()))
+    : fallback?.tags || [];
+
+  return {
+    id: row.dramaId,
+    bookId: row.dramaId,
+    title,
+    slug,
+    cover,
+    description: cleanText(raw.description) || fallback?.description || '',
+    chapterCount,
+    episodes: chapterCount,
+    tags,
+    playCount: cleanText(raw.playCount) || fallback?.playCount,
+    isVip: typeof raw.isVip === 'boolean' ? raw.isVip : Boolean(fallback?.isVip),
+    provider: row.provider,
+    rank: idx + 1,
+    dailyViews: row.dailyViews,
+    totalViews: row.totalViews,
+    trendBadge: row.dailyViews > 0 && idx < 4 ? 'HOT' : 'TRENDING',
+  };
+}
+
 async function enrichHomePayloadWithLiveStats(
   payload: StoredHomePayload
 ): Promise<StoredHomePayload> {
   try {
-    const statsMap = await getTrendingStatsMapFromDb(250);
+    const [statsMap, mostWatchedRes] = await Promise.all([
+      getTrendingStatsMapFromDb(250),
+      getMostWatchedVideosFromDb(24, 0, payload.provider).catch(() => ({
+        items: [],
+        total: 0,
+      })),
+    ]);
+
+    const fallbackByKey = new Map<string, CachedDramaItem>();
+    for (const list of [
+      payload.trendingTop,
+      payload.heroSpotlights,
+      payload.hotReleases,
+      payload.catalogGrid,
+    ]) {
+      for (const item of list) {
+        if (!item?.bookId) continue;
+        const k = `${item.provider}:${item.bookId}`;
+        if (!fallbackByKey.has(k)) fallbackByKey.set(k, item);
+      }
+    }
+    for (const cached of recentIndexedBySlug.values()) {
+      if (!cached?.bookId) continue;
+      const k = `${cached.provider}:${cached.bookId}`;
+      if (!fallbackByKey.has(k)) fallbackByKey.set(k, cached);
+    }
+
+    const watchedTrending: CachedDramaItem[] = [];
+    const seenTrending = new Set<string>();
+    mostWatchedRes.items.forEach((row, idx) => {
+      const hydrated = hydrateWatchedRecordToCachedItem(row, fallbackByKey, idx);
+      if (!hydrated) return;
+      const key = `${hydrated.provider}:${hydrated.bookId}`;
+      if (seenTrending.has(key)) return;
+      seenTrending.add(key);
+      watchedTrending.push(hydrated);
+    });
+
+    watchedTrending.sort((a, b) => {
+      const totDiff = (b.totalViews ?? 0) - (a.totalViews ?? 0);
+      if (totDiff !== 0) return totDiff;
+      return (b.dailyViews ?? 0) - (a.dailyViews ?? 0);
+    });
+
+    const baseTrending = attachLiveBadgesToItems(payload.trendingTop, statsMap, {
+      isTrendingSection: true,
+    });
+    const combinedTrending: CachedDramaItem[] = [...watchedTrending];
+    for (const item of baseTrending) {
+      if (combinedTrending.length >= 12) break;
+      const key = `${item.provider}:${item.bookId}`;
+      if (seenTrending.has(key)) continue;
+      seenTrending.add(key);
+      combinedTrending.push(item);
+    }
+    const finalTrendingTop = combinedTrending.slice(0, 12).map((item, idx) => ({
+      ...item,
+      rank: idx + 1,
+    }));
+
     return {
       ...payload,
       heroSpotlights: attachLiveBadgesToItems(payload.heroSpotlights, statsMap),
-      trendingTop: attachLiveBadgesToItems(payload.trendingTop, statsMap, {
-        isTrendingSection: true,
-      }),
+      trendingTop: finalTrendingTop,
       hotReleases: attachLiveBadgesToItems(payload.hotReleases, statsMap, {
         isHotSection: true,
       }),
@@ -1517,7 +1625,7 @@ async function refreshAndPersistHome(
         };
       }
       const now = Date.now();
-      return {
+      const emptyPayload: StoredHomePayload = {
         lang,
         provider,
         heroSpotlights: [],
@@ -1527,9 +1635,13 @@ async function refreshAndPersistHome(
         providerCounts: {},
         updatedAt: now,
         expiresAt: now + 30_000,
+      };
+      const enrichedEmpty = await enrichHomePayloadWithLiveStats(emptyPayload);
+      return {
+        ...enrichedEmpty,
         cached: false,
         stale: false,
-        source: 'empty-fallback',
+        source: enrichedEmpty.trendingTop.length > 0 ? 'database-cache' : 'empty-fallback',
         storage: getStorageMode(),
       };
     }

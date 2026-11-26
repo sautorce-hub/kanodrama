@@ -335,18 +335,21 @@ export const DramaCard: React.FC<DramaCardProps> = ({
               <span>
                 {isSingleMovie ? drama.quality || 'HD' : `Ep: ${episodeCount}`}
               </span>
-              {effectiveDailyViews > 0 ? (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="text-[#F59E0B] font-medium truncate">
-                    {formatViewsShort(effectiveDailyViews)} today
-                  </span>
-                </>
-              ) : effectiveTotalViews > 0 ? (
+              {Math.max(effectiveTotalViews, effectiveDailyViews) > 0 ? (
                 <>
                   <span aria-hidden="true">·</span>
                   <span className="text-[#D4AF37] font-medium truncate">
-                    {formatViewsShort(effectiveTotalViews)} views
+                    {formatViewsShort(
+                      Math.max(effectiveTotalViews, effectiveDailyViews)
+                    )}{' '}
+                    views
+                  </span>
+                </>
+              ) : showRank ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="text-[#A1A1AA] font-medium truncate">
+                    0 views
                   </span>
                 </>
               ) : drama.tags[0] ? (

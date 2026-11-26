@@ -27,6 +27,7 @@ import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import type {
   AccentThemeId,
   LanguageCode,
+  LanguagePreference,
   NavTab,
   ProviderId,
 } from '../types/drama';
@@ -35,7 +36,7 @@ interface NavbarProps {
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
   languageLoading: boolean;
-  onChangeLanguage: (lang: LanguageCode) => void;
+  onChangeLanguage: (lang: LanguageCode, pref?: LanguagePreference) => void;
   onOpenSearchModal: () => void;
 }
 

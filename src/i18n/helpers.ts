@@ -21,20 +21,20 @@ export interface LanguageOptionMeta {
 
 export const SUPPORTED_LANGUAGES: LanguageOptionMeta[] = [
   {
-    code: 'id',
-    htmlLang: 'id',
-    ogLocale: 'id_ID',
-    flag: '🇮🇩',
-    label: 'Bahasa Indonesia',
-    shortLabel: 'ID',
-  },
-  {
     code: 'en',
     htmlLang: 'en',
     ogLocale: 'en_US',
     flag: '🇺🇸',
     label: 'English',
     shortLabel: 'EN',
+  },
+  {
+    code: 'id',
+    htmlLang: 'id',
+    ogLocale: 'id_ID',
+    flag: '🇮🇩',
+    label: 'Bahasa Indonesia',
+    shortLabel: 'ID',
   },
   {
     code: 'cn',
@@ -209,7 +209,7 @@ export function normalizeLanguagePreference(
 
 export function getLanguageMeta(lang: LanguageCode): LanguageOptionMeta {
   return (
-    SUPPORTED_LANGUAGES.find((l) => l.code === lang) ?? SUPPORTED_LANGUAGES[1]
+    SUPPORTED_LANGUAGES.find((l) => l.code === lang) ?? SUPPORTED_LANGUAGES[0]
   );
 }
 

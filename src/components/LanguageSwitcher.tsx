@@ -7,7 +7,7 @@ import type { LanguageCode, LanguagePreference } from '../types/drama';
 interface LanguageSwitcherProps {
   variant?: 'header' | 'footer' | 'drawer';
   loading?: boolean;
-  onChangeLanguage?: (lang: LanguageCode) => void;
+  onChangeLanguage?: (lang: LanguageCode, pref?: LanguagePreference) => void;
 }
 
 export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
@@ -47,7 +47,7 @@ export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
     const resolved = setLanguagePreference(pref);
     setOpen(false);
     if (onChangeLanguage) {
-      onChangeLanguage(resolved);
+      onChangeLanguage(resolved, pref);
     } else if (typeof window !== 'undefined') {
       window.dispatchEvent(
         new CustomEvent('kd:change-language', {

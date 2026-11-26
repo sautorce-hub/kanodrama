@@ -73,6 +73,7 @@ interface ExploreViewProps {
   dbDubbingFeed: ExploreFeedSlice;
   recommendedItems: DramaItem[];
   newReleaseItems: DramaItem[];
+  trendingItems?: DramaItem[];
   combinedAnimeItems: DramaItem[];
   combinedDubbingItems: DramaItem[];
   extraFeeds: Record<string, ExploreExtraBundle>;
@@ -114,6 +115,7 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
   dbDubbingFeed,
   recommendedItems,
   newReleaseItems,
+  trendingItems,
   combinedAnimeItems,
   combinedDubbingItems,
   extraFeeds,
@@ -501,9 +503,19 @@ export const ExploreView: React.FC<ExploreViewProps> = ({
           <CarouselRow
             title={t.sections.trendingNow}
             icon={<Flame className="w-4 h-4 cd-accent-text shrink-0" />}
-            items={dbRankingFeed.items.slice(0, 12)}
-            loading={dbRankingFeed.loading}
-            error={dbRankingFeed.error}
+            items={(trendingItems && trendingItems.length > 0
+              ? trendingItems
+              : dbRankingFeed.items
+            ).slice(0, 12)}
+            loading={
+              !(trendingItems && trendingItems.length > 0) &&
+              dbRankingFeed.loading
+            }
+            error={
+              trendingItems && trendingItems.length > 0
+                ? null
+                : dbRankingFeed.error
+            }
             ranked
             myListIds={myListIds}
             onRetry={() => onRetryFeed('DramaBoxV2', 'rank')}

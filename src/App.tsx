@@ -104,6 +104,7 @@ import type {
   EpisodeItem,
   HomeCatalogResponse,
   LanguageCode,
+  LanguagePreference,
   MediaProviderName,
   MovieDetail,
   MovieEpisodeItem,
@@ -982,6 +983,8 @@ export default function App() {
     toasts,
     pushToast,
     dismissToast,
+    liveBadgeMap,
+    getDramaLiveStats,
   } = useDramaContext();
 
   const [activeTab, setActiveTab] = useState<NavTab>(() => {
@@ -1129,7 +1132,45 @@ export default function App() {
     }
   });
   const [homeError, setHomeError] = useState<string | null>(null);
+  const [serverTrendingItems, setServerTrendingItems] = useState<DramaItem[]>([]);
   const exploreHydratedKeyRef = useRef<string | null>(null);
+
+  const loadServerTrending = useCallback(
+    async (providerToLoad: ProviderId = selectedProvider) => {
+      try {
+        const params = new URLSearchParams({ limit: '48' });
+        if (providerToLoad && providerToLoad !== 'All') {
+          params.set('provider', providerToLoad);
+        }
+        const res = await fetch(`/api/trending?${params.toString()}`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          ok?: boolean;
+          items?: DramaItem[];
+        };
+        if (data.ok && Array.isArray(data.items)) {
+          setServerTrendingItems(data.items);
+        }
+      } catch {
+        // Keep existing trending items on transient error
+      }
+    },
+    [selectedProvider]
+  );
+
+  useEffect(() => {
+    void loadServerTrending(selectedProvider);
+  }, [selectedProvider, loadServerTrending]);
+
+  useEffect(() => {
+    const onViewRecorded = () => {
+      void loadServerTrending(selectedProvider);
+    };
+    window.addEventListener('kd:view-recorded', onViewRecorded);
+    return () => window.removeEventListener('kd:view-recorded', onViewRecorded);
+  }, [selectedProvider, loadServerTrending]);
 
   // DramaBox Live Feeds (Hydrated on demand for Explore & Category Tabs)
   const [dbRankingFeed, setDbRankingFeed] = useState<FeedState>(IDLE_FEED);
@@ -2419,22 +2460,32 @@ export default function App() {
   }, [language]);
 
   const handleChangeLanguage = useCallback(
-    async (nextLang: LanguageCode) => {
-      setLanguageState(nextLang);
+    async (
+      nextLang: LanguageCode,
+      pref?: LanguagePreference,
+      options?: { silent?: boolean }
+    ) => {
+      if (pref !== 'auto') {
+        setLanguageState(nextLang);
+      }
       setLanguageLoading(true);
       try {
         await loadHomeFromCache(nextLang, selectedProvider, false);
         if (activeTab !== 'home') {
           await fetchAllFeeds(nextLang);
         }
-        const meta = getLanguageMeta(nextLang);
-        const dict = getDictionary(nextLang);
-        pushToast(
-          `${dict.languageSwitcher.syncedNotice} ${meta.label}`,
-          'gold'
-        );
+        if (!options?.silent) {
+          const meta = getLanguageMeta(nextLang);
+          const dict = getDictionary(nextLang);
+          pushToast(
+            `${dict.languageSwitcher.syncedNotice} ${meta.label}`,
+            'gold'
+          );
+        }
       } catch {
-        pushToast('Language switch failed — retrying feeds', 'error');
+        if (!options?.silent) {
+          pushToast('Language switch failed — retrying feeds', 'error');
+        }
       } finally {
         setLanguageLoading(false);
       }
@@ -2451,9 +2502,17 @@ export default function App() {
 
   useEffect(() => {
     const onLanguageEvent = (evt: Event) => {
-      const detail = (evt as CustomEvent<{ lang?: LanguageCode }>).detail;
+      const detail = (
+        evt as CustomEvent<{
+          lang?: LanguageCode;
+          pref?: LanguagePreference;
+          silent?: boolean;
+        }>
+      ).detail;
       if (detail?.lang) {
-        void handleChangeLanguage(detail.lang);
+        void handleChangeLanguage(detail.lang, detail.pref, {
+          silent: detail.silent,
+        });
       }
     };
     window.addEventListener('kd:change-language', onLanguageEvent);
@@ -2745,7 +2804,111 @@ export default function App() {
     allLoadedDramas,
   ]);
 
+  const trendingOnKanoItems = useMemo(() => {
+    const normalizeProv = (p?: string) => (p || 'DramaBoxV2').trim().toLowerCase();
+    const selectedProvNorm =
+      selectedProvider !== 'All' ? normalizeProv(selectedProvider) : null;
+
+    const mergedMap = new Map<string, { item: DramaItem; order: number }>();
+    let seq = 0;
+
+    const pushCandidate = (item: DramaItem) => {
+      if (!item || !item.bookId) return;
+      if (selectedProvNorm && normalizeProv(item.provider) !== selectedProvNorm) {
+        return;
+      }
+      const key = `${normalizeProv(item.provider)}:${item.bookId}`;
+      const existing = mergedMap.get(key);
+      if (!existing) {
+        mergedMap.set(key, { item, order: seq++ });
+        return;
+      }
+      const cur = existing.item;
+      const curViews = Math.max(cur.totalViews ?? 0, cur.dailyViews ?? 0);
+      const nextViews = Math.max(item.totalViews ?? 0, item.dailyViews ?? 0);
+      mergedMap.set(key, {
+        order: existing.order,
+        item: {
+          ...cur,
+          ...item,
+          title: item.title || cur.title,
+          cover: item.cover || cur.cover,
+          description: item.description || cur.description,
+          tags: item.tags?.length ? item.tags : cur.tags,
+          totalViews: Math.max(cur.totalViews ?? 0, item.totalViews ?? 0, nextViews, curViews),
+          dailyViews: Math.max(cur.dailyViews ?? 0, item.dailyViews ?? 0),
+        },
+      });
+    };
+
+    for (const item of serverTrendingItems) pushCandidate(item);
+    for (const item of homeCatalog?.trendingTop ?? []) pushCandidate(item);
+    for (const item of dbRankingFeed.items) pushCandidate(item);
+    for (const item of nsTrendingFeed.items) pushCandidate(item);
+    for (const item of arAsianFeed.items) pushCandidate(item);
+    for (const item of mlRankFeed.items) pushCandidate(item);
+    for (const n of EXTRA_PROVIDER_NAMES) {
+      const b = extraFeeds[n];
+      for (const item of b.rank.items.length > 0 ? b.rank.items : b.main.items) {
+        pushCandidate(item);
+      }
+    }
+
+    const enriched = Array.from(mergedMap.values()).map(({ item, order }) => {
+      const live = getDramaLiveStats(item.bookId, item.provider);
+      const totalViews = Math.max(
+        item.totalViews ?? 0,
+        live?.totalViews ?? 0
+      );
+      const dailyViews = Math.max(
+        item.dailyViews ?? 0,
+        live?.dailyViews ?? 0
+      );
+      return {
+        item: {
+          ...item,
+          totalViews,
+          dailyViews,
+        },
+        totalViews,
+        dailyViews,
+        order,
+      };
+    });
+
+    enriched.sort((a, b) => {
+      if (b.totalViews !== a.totalViews) return b.totalViews - a.totalViews;
+      if (b.dailyViews !== a.dailyViews) return b.dailyViews - a.dailyViews;
+      return a.order - b.order;
+    });
+
+    return enriched.map((entry, idx) => ({
+      ...entry.item,
+      rank: idx + 1,
+      trendBadge:
+        entry.totalViews > 0 || entry.dailyViews > 0
+          ? idx < 4
+            ? ('HOT' as const)
+            : ('TRENDING' as const)
+          : entry.item.trendBadge,
+    }));
+  }, [
+    selectedProvider,
+    serverTrendingItems,
+    homeCatalog?.trendingTop,
+    dbRankingFeed.items,
+    nsTrendingFeed.items,
+    arAsianFeed.items,
+    mlRankFeed.items,
+    extraFeeds,
+    liveBadgeMap,
+    getDramaLiveStats,
+  ]);
+
   const trendingSearchPool = useMemo(() => {
+    if (trendingOnKanoItems.length > 0) {
+      return trendingOnKanoItems.slice(0, 10);
+    }
     if (homeCatalog && homeCatalog.trendingTop.length > 0) {
       return homeCatalog.trendingTop.slice(0, 10);
     }
@@ -2756,6 +2919,7 @@ export default function App() {
       mlRankFeed.items
     ).slice(0, 10);
   }, [
+    trendingOnKanoItems,
     homeCatalog,
     dbRankingFeed.items,
     nsTrendingFeed.items,
@@ -3095,10 +3259,13 @@ export default function App() {
           const adapter = ALL_PROVIDER_ADAPTERS[selectedExtra];
           return {
             title: `${adapter.label} · ${t.sections.trendingNow}`,
-            items: feed.items,
-            loading: b.rank.loading || b.main.loading,
+            items:
+              trendingOnKanoItems.length > 0 ? trendingOnKanoItems : feed.items,
+            loading:
+              trendingOnKanoItems.length === 0 &&
+              (b.rank.loading || b.main.loading),
             loadingMore: feed.loadingMore,
-            error: feed.error,
+            error: trendingOnKanoItems.length > 0 ? null : feed.error,
             hasMore: feed.hasMore,
             badgeStyle: 'none' as const,
             ranked: true,
@@ -3120,25 +3287,27 @@ export default function App() {
         return {
           title: t.sections.trendingNow,
           items:
-            selectedProvider === 'NetShort'
-              ? nsTrendingFeed.items
-              : selectedProvider === 'AnyReel'
-              ? arAsianFeed.items
-              : selectedProvider === 'MeloLoV2'
-              ? mlRankFeed.items
-              : selectedProvider === 'DramaBoxV2'
-              ? dbRankingFeed.items
-              : interleaveManyFeeds(
-                  dbRankingFeed.items,
-                  nsTrendingFeed.items,
-                  arAsianFeed.items,
-                  mlRankFeed.items,
-                  ...EXTRA_PROVIDER_NAMES.map((n) =>
-                    extraFeeds[n].rank.items.length > 0
-                      ? extraFeeds[n].rank.items
-                      : extraFeeds[n].main.items
-                  )
-                ),
+            trendingOnKanoItems.length > 0
+              ? trendingOnKanoItems
+              : selectedProvider === 'NetShort'
+                ? nsTrendingFeed.items
+                : selectedProvider === 'AnyReel'
+                  ? arAsianFeed.items
+                  : selectedProvider === 'MeloLoV2'
+                    ? mlRankFeed.items
+                    : selectedProvider === 'DramaBoxV2'
+                      ? dbRankingFeed.items
+                      : interleaveManyFeeds(
+                          dbRankingFeed.items,
+                          nsTrendingFeed.items,
+                          arAsianFeed.items,
+                          mlRankFeed.items,
+                          ...EXTRA_PROVIDER_NAMES.map((n) =>
+                            extraFeeds[n].rank.items.length > 0
+                              ? extraFeeds[n].rank.items
+                              : extraFeeds[n].main.items
+                          )
+                        ),
           loading:
             dbRankingFeed.loading &&
             nsTrendingFeed.loading &&
@@ -3810,6 +3979,7 @@ export default function App() {
                 dbDubbingFeed={dbDubbingFeed}
                 recommendedItems={recommendedItems}
                 newReleaseItems={newReleaseItems}
+                trendingItems={trendingOnKanoItems.slice(0, 12)}
                 combinedAnimeItems={combinedAnimeItems}
                 combinedDubbingItems={combinedDubbingItems}
                 extraFeeds={extraFeeds}
@@ -4102,14 +4272,15 @@ export default function App() {
               <CarouselRow
                 title={t.sections.trendingNow}
                 icon={<Flame className="w-4 h-4 cd-accent-text shrink-0" />}
-                items={homeCatalog?.trendingTop ?? []}
-                loading={homeLoading && !(homeCatalog?.trendingTop?.length)}
-                error={homeError}
+                items={trendingOnKanoItems.slice(0, 12)}
+                loading={homeLoading && trendingOnKanoItems.length === 0}
+                error={trendingOnKanoItems.length > 0 ? null : homeError}
                 ranked
                 myListIds={myListIds}
-                onRetry={() =>
-                  void loadHomeFromCache(language, selectedProvider, true)
-                }
+                onRetry={() => {
+                  void loadServerTrending(selectedProvider);
+                  void loadHomeFromCache(language, selectedProvider, true);
+                }}
                 onSeeAll={() => handleNavigateTab('ranking')}
                 onSelectDrama={openDramaRoute}
                 onQuickPlay={(d) => handlePlayEpisode(d, 1)}
