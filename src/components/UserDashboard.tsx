@@ -244,12 +244,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-lg sm:text-xl font-extrabold text-white tracking-tight truncate">
-              {language === 'id' ? 'Pusat Koin & Hadiah' : 'Coins & Rewards'}
+              {language === 'id' ? 'Poin & Hadiah' : 'Rewards'}
             </h1>
             <p className="text-[11px] sm:text-xs text-[#A1A1AA] truncate">
               {language === 'id'
-                ? 'Check-in WIB, bonus nonton harian, referral & penarikan saldo'
-                : 'UTC check-in, daily watching bonus, referrals & withdrawals'}
+                ? 'Check-in WIB, bonus nonton, referral, dan tarik saldo'
+                : 'UTC check-in, watch bonus, referrals, and withdrawals'}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -403,12 +403,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
           <button
             type="button"
             onClick={() => setSubTab('rewards')}
-            className="p-3.5 rounded-2xl bg-gradient-to-br from-[#231B0E] to-[#111015] border border-[#D4AF37]/40 hover:border-[#D4AF37]/75 text-left transition-colors"
+            className="p-3.5 rounded-2xl bg-[#161411] border border-[#D4AF37]/30 hover:border-[#D4AF37]/60 text-left transition-colors"
           >
             <div className="flex items-center justify-between gap-1.5 text-[11px] text-[#FDE68A]">
               <span className="inline-flex items-center gap-1.5">
                 <Coins className="w-3.5 h-3.5 text-[#D4AF37]" />
-                <span>{language === 'id' ? 'Poin & Referral' : 'Points & Referral'}</span>
+                <span>{language === 'id' ? 'Poin & Hadiah' : 'Points & Rewards'}</span>
               </span>
               {user && accountLevelInfo && (
                 <span className="px-1.5 py-0.5 rounded bg-[#D4AF37]/20 text-[10px] font-bold text-[#FDE68A] border border-[#D4AF37]/30">

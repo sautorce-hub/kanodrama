@@ -58,7 +58,7 @@ import {
   removeActiveVisitorSessionInDb,
   resolveDramaBySlugFromDb,
   startWatchSessionInDb,
-  syncUserInDb,
+  syncUserWithStatusInDb,
   toggleFavoriteInDb,
   toggleLikeInDb,
   updateAdminPayoutStatusInDb,
@@ -152,7 +152,12 @@ import {
   getStreamSigningSecret,
   resolveServerPort,
 } from './server/config.ts';
-import { notifyAdminTelegramNewWithdrawal } from './server/telegramNotify.ts';
+import {
+  notifyAdminTelegramCriticalError,
+  notifyAdminTelegramNewUser,
+  notifyAdminTelegramNewWithdrawal,
+  notifyAdminTelegramReferralQualified,
+} from './server/telegramNotify.ts';
 import type {
   LanguageCode,
   LanguagePreference,
@@ -971,7 +976,7 @@ async function recordGmailAccountAndSync(input: {
   const avatarInitials = buildAvatarInitials(input.displayName);
   const avatarColor = pickAvatarColor(input.email || input.uid);
 
-  const synced = await syncUserInDb({
+  const { user: synced, isNewUser } = await syncUserWithStatusInDb({
     uid: input.uid,
     email: input.email,
     displayName: input.displayName,
@@ -988,7 +993,7 @@ async function recordGmailAccountAndSync(input: {
       dbCount !== null
         ? Math.max(dbCount, memoryGmailTotalLogins)
         : memoryGmailTotalLogins;
-    return { synced, gmailLoginCount };
+    return { synced, gmailLoginCount, isNewUser };
   }
 
   const accountKey = buildGmailAccountKey(input.uid, input.email);
@@ -1028,7 +1033,7 @@ async function recordGmailAccountAndSync(input: {
       ? Math.max(dbCount, memoryGmailTotalLogins)
       : memoryGmailTotalLogins;
 
-  return { synced, gmailLoginCount };
+  return { synced, gmailLoginCount, isNewUser };
 }
 
 function syncJakartaDayRollover(now = Date.now()): string {
@@ -4883,7 +4888,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         cleanText(verified.name) || email.split('@')[0] || 'Kano Viewer';
       const photoURL = verified.picture || null;
 
-      const { synced, gmailLoginCount } = await recordGmailAccountAndSync({
+      const { synced, gmailLoginCount, isNewUser } = await recordGmailAccountAndSync({
         uid,
         email,
         displayName,
@@ -4912,6 +4917,20 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         userId: uid,
         displayName: synced?.displayName || displayName,
       }).catch(() => ({ granted: false, points: 0, dbConnected: false }));
+
+      if (isNewUser) {
+        void notifyAdminTelegramNewUser({
+          userId: uid,
+          email,
+          displayName: synced?.displayName || displayName,
+          authMethod: 'Google',
+          referralCodeApplied: pendingRefCode || undefined,
+          referralBound: Boolean(referralBindResult?.bound),
+          referralBindReason: referralBindResult?.reason,
+          bindBonusAwarded: referralBindResult?.bindBonusAwarded ?? 0,
+          firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+        }).catch(() => {});
+      }
 
       const sessionToken = signAuthSessionToken({
         uid,
@@ -5037,6 +5056,18 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         userId: dbUser.uid,
         displayName: dbUser.displayName,
       }).catch(() => ({ granted: false, points: 0, dbConnected: false }));
+
+      void notifyAdminTelegramNewUser({
+        userId: dbUser.uid,
+        email: dbUser.email,
+        displayName: dbUser.displayName,
+        authMethod: 'Email',
+        referralCodeApplied: pendingRefCode || undefined,
+        referralBound: Boolean(referralBindResult?.bound),
+        referralBindReason: referralBindResult?.reason,
+        bindBonusAwarded: referralBindResult?.bindBonusAwarded ?? 0,
+        firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+      }).catch(() => {});
 
       const sessionToken = signAuthSessionToken({
         uid: dbUser.uid,
@@ -5290,7 +5321,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           cleanText(verified.name) || email.split('@')[0] || 'Kano Viewer';
         const photoURL = verified.picture || null;
 
-        const { synced, gmailLoginCount } = await recordGmailAccountAndSync({
+        const { synced, gmailLoginCount, isNewUser } = await recordGmailAccountAndSync({
           uid,
           email,
           displayName,
@@ -5309,6 +5340,16 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           userId: uid,
           displayName: synced?.displayName || displayName,
         }).catch(() => ({ granted: false, points: 0, dbConnected: false }));
+
+        if (isNewUser) {
+          void notifyAdminTelegramNewUser({
+            userId: uid,
+            email,
+            displayName: synced?.displayName || displayName,
+            authMethod: 'Google',
+            firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+          }).catch(() => {});
+        }
 
         const sessionToken = signAuthSessionToken({
           uid,
@@ -5394,7 +5435,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         req.body?.displayName,
         session.displayName || 'Kano Viewer'
       );
-      const { synced, gmailLoginCount } = await recordGmailAccountAndSync({
+      const { synced, gmailLoginCount, isNewUser } = await recordGmailAccountAndSync({
         uid,
         email,
         displayName,
@@ -5426,6 +5467,20 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
             displayName: synced?.displayName || displayName,
           }).catch(() => ({ granted: false, points: 0, dbConnected: false }))
         : { granted: false, points: 0, dbConnected: false };
+
+      if (isNewUser) {
+        void notifyAdminTelegramNewUser({
+          userId: uid,
+          email,
+          displayName: synced?.displayName || displayName,
+          authMethod: uid.startsWith('google_') ? 'Google' : 'Email',
+          referralCodeApplied: pendingRefCode || undefined,
+          referralBound: Boolean(referralBindResult?.bound),
+          referralBindReason: referralBindResult?.reason,
+          bindBonusAwarded: referralBindResult?.bindBonusAwarded ?? 0,
+          firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+        }).catch(() => {});
+      }
 
       res.setHeader('Cache-Control', 'no-store');
       res.json({
@@ -5525,6 +5580,13 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   function handlePointsDbError(res: Response, err: unknown, fallbackMessage: string) {
     if (err instanceof DatabaseUnavailableError) {
+      if (isDatabaseEnabled()) {
+        void notifyAdminTelegramCriticalError({
+          scope: 'postgres',
+          message: err.message,
+          statusCode: 503,
+        }).catch(() => {});
+      }
       res.setHeader('Cache-Control', 'no-store');
       res.status(503).json({
         ok: false,
@@ -5534,9 +5596,15 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       });
       return;
     }
+    const errMessage = err instanceof Error ? err.message : fallbackMessage;
+    void notifyAdminTelegramCriticalError({
+      scope: 'points_api',
+      message: errMessage,
+      statusCode: 500,
+    }).catch(() => {});
     res.status(500).json({
       ok: false,
-      error: err instanceof Error ? err.message : fallbackMessage,
+      error: errMessage,
     });
   }
 
@@ -6441,6 +6509,16 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               : 'Invalid or expired watch session',
         });
         return;
+      }
+
+      if (hbRes.ok && hbRes.referralQualified) {
+        const cfg = getPayoutRuntimeConfig();
+        void notifyAdminTelegramReferralQualified({
+          refereeUid: session.uid,
+          refereeDisplayName: session.displayName,
+          verifiedWatchSeconds: hbRes.verifiedWatchSeconds,
+          bonusPoints: cfg.referralBonusPoints,
+        }).catch(() => {});
       }
 
       res.json(hbRes);

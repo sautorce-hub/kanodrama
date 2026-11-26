@@ -18,8 +18,13 @@ import {
 } from '../server/db';
 import { createServerApp, signAuthSessionToken } from '../server';
 import {
+  clearTelegramThrottleCacheForTests,
   formatTelegramWithdrawMessage,
+  maskTelegramEmail,
+  notifyAdminTelegramCriticalError,
+  notifyAdminTelegramNewUser,
   notifyAdminTelegramNewWithdrawal,
+  notifyAdminTelegramReferralQualified,
 } from '../server/telegramNotify';
 import { getProductionReferralUrl } from '../src/config/auth';
 import { generateMetadata } from '../src/i18n/helpers';
@@ -3258,6 +3263,119 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       }
     );
     assert.equal(failedTg.sent, false);
+
+    // B2. New user registration, referral qualified, and throttled critical error notifications
+    clearTelegramThrottleCacheForTests();
+    assert.equal(maskTelegramEmail('alice.drama@gmail.com'), 'al***@gmail.com');
+    assert.equal(maskTelegramEmail('ab@example.com'), 'a***@example.com');
+
+    let regBody: Record<string, unknown> = {};
+    const regTg = await notifyAdminTelegramNewUser(
+      {
+        userId: 'google_100200300',
+        email: 'alice.drama@gmail.com',
+        displayName: 'Alice <New>',
+        authMethod: 'Google',
+        referralCodeApplied: 'KDREF99',
+        referralBound: true,
+        bindBonusAwarded: 200,
+        firstLoginBonusAwarded: 25000,
+      },
+      {
+        fetchImpl: async (_url, init) => {
+          regBody = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+          return new Response('{"ok":true}', { status: 200 });
+        },
+      }
+    );
+    assert.equal(regTg.sent, true);
+    const regText = String(regBody.text || '');
+    assert.match(regText, /KanoDrama — Pendaftaran Pengguna Baru/);
+    assert.match(regText, /Google/);
+    assert.match(regText, /google_100200300/);
+    assert.match(regText, /Alice &lt;New&gt;/);
+    assert.match(regText, /al\*\*\*@gmail\.com/);
+    assert.equal(regText.includes('alice.drama@gmail.com'), false);
+    assert.match(regText, /Terikat \(KDREF99\) · \+200 poin/);
+    assert.match(regText, /\+25\.000 poin/);
+
+    // Duplicate registration alert for same UID is deduplicated/throttled
+    const regDupTg = await notifyAdminTelegramNewUser(
+      {
+        userId: 'google_100200300',
+        email: 'alice.drama@gmail.com',
+        displayName: 'Alice <New>',
+        authMethod: 'Google',
+      },
+      {
+        fetchImpl: async () => new Response('{"ok":true}', { status: 200 }),
+      }
+    );
+    assert.equal(regDupTg.sent, false);
+    assert.equal(regDupTg.throttled, true);
+
+    // Referral qualified notification
+    let qualBody: Record<string, unknown> = {};
+    const qualTg = await notifyAdminTelegramReferralQualified(
+      {
+        refereeUid: 'email_ref_01',
+        refereeDisplayName: 'Budi Referee',
+        verifiedWatchSeconds: 3615,
+        bonusPoints: 5000,
+      },
+      {
+        fetchImpl: async (_url, init) => {
+          qualBody = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+          return new Response('{"ok":true}', { status: 200 });
+        },
+      }
+    );
+    assert.equal(qualTg.sent, true);
+    const qualText = String(qualBody.text || '');
+    assert.match(qualText, /KanoDrama — Referral Valid Tercapai/);
+    assert.match(qualText, /email_ref_01/);
+    assert.match(qualText, /3\.615 detik/);
+    assert.match(qualText, /\+5\.000 poin/);
+
+    // Critical error notification sanitizes secrets & throttles repeated identical errors
+    let errCalls = 0;
+    let errBody: Record<string, unknown> = {};
+    const err1 = await notifyAdminTelegramCriticalError(
+      {
+        scope: 'postgres',
+        statusCode: 503,
+        message: 'Connection failed postgres://user:secret@db.internal:5432/app bot123:SECRET_TOKEN',
+      },
+      {
+        fetchImpl: async (_url, init) => {
+          errCalls += 1;
+          errBody = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+          return new Response('{"ok":true}', { status: 200 });
+        },
+      }
+    );
+    assert.equal(err1.sent, true);
+    const errText = String(errBody.text || '');
+    assert.match(errText, /KanoDrama — Peringatan Error Kritis/);
+    assert.equal(errText.includes('secret@db.internal'), false);
+    assert.equal(errText.includes('SECRET_TOKEN'), false);
+
+    const err2 = await notifyAdminTelegramCriticalError(
+      {
+        scope: 'postgres',
+        statusCode: 503,
+        message: 'Connection failed postgres://user:secret@db.internal:5432/app bot123:SECRET_TOKEN',
+      },
+      {
+        fetchImpl: async () => {
+          errCalls += 1;
+          return new Response('{"ok":true}', { status: 200 });
+        },
+      }
+    );
+    assert.equal(err2.sent, false);
+    assert.equal(err2.throttled, true);
+    assert.equal(errCalls, 1);
 
     // Restore empty Telegram env before E2E HTTP withdraw tests (must work silently)
     delete process.env.TELEGRAM_BOT_TOKEN;

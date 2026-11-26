@@ -118,66 +118,64 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
   const faqs = isId
     ? [
         {
-          q: 'Bagaimana cara mendapatkan poin dari nonton drama & tugas harian di KanoDrama?',
-          a: `Login ke akun KanoDrama untuk langsung memperoleh bonus login pertama +${firstLoginBonusPoints.toLocaleString()} poin (1x per akun), klaim tugas harian share ke media sosial +${dailySocialSharePoints.toLocaleString()} poin/hari, check-in harian +${dailyCheckinPoints.toLocaleString()} poin (Hari ke-7 +${dailyCheckinDay7Points.toLocaleString()} poin, total ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} poin/minggu), bonus selesai episode +${episodeBonusPoints.toLocaleString()} poin (maks. ${maxDailyEpisodeBonusCount} episode/hari), serta tonton drama Asia atau film secara aktif pada kecepatan 1x dengan tab browser tetap terlihat (+${watchMinutePoints} poin/menit otomatis maks 60 menit/hari dan bonus milestone 15m/30m/60m) hingga batas ${maxDailyEarnPoints.toLocaleString()} poin/hari.`,
+          q: 'Bagaimana cara mengumpulkan poin di KanoDrama?',
+          a: `Login pertama langsung dapat +${firstLoginBonusPoints.toLocaleString()} poin. Setelah itu, kamu bisa dapat poin dari check-in harian (+${dailyCheckinPoints.toLocaleString()} poin/hari, H-7 +${dailyCheckinDay7Points.toLocaleString()} poin), share harian (+${dailySocialSharePoints.toLocaleString()} poin/hari), selesai episode (+${episodeBonusPoints.toLocaleString()} poin, maks. ${maxDailyEpisodeBonusCount}/hari), dan nonton aktif kecepatan 1x (+${watchMinutePoints} poin/menit hingga 60 menit/hari plus milestone 15m/30m/60m), dengan batas harian ${maxDailyEarnPoints.toLocaleString()} poin.`,
         },
         {
-          q: 'Berapa nilai tukar poin KanoDrama ke saldo DANA, bank lokal, atau USD?',
-          a: `Nilai tukar resmi KanoDrama adalah ${pointsPerUsd.toLocaleString()} poin = 1 USDT ($1.00 USD / ${formattedRateIdr}), atau ${usd5Points.toLocaleString()} poin = $5.00 USD. Untuk penarikan Rupiah (DANA, GoPay, OVO, ShopeePay, LinkAja, atau Transfer Bank lokal), batas minimum adalah ${formattedMinIdr} (${minPayoutPointsIdr.toLocaleString()} poin). Untuk PayPal, Wise, atau USDT, batas minimum adalah $${minPayoutUsd.toFixed(2)} USD (${minPayoutPointsUsd.toLocaleString()} poin).`,
+          q: 'Berapa nilai tukar poin dan minimum penarikan?',
+          a: `Kurs acuan adalah ${pointsPerUsd.toLocaleString()} poin = 1 USDT ($1.00 USD / ${formattedRateIdr}), atau ${usd5Points.toLocaleString()} poin = $5.00 USD. Penarikan Rupiah (DANA, GoPay, OVO, ShopeePay, LinkAja, dan transfer bank) mulai dari ${formattedMinIdr} (${minPayoutPointsIdr.toLocaleString()} poin). Untuk PayPal, Wise, atau USDT mulai dari $${minPayoutUsd.toFixed(2)} USD (${minPayoutPointsUsd.toLocaleString()} poin).`,
         },
         {
-          q: `Apa beda Bonus Referral (+${referralBonusPoints.toLocaleString()} poin), Bind (+${bindReferralBonusPoints.toLocaleString()} poin) & Reward Lanjutan Referral Valid?`,
-          a: `Bonus Bind Referral (+${bindReferralBonusPoints.toLocaleString()} poin) otomatis masuk saat mendaftar lewat tautan ?ref= teman atau bind kode 1x. Bonus Referral utama (+${referralBonusPoints.toLocaleString()} poin) cair ke pengundang setelah teman menyelesaikan 60 menit (1 jam) tontonan aktif terverifikasi. Selanjutnya, setiap teman valid melanjutkan menonton aktif +${ongoingStepMinutes} menit, pengundang kembali meraih +${referralOngoingBonusPoints.toLocaleString()} poin hingga maks. ${referralOngoingMaxSteps} tahap (+${ongoingMaxTotalPoints.toLocaleString()} poin lanjutan) dengan validasi anti-cheat server.`,
+          q: `Bagaimana aturan bonus referral (+${referralBonusPoints.toLocaleString()} poin) & bind kode (+${bindReferralBonusPoints.toLocaleString()} poin)?`,
+          a: `Teman yang daftar lewat tautan ?ref= atau memasukkan kode sekali langsung dapat +${bindReferralBonusPoints.toLocaleString()} poin. Kamu dapat +${referralBonusPoints.toLocaleString()} poin setelah teman menonton aktif 1 jam (60 menit), lalu +${referralOngoingBonusPoints.toLocaleString()} poin lagi setiap tambahan ${ongoingStepMinutes} menit nonton (maks. ${referralOngoingMaxSteps} tahap / +${ongoingMaxTotalPoints.toLocaleString()} poin).`,
         },
         {
-          q: 'Kapan misi menonton harian, tugas share media sosial, dan check-in direset?',
-          a: 'Seluruh progres misi menonton harian, tugas share media sosial, klaim milestone, batas perolehan poin harian, dan klaim check-in dikunci pada satu periode server dan direset otomatis setiap pukul 00.00 WIB berdasarkan waktu server.',
+          q: 'Kapan check-in dan misi harian direset?',
+          a: 'Check-in harian, misi nonton, klaim milestone, tugas share, dan batas harian direset otomatis setiap pukul 00.00 WIB.',
         },
       ]
     : [
         {
-          q: 'How do I earn watch points and daily task bonuses on KanoDrama?',
-          a: `Sign in to receive a +${firstLoginBonusPoints.toLocaleString()} pts first-login bonus (once per account), claim the daily social media share task (+${dailySocialSharePoints.toLocaleString()} pts/day), check in daily (+${dailyCheckinPoints.toLocaleString()} pts, Day 7 +${dailyCheckinDay7Points.toLocaleString()} pts, ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} pts/week), finish episodes (+${episodeBonusPoints.toLocaleString()} pts/ep up to ${maxDailyEpisodeBonusCount}/day), and stream dramas or movies actively at 1x speed (+${watchMinutePoints} pts/min auto up to 60 min/day and claimable 15m/30m/60m milestones) up to ${maxDailyEarnPoints.toLocaleString()} pts/day.`,
+          q: 'How do I earn points on KanoDrama?',
+          a: `Your first sign-in grants +${firstLoginBonusPoints.toLocaleString()} pts. Keep earning via daily check-ins (+${dailyCheckinPoints.toLocaleString()} pts/day, Day 7 +${dailyCheckinDay7Points.toLocaleString()} pts), daily social share (+${dailySocialSharePoints.toLocaleString()} pts/day), finishing episodes (+${episodeBonusPoints.toLocaleString()} pts up to ${maxDailyEpisodeBonusCount}/day), and active 1x-speed watching (+${watchMinutePoints} pts/min up to 60 min/day plus 15m/30m/60m milestones), capped at ${maxDailyEarnPoints.toLocaleString()} pts/day.`,
         },
         {
-          q: 'What is the points conversion rate and minimum withdrawal?',
-          a: `Official rate: ${pointsPerUsd.toLocaleString()} points = 1 USDT ($1.00 USD), or ${usd5Points.toLocaleString()} points = ${minPayoutUsd.toFixed(2)} USDT. Minimum PayPal, Wise, or USDT payout is ${minPayoutUsd.toFixed(2)} USDT ($${minPayoutUsd.toFixed(2)} USD · ${minPayoutPointsUsd.toLocaleString()} pts).`,
+          q: 'What is the exchange rate and minimum withdrawal?',
+          a: `The base rate is ${pointsPerUsd.toLocaleString()} pts = 1 USDT ($1.00 USD), or ${usd5Points.toLocaleString()} pts = ${minPayoutUsd.toFixed(2)} USDT. PayPal, Wise, and USDT payouts start at $${minPayoutUsd.toFixed(2)} USD (${minPayoutPointsUsd.toLocaleString()} pts).`,
         },
         {
-          q: `How do Main Referral (+${referralBonusPoints.toLocaleString()} pts), Bind (+${bindReferralBonusPoints.toLocaleString()} pts) & Ongoing Watch Rewards work?`,
-          a: `The +${bindReferralBonusPoints.toLocaleString()} pts Bind Referral bonus is credited on ?ref= signup or 1x code binding. The main +${referralBonusPoints.toLocaleString()} pts Referral bonus unlocks once the friend completes 60 minutes (1 hour) of verified active watching. When that qualified referral keeps watching actively, the inviter also earns +${referralOngoingBonusPoints.toLocaleString()} pts per extra ${ongoingStepMinutes} minutes up to ${referralOngoingMaxSteps} steps (+${ongoingMaxTotalPoints.toLocaleString()} extra pts) with anti-cheat verification.`,
+          q: `How do Referral (+${referralBonusPoints.toLocaleString()} pts) and Bind (+${bindReferralBonusPoints.toLocaleString()} pts) bonuses work?`,
+          a: `Friends get +${bindReferralBonusPoints.toLocaleString()} pts when signing up via your ?ref= link or binding your code once. You unlock +${referralBonusPoints.toLocaleString()} pts after they watch 1 hour (60 min) actively, plus +${referralOngoingBonusPoints.toLocaleString()} pts for each extra ${ongoingStepMinutes} min watched (up to ${referralOngoingMaxSteps} steps / +${ongoingMaxTotalPoints.toLocaleString()} pts).`,
         },
         {
-          q: 'When do daily watch missions, social shares, and check-ins reset?',
-          a: 'All daily check-ins, daily social media share tasks, milestone claims, daily caps, and watch missions are locked to a single canonical server period and reset automatically once per day at 17:00 UTC.',
+          q: 'When do daily missions and check-ins reset?',
+          a: 'Daily check-ins, watch missions, milestone claims, social share tasks, and daily caps reset automatically at 17:00 UTC.',
         },
       ];
 
   return (
     <section
       aria-labelledby="kanodrama-rewards-guide-heading"
-      className="rounded-2xl bg-[#111015] border border-white/10 divide-y divide-white/10"
+      className="rounded-2xl bg-[#121117] border border-white/10 divide-y divide-white/10"
     >
-      {/* Editorial Hero Guide Header */}
+      {/* Guide Header */}
       <div className="p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="space-y-2 max-w-3xl">
-          <p className="text-xs font-bold uppercase tracking-wider text-[#D4AF37]">
-            {isId
-              ? 'Program Reward KanoDrama · Poin Nonton & Referral'
-              : 'KanoDrama Rewards · Watch & Referral Program'}
+        <div className="space-y-1.5 max-w-3xl">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[#D4AF37]">
+            {isId ? 'Panduan Poin KanoDrama' : 'KanoDrama Rewards Guide'}
           </p>
           <h2
             id="kanodrama-rewards-guide-heading"
-            className="text-xl sm:text-2xl font-extrabold text-white tracking-tight"
+            className="text-lg sm:text-xl font-bold text-white tracking-tight"
           >
             {isId
-              ? 'Nonton Drama China & Short Drama Dapat Saldo DANA, Transfer Bank, & PayPal'
-              : 'Watch Asian & Short Dramas to Earn Real E-Wallet, Bank & USD Rewards'}
+              ? 'Nonton Drama Favorit & Tukar Poin ke E-Wallet, Bank, atau USD'
+              : 'Watch Dramas & Cash Out to E-Wallets, Bank Transfer, or USD'}
           </h2>
-          <p className="text-xs sm:text-sm text-[#D4D4D8] leading-relaxed">
+          <p className="text-xs sm:text-sm text-[#A1A1AA] leading-relaxed">
             {isId
-              ? 'KanoDrama menghadirkan program reward transparan berbasis server untuk penonton setia drama Asia dan film. Setiap menit menonton aktif, check-in harian WIB, milestone misi 1 jam, dan undangan referral tercatat permanen di database akun Anda.'
-              : 'KanoDrama operates a transparent server-verified rewards ledger. Every minute of active streaming, UTC daily check-in, 1-hour mission milestone, and qualified friend invitation is permanently stored in your account.'}
+              ? 'Kumpulkan poin dari check-in WIB, nonton aktif, tugas harian, dan referral, lalu tarik langsung saat saldo memenuhi batas minimum.'
+              : 'Earn points from daily UTC check-ins, active watch time, sharing, and referrals, then cash out once you meet the minimum threshold.'}
           </p>
         </div>
 
@@ -185,21 +183,21 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
           <button
             type="button"
             onClick={onActionSignIn}
-            className="px-5 py-2.5 min-h-[44px] rounded-xl bg-[#D4AF37] text-[#09090B] text-xs sm:text-sm font-extrabold hover:brightness-110 transition-all whitespace-nowrap shrink-0"
+            className="px-5 py-2.5 min-h-[42px] rounded-xl bg-[#D4AF37] text-[#09090B] text-xs sm:text-sm font-extrabold hover:brightness-110 transition-all whitespace-nowrap shrink-0"
           >
-            {isId ? 'Masuk & Mulai Kumpulkan Poin' : 'Sign In & Start Earning'}
+            {isId ? 'Masuk & Mulai' : 'Sign In & Start'}
           </button>
         )}
       </div>
 
-      {/* Transparent Rate & Rule Summary Table */}
+      {/* Rate & Rule Summary Table */}
       <div className="p-5 sm:p-6 space-y-3">
         <div className="flex items-center gap-2 text-sm font-bold text-white">
           <Coins className="w-4 h-4 text-[#D4AF37]" />
           <span>
             {isId
-              ? 'Daftar Poin, Misi Harian & Ketentuan Penarikan Resmi'
-              : 'Official Earning Rates, Daily Missions & Withdrawal Rules'}
+              ? 'Rincian Poin & Aturan Penarikan'
+              : 'Earning Rates & Withdrawal Rules'}
           </span>
         </div>
 
@@ -208,13 +206,13 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
             <thead>
               <tr className="border-b border-white/10 text-[#A1A1AA]">
                 <th className="py-2.5 pr-4 font-semibold">
-                  {isId ? 'Aktivitas / Ketentuan' : 'Activity / Policy'}
+                  {isId ? 'Aktivitas' : 'Activity'}
                 </th>
                 <th className="py-2.5 pr-4 font-semibold">
-                  {isId ? 'Nilai / Nominal' : 'Amount / Rate'}
+                  {isId ? 'Poin / Nilai' : 'Reward / Rate'}
                 </th>
                 <th className="py-2.5 font-semibold">
-                  {isId ? 'Validasi Server' : 'Server Verification'}
+                  {isId ? 'Catatan' : 'Notes'}
                 </th>
               </tr>
             </thead>
@@ -227,115 +225,105 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
                   +{firstLoginBonusPoints.toLocaleString()} {isId ? 'poin' : 'pts'}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
-                  {isId
-                    ? 'Otomatis 1x per akun saat pertama kali masuk'
-                    : 'Automatically credited once per account on first login'}
+                  {isId ? '1x saat pertama masuk' : 'Once on first sign-in'}
                 </td>
               </tr>
               <tr>
                 <td className="py-2.5 pr-4 font-medium">
-                  {isId ? 'Nonton Drama / Film Aktif' : 'Active Drama / Movie Watch'}
+                  {isId ? 'Nonton Aktif' : 'Active Watching'}
                 </td>
                 <td className="py-2.5 pr-4 font-bold text-[#D4AF37] tabular-nums">
-                  +{watchMinutePoints} {isId ? 'poin / menit (maks 60 mnt)' : 'pts / min (max 60m)'}
+                  +{watchMinutePoints} {isId ? 'poin/mnt (maks 60 mnt)' : 'pts/min (max 60m)'}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
-                  {isId
-                    ? 'Kecepatan 1x, tab aktif, tanpa buffering/skip'
-                    : '1x speed, visible tab, non-buffering playback'}
+                  {isId ? 'Kecepatan 1x, tab aktif' : '1x speed, active tab'}
                 </td>
               </tr>
               <tr>
                 <td className="py-2.5 pr-4 font-medium">
-                  {isId ? 'Bonus Milestone Misi Harian' : 'Daily Watch Milestones'}
+                  {isId ? 'Milestone Harian' : 'Daily Milestones'}
                 </td>
                 <td className="py-2.5 pr-4 font-bold text-white tabular-nums">
                   {milestoneSummaryText}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
-                  {isId ? 'Reset otomatis setiap 00.00 WIB' : 'Resets daily at 17:00 UTC'}
+                  {isId ? 'Reset 00.00 WIB' : 'Resets 17:00 UTC'}
                 </td>
               </tr>
               <tr>
                 <td className="py-2.5 pr-4 font-medium">
-                  {isId ? 'Sistem Level Akun Bertingkat' : 'Tiered Account Levels'}
+                  {isId ? 'Level Akun' : 'Account Levels'}
                 </td>
                 <td className="py-2.5 pr-4 font-bold text-[#D4AF37] tabular-nums">
                   {tierSummaryText}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
-                  {isId
-                    ? 'Naik level otomatis dari total poin atau jam nonton terverifikasi'
-                    : 'Auto-upgraded from verified lifetime points or watch time'}
+                  {isId ? 'Naik otomatis dari poin/durasi nonton' : 'Auto-upgrades with points or watch time'}
                 </td>
               </tr>
               <tr>
                 <td className="py-2.5 pr-4 font-medium">
-                  {isId ? 'Check-In Harian & Streak' : 'Daily Check-In & Streak'}
+                  {isId ? 'Check-in Harian' : 'Daily Check-in'}
                 </td>
                 <td className="py-2.5 pr-4 font-bold text-[#D4AF37] tabular-nums">
                   +{dailyCheckinPoints.toLocaleString()}{' '}
                   {isId
-                    ? `poin / hari (H-7 +${dailyCheckinDay7Points.toLocaleString()})`
-                    : `pts / day (Day 7 +${dailyCheckinDay7Points.toLocaleString()})`}
+                    ? `poin/hari (H-7 +${dailyCheckinDay7Points.toLocaleString()})`
+                    : `pts/day (Day 7 +${dailyCheckinDay7Points.toLocaleString()})`}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
                   {isId
-                    ? `Total ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} poin/minggu · Reset 00.00 WIB`
-                    : `Total ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} pts/week · Resets 17:00 UTC`}
+                    ? `Maks ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} poin/minggu · 00.00 WIB`
+                    : `Up to ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} pts/wk · 17:00 UTC`}
                 </td>
               </tr>
               <tr>
                 <td className="py-2.5 pr-4 font-medium">
-                  {isId ? 'Tugas Harian Share Media Sosial' : 'Daily Social Media Share'}
+                  {isId ? 'Share Sosmed Harian' : 'Daily Social Share'}
                 </td>
                 <td className="py-2.5 pr-4 font-bold text-[#FDE68A] tabular-nums">
-                  +{dailySocialSharePoints.toLocaleString()} {isId ? 'poin / hari' : 'pts / day'}
+                  +{dailySocialSharePoints.toLocaleString()} {isId ? 'poin/hari' : 'pts/day'}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
-                  {isId
-                    ? '1x per periode harian (reset 00.00 WIB, proteksi anti-spam)'
-                    : 'Once per daily period (resets 17:00 UTC, anti-spam verified)'}
+                  {isId ? '1x per hari (reset 00.00 WIB)' : 'Once daily (resets 17:00 UTC)'}
                 </td>
               </tr>
               <tr>
                 <td className="py-2.5 pr-4 font-medium">
-                  {isId ? 'Bonus Selesai Episode (Misi Ringan)' : 'Episode Completion Bonus'}
+                  {isId ? 'Selesai Episode' : 'Episode Finished'}
                 </td>
                 <td className="py-2.5 pr-4 font-bold text-[#FDE68A] tabular-nums">
-                  +{episodeBonusPoints.toLocaleString()} {isId ? `poin / ep (maks ${maxDailyEpisodeBonusCount}/hr)` : `pts / ep (max ${maxDailyEpisodeBonusCount}/day)`}
+                  +{episodeBonusPoints.toLocaleString()} {isId ? `poin (maks ${maxDailyEpisodeBonusCount}/hr)` : `pts (max ${maxDailyEpisodeBonusCount}/day)`}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
-                  {isId
-                    ? 'Minimal 20 dtk tonton aktif & unik per episode, reset 00.00 WIB'
-                    : 'Min 20s verified watch & unique per episode, resets 17:00 UTC'}
+                  {isId ? 'Min 20 dtk per episode unik' : 'Min 20s per unique episode'}
                 </td>
               </tr>
               <tr>
                 <td className="py-2.5 pr-4 font-medium">
-                  {isId ? 'Bonus Referral, Bind & Lanjutan' : 'Referral, Bind & Ongoing Watch'}
+                  {isId ? 'Referral & Bind' : 'Referral & Bind'}
                 </td>
                 <td className="py-2.5 pr-4 font-bold text-emerald-300 tabular-nums">
                   +{bindReferralBonusPoints.toLocaleString()} bind · +{referralBonusPoints.toLocaleString()} + +{referralOngoingBonusPoints.toLocaleString()}/{ongoingStepMinutes}m
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
                   {isId
-                    ? `+${referralBonusPoints.toLocaleString()} setelah 60 mnt; +${referralOngoingBonusPoints.toLocaleString()} tiap +${ongoingStepMinutes} mnt lanjutan (maks ${referralOngoingMaxSteps}x)`
-                    : `+${referralBonusPoints.toLocaleString()} after 60m; +${referralOngoingBonusPoints.toLocaleString()} per extra ${ongoingStepMinutes}m (max ${referralOngoingMaxSteps}x)`}
+                    ? `+${referralBonusPoints.toLocaleString()} setelah 1 jam; +${referralOngoingBonusPoints.toLocaleString()} tiap +${ongoingStepMinutes} mnt (maks ${referralOngoingMaxSteps}x)`
+                    : `+${referralBonusPoints.toLocaleString()} after 1h; +${referralOngoingBonusPoints.toLocaleString()} per extra ${ongoingStepMinutes}m (max ${referralOngoingMaxSteps}x)`}
                 </td>
               </tr>
               <tr>
                 <td className="py-2.5 pr-4 font-medium">
-                  {isId ? 'Kurs Konversi & Minimum Withdraw' : 'Conversion Rate & Minimum Withdrawal'}
+                  {isId ? 'Kurs & Minimum Tarik' : 'Rate & Min Payout'}
                 </td>
                 <td className="py-2.5 pr-4 font-bold text-white tabular-nums">
                   {isId
-                    ? `${pointsPerUsd.toLocaleString()} pts = 1 USDT (${formattedRateIdr})`
+                    ? `${pointsPerUsd.toLocaleString()} poin = 1 USDT (${formattedRateIdr})`
                     : `${pointsPerUsd.toLocaleString()} pts = 1 USDT ($1.00 USD)`}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA] tabular-nums">
                   {isId
-                    ? `Min IDR ${formattedMinIdr} (${minPayoutPointsIdr.toLocaleString()} pts) · Min USD $${minPayoutUsd.toFixed(2)} (${minPayoutPointsUsd.toLocaleString()} pts)`
+                    ? `Min ${formattedMinIdr} (${minPayoutPointsIdr.toLocaleString()} poin) · USD $${minPayoutUsd.toFixed(2)} (${minPayoutPointsUsd.toLocaleString()} poin)`
                     : `Min ${minPayoutUsd.toFixed(2)} USDT ($${minPayoutUsd.toFixed(2)} USD · ${minPayoutPointsUsd.toLocaleString()} pts)`}
                 </td>
               </tr>
@@ -344,14 +332,14 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
         </div>
       </div>
 
-      {/* Supported Payout Channels Showcase (ID E-Wallets, 10 Local Banks, Global USD/USDT) */}
+      {/* Supported Payout Channels Showcase */}
       <div className="p-5 sm:p-6 space-y-4">
         <div className="flex items-center gap-2 text-sm font-bold text-white">
           <Wallet className="w-4 h-4 text-emerald-400" />
           <span>
             {isId
-              ? 'Metode Pencairan Resmi (E-Wallet, Bank Lokal Indonesia & Global USD)'
-              : 'Supported Withdrawal Methods (Indonesia E-Wallets, Banks & Global USD)'}
+              ? 'Metode Pencairan yang Tersedia'
+              : 'Supported Withdrawal Methods'}
           </span>
         </div>
 
@@ -479,8 +467,8 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
           <span>
             {isId
-              ? 'Setiap perubahan poin, bonus referral, dan status pencairan diaudit pada ledger transaksi server KanoDrama.'
-              : 'Every point accrual, referral bonus, and withdrawal state change is recorded in the server transaction ledger.'}
+              ? 'Semua perolehan poin, bonus referral, dan status penarikan tercatat otomatis di mutasi akun.'
+              : 'All earned points, referral bonuses, and payout updates are logged in your transaction history.'}
           </span>
         </p>
       </div>

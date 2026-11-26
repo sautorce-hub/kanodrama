@@ -952,7 +952,7 @@ export async function verifyPasswordScrypt(
   }
 }
 
-function syncUserFallback(input: {
+function syncUserFallbackWithStatus(input: {
   uid: string;
   email?: string;
   displayName?: string;
@@ -960,7 +960,7 @@ function syncUserFallback(input: {
   avatarInitials?: string;
   avatarColor?: string;
   visitDate?: string;
-}): DbUserRecord {
+}): { user: DbUserRecord; isNewUser: boolean } {
   const store = loadAuthFallbackStore();
   const today = (input.visitDate || getDateKeyUtc()).slice(0, 10);
   const yesterday = getDateKeyUtc(-1);
@@ -1007,10 +1007,10 @@ function syncUserFallback(input: {
   store.users[input.uid] = record;
   persistAuthFallbackStore(store);
 
-  return record;
+  return { user: record, isNewUser: !prev };
 }
 
-export async function syncUserInDb(input: {
+function syncUserFallback(input: {
   uid: string;
   email?: string;
   displayName?: string;
@@ -1018,10 +1018,22 @@ export async function syncUserInDb(input: {
   avatarInitials?: string;
   avatarColor?: string;
   visitDate?: string;
-}): Promise<DbUserRecord | null> {
+}): DbUserRecord {
+  return syncUserFallbackWithStatus(input).user;
+}
+
+export async function syncUserWithStatusInDb(input: {
+  uid: string;
+  email?: string;
+  displayName?: string;
+  photoURL?: string | null;
+  avatarInitials?: string;
+  avatarColor?: string;
+  visitDate?: string;
+}): Promise<{ user: DbUserRecord | null; isNewUser: boolean }> {
   const activePool = getPool();
   if (!activePool || !(await ensureDatabaseReady()) || !dbAvailable) {
-    return withAuthFallbackLock(() => syncUserFallback(input));
+    return withAuthFallbackLock(() => syncUserFallbackWithStatus(input));
   }
 
   const today = getJakartaDateKey();
@@ -1033,11 +1045,12 @@ export async function syncUserInDb(input: {
       last_visit_date: string;
     }>('SELECT streak_count, last_visit_date FROM users WHERE uid = $1', [input.uid]);
     if (!existingRes) {
-      return withAuthFallbackLock(() => syncUserFallback(input));
+      return withAuthFallbackLock(() => syncUserFallbackWithStatus(input));
     }
 
+    const isNewUser = existingRes.rows.length === 0;
     let nextStreak = 1;
-    if (existingRes.rows.length > 0) {
+    if (!isNewUser) {
       const prev = existingRes.rows[0];
       const prevCount = Number(prev.streak_count) || 1;
       if (prev.last_visit_date === today) {
@@ -1104,25 +1117,41 @@ export async function syncUserInDb(input: {
 
     const row = upsertRes?.rows[0];
     if (!row) {
-      return withAuthFallbackLock(() => syncUserFallback(input));
+      return withAuthFallbackLock(() => syncUserFallbackWithStatus(input));
     }
     return {
-      uid: row.uid,
-      email: row.email,
-      displayName: row.display_name,
-      photoURL: row.photo_url,
-      avatarInitials: row.avatar_initials,
-      avatarColor: row.avatar_color,
-      streakCount: Number(row.streak_count) || 1,
-      lastVisitDate: row.last_visit_date,
-      isVip: Boolean(row.is_vip),
-      bio: row.bio || '',
-      preferredLanguage: row.preferred_language || 'en',
-      preferences: row.preferences_json || {},
+      isNewUser,
+      user: {
+        uid: row.uid,
+        email: row.email,
+        displayName: row.display_name,
+        photoURL: row.photo_url,
+        avatarInitials: row.avatar_initials,
+        avatarColor: row.avatar_color,
+        streakCount: Number(row.streak_count) || 1,
+        lastVisitDate: row.last_visit_date,
+        isVip: Boolean(row.is_vip),
+        bio: row.bio || '',
+        preferredLanguage: row.preferred_language || 'en',
+        preferences: row.preferences_json || {},
+      },
     };
   } catch {
-    return withAuthFallbackLock(() => syncUserFallback(input));
+    return withAuthFallbackLock(() => syncUserFallbackWithStatus(input));
   }
+}
+
+export async function syncUserInDb(input: {
+  uid: string;
+  email?: string;
+  displayName?: string;
+  photoURL?: string | null;
+  avatarInitials?: string;
+  avatarColor?: string;
+  visitDate?: string;
+}): Promise<DbUserRecord | null> {
+  const res = await syncUserWithStatusInDb(input);
+  return res.user;
 }
 
 export async function registerEmailAccountInDb(input: {

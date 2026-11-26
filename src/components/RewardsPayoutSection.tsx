@@ -1089,6 +1089,8 @@ export const RewardsPayoutSection: React.FC = () => {
   }, [bankDropdownOpen]);
 
   const [showLevelTiers, setShowLevelTiers] = useState(false);
+  const [showCheckinDetails, setShowCheckinDetails] = useState(false);
+  const [showReferralDetails, setShowReferralDetails] = useState(false);
 
   const usdtNetworks = useMemo(
     () => config.usdtNetworks || DEFAULT_USDT_NETWORKS,
@@ -2228,50 +2230,52 @@ export const RewardsPayoutSection: React.FC = () => {
 
   return (
     <div className="space-y-5">
-      {/* Honest PostgreSQL Disconnected Alert */}
+      {/* Database Disconnected Alert */}
       {!dbAvailable && (
         <div
           role="alert"
-          className="rounded-2xl bg-rose-950/35 border border-rose-500/40 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+          className="rounded-2xl bg-rose-950/30 border border-rose-500/35 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
         >
           <div className="flex items-start gap-3">
-            <Database className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-            <div className="space-y-1">
+            <Database className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
               <p className="text-xs sm:text-sm font-bold text-rose-200">
-                {isId
-                  ? 'Database PostgreSQL Belum Terhubung (Mode Diagnostik)'
-                  : 'PostgreSQL Database Not Connected'}
+                {isId ? 'Koneksi Database Belum Aktif' : 'Database Not Connected'}
               </p>
-              <p className="text-xs text-rose-200/85 leading-relaxed">
+              <p className="text-xs text-rose-200/80 leading-relaxed">
                 {dbErrorMsg ||
                   (isId
-                    ? 'Variabel lingkungan DATABASE_URL belum dikonfigurasi pada server. Sistem tidak menggunakan penyimpanan lokal agar saldo poin, misi, referral, dan penarikan tetap sinkron dan aman.'
-                    : 'Server DATABASE_URL environment variable is not configured. Points, missions, referrals, and withdrawals require PostgreSQL.')}
+                    ? 'Saldo poin dan penarikan membutuhkan koneksi PostgreSQL aktif pada server.'
+                    : 'Points and withdrawals require an active PostgreSQL connection on the server.')}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => void loadPointsData()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-500/20 border border-rose-400/40 text-xs font-bold text-rose-100 hover:bg-rose-500/30 whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-500/15 border border-rose-400/35 text-xs font-bold text-rose-100 hover:bg-rose-500/25 whitespace-nowrap shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            <span>{isId ? 'Cek Ulang Koneksi' : 'Retry Connection'}</span>
+            <span>{isId ? 'Coba Lagi' : 'Retry'}</span>
           </button>
         </div>
       )}
 
-      {/* 1. Coin Balance Hero Card (Matching Screenshot Reference) */}
-      <section className="relative overflow-hidden rounded-3xl border border-rose-500/25 bg-gradient-to-br from-[#2B101E] via-[#17111C] to-[#100F16] p-5 sm:p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)]">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -right-12 -top-12 w-56 h-56 rounded-full bg-rose-500/20 blur-3xl"
-        />
-        <div className="relative flex items-center justify-between gap-3 sm:gap-4">
+      {/* 1. Coin Balance Hero Card */}
+      <section className="rounded-2xl border border-white/10 bg-gradient-to-b from-[#17141D] to-[#121117] p-5 sm:p-6">
+        <div className="flex items-center justify-between gap-4">
           <div className="space-y-3 min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm sm:text-base font-bold text-[#FDE68A]">
-                {isId ? 'Saldo Koin' : 'Coin balance'}
+              <span className="text-xs sm:text-sm font-semibold text-[#D4D4D8]">
+                {t.rewards.balanceTitle}
+              </span>
+              <span
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[11px] font-semibold tabular-nums ${tierMeta.badgeClass}`}
+              >
+                <Star className="w-3 h-3" />
+                <span>
+                  {activeLevelInfo.tierName} · {activeLevelInfo.multiplier.toFixed(1)}x
+                </span>
               </span>
               {user && (
                 <button
@@ -2279,78 +2283,59 @@ export const RewardsPayoutSection: React.FC = () => {
                   onClick={() => void loadPointsData()}
                   disabled={loading}
                   aria-label="Refresh points data"
-                  className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-[#D4D4D8] transition-colors"
+                  className="p-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-[#A1A1AA] hover:text-white transition-colors"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                 </button>
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-semibold ${tierMeta.badgeClass}`}
-              >
-                <Star className="w-3.5 h-3.5" />
-                <span>{tierMeta.label}</span>
-              </span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-emerald-500/35 bg-emerald-500/10 text-[11px] font-bold text-emerald-300 tabular-nums">
-                {activeLevelInfo.multiplier.toFixed(1)}x{' '}
-                {activeLevelInfo.bonusPercent > 0
-                  ? `(+${activeLevelInfo.bonusPercent}%)`
-                  : isId
-                  ? '(Standar)'
-                  : '(Base)'}
-              </span>
-            </div>
-
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <div className="flex items-center gap-2.5">
-                <GoldCoinIcon className="w-9 h-9 sm:w-10 sm:h-10 shrink-0 drop-shadow-[0_4px_12px_rgba(245,158,11,0.45)]" />
+                <GoldCoinIcon className="w-8 h-8 sm:w-9 sm:h-9 shrink-0" />
                 {authLoading && !user ? (
-                  <span className="inline-block w-32 h-10 sm:h-12 rounded-xl skeleton-espresso" />
+                  <span className="inline-block w-32 h-10 sm:h-11 rounded-xl skeleton-espresso" />
                 ) : (
-                  <span className="text-4xl sm:text-5xl font-extrabold text-white tabular-nums tracking-tight leading-none">
+                  <span className="text-3xl sm:text-5xl font-extrabold text-white tabular-nums tracking-tight leading-none">
                     {user ? (summary?.balance ?? 0).toLocaleString() : '0'}
                   </span>
                 )}
-                <span className="text-sm sm:text-base font-semibold text-[#D4D4D8] self-end pb-1">
+                <span className="text-sm sm:text-base font-medium text-[#A1A1AA] self-end pb-0.5">
                   {t.rewards.pointsUnit}
                 </span>
               </div>
 
-              <p className="text-xs text-[#D4D4D8]/85 tabular-nums pl-0.5">
+              <p className="text-xs text-[#A1A1AA] tabular-nums">
                 {authLoading && !user ? (
                   <span className="inline-block w-52 h-3.5 rounded skeleton-espresso align-middle" />
                 ) : user ? (
                   isId ? (
                     <>
                       {t.rewards.estimatedValue}:{' '}
-                      <strong className="text-white">
+                      <strong className="text-white font-semibold">
                         {formatUsd(summary?.estimatedUsd ?? 0)}
                       </strong>{' '}
                       ·{' '}
-                      <strong className="text-emerald-300">
+                      <strong className="text-emerald-300 font-semibold">
                         {formatIdr(summary?.estimatedIdr ?? 0)}
                       </strong>
                     </>
                   ) : (
                     <>
                       {t.rewards.estimatedValue}:{' '}
-                      <strong className="text-emerald-300">
+                      <strong className="text-emerald-300 font-semibold">
                         {(summary?.estimatedUsd ?? 0).toFixed(2)} USDT
                       </strong>
                     </>
                   )
                 ) : isId ? (
                   <>
-                    {oneUsdtPoints.toLocaleString()} {t.rewards.pointsUnit} = 1 USDT ({formatIdr(config.usdToIdrRate)}) ·{' '}
-                    {config.minPayoutPointsIdr.toLocaleString()} {t.rewards.pointsUnit} ={' '}
+                    {oneUsdtPoints.toLocaleString()} {t.rewards.pointsUnit} = 1 USDT ({formatIdr(config.usdToIdrRate)}) · Min tarik{' '}
                     {formatIdr(config.minPayoutIdr)}
                   </>
                 ) : (
                   <>
-                    {oneUsdtPoints.toLocaleString()} {t.rewards.pointsUnit} = 1 USDT ·{' '}
-                    {config.minPayoutPointsUsd.toLocaleString()} {t.rewards.pointsUnit} ={' '}
+                    {oneUsdtPoints.toLocaleString()} {t.rewards.pointsUnit} = 1 USDT · Min payout{' '}
                     {config.minPayoutUsd.toFixed(2)} USDT
                   </>
                 )}
@@ -2358,42 +2343,42 @@ export const RewardsPayoutSection: React.FC = () => {
             </div>
 
             {!user && !authLoading && (
-              <div className="pt-0.5 space-y-2">
-                <p className="text-xs font-bold text-[#FDE68A] tabular-nums">
-                  {isId
-                    ? `Bonus login pertama: +${effectiveFirstLoginBonusPoints.toLocaleString()} poin (otomatis 1x per akun)`
-                    : `First login bonus: +${effectiveFirstLoginBonusPoints.toLocaleString()} pts (auto 1x per account)`}
-                </p>
+              <div className="pt-1 flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={() => openAuthModal()}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-[#F43F5E] to-[#DB2777] hover:brightness-110 text-xs sm:text-sm font-bold text-white shadow-lg transition-all"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#E11D48] hover:bg-[#F43F5E] text-xs sm:text-sm font-bold text-white transition-colors"
                 >
                   <Lock className="w-3.5 h-3.5" />
                   <span>{t.auth.continueBtn}</span>
                   <ChevronRight className="w-4 h-4" />
                 </button>
+                <span className="text-xs font-medium text-[#FDE68A] tabular-nums">
+                  {isId
+                    ? `Langsung dapat +${effectiveFirstLoginBonusPoints.toLocaleString()} poin saat masuk pertama kali`
+                    : `Get +${effectiveFirstLoginBonusPoints.toLocaleString()} pts on first sign-in`}
+                </span>
               </div>
             )}
           </div>
 
-          <div className="flex items-center justify-center shrink-0">
+          <div className="hidden sm:flex items-center justify-center shrink-0 opacity-90">
             <GiftBoxHeroIllustration />
           </div>
         </div>
 
-        {/* Account Level Progression & Active Rate Perks */}
-        <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
+        {/* Compact Level Progress + Collapsible Details */}
+        <div className="mt-4 pt-4 border-t border-white/10 space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="font-bold text-white">
+              <span className="font-semibold text-[#E4E4E7]">
                 {activeLevelInfo.nextTier
                   ? isId
-                    ? `Progres ke Level ${activeLevelInfo.nextTier.tierName} (${activeLevelInfo.nextTier.multiplier.toFixed(1)}x)`
-                    : `Progress to ${activeLevelInfo.nextTier.tierName} (${activeLevelInfo.nextTier.multiplier.toFixed(1)}x)`
+                    ? `Menuju ${activeLevelInfo.nextTier.tierName} (${activeLevelInfo.nextTier.multiplier.toFixed(1)}x)`
+                    : `Next: ${activeLevelInfo.nextTier.tierName} (${activeLevelInfo.nextTier.multiplier.toFixed(1)}x)`
                   : isId
-                  ? 'Level Maksimal Tercapai (Platinum 1.6x)'
-                  : 'Max Level Reached (Platinum 1.6x)'}
+                  ? 'Level tertinggi (Platinum 1.6x)'
+                  : 'Top tier reached (Platinum 1.6x)'}
               </span>
               <span className="text-[#A1A1AA] tabular-nums">
                 {activeLevelInfo.progressPct}%
@@ -2403,16 +2388,17 @@ export const RewardsPayoutSection: React.FC = () => {
             <button
               type="button"
               onClick={() => setShowLevelTiers((prev) => !prev)}
-              className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#FDE68A] hover:text-white transition-colors"
+              aria-expanded={showLevelTiers}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-[#A1A1AA] hover:text-white transition-colors"
             >
               <span>
                 {showLevelTiers
                   ? isId
-                    ? 'Tutup Rincian Level'
-                    : 'Hide Level Tiers'
+                    ? 'Tutup detail'
+                    : 'Hide details'
                   : isId
-                  ? 'Lihat Semua Level (4)'
-                  : 'View All Levels (4)'}
+                  ? 'Detail level & ringkasan'
+                  : 'Level & summary'}
               </span>
               <ChevronDown
                 className={`w-3.5 h-3.5 transition-transform ${
@@ -2422,156 +2408,134 @@ export const RewardsPayoutSection: React.FC = () => {
             </button>
           </div>
 
-          <div className="space-y-2">
-            <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden">
-              <div
-                className={`h-full rounded-full bg-gradient-to-r ${tierMeta.barClass} transition-[width] duration-700 ease-out`}
-                style={{
-                  width: `${Math.max(activeLevelInfo.progressPct > 0 ? 4 : 0, activeLevelInfo.progressPct)}%`,
-                }}
-              />
-            </div>
-
-            <div className="grid grid-cols-4 gap-1.5" aria-label="Account Level Tiers">
-              {levelTiers.map((tier) => {
-                const isCurrent = tier.tierId === activeLevelInfo.tierId;
-                const isUnlocked = tier.level <= activeLevelInfo.level;
-                return (
-                  <div
-                    key={tier.tierId}
-                    className={`flex items-center justify-between gap-1 px-2 py-1 rounded-lg border text-[10px] transition-all duration-300 ${
-                      isCurrent
-                        ? 'bg-white/10 border-amber-400/50 text-white font-bold shadow-sm'
-                        : isUnlocked
-                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 font-semibold'
-                        : 'bg-black/20 border-white/5 text-[#71717A]'
-                    }`}
-                  >
-                    <span className="truncate">
-                      Lv.{tier.level} {tier.tierName}
-                    </span>
-                    <span className="tabular-nums shrink-0 opacity-90">
-                      {tier.multiplier.toFixed(1)}x
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#D4D4D8]">
-            <span className="tabular-nums">
-              {isId
-                ? `Perolehan aktif: +${effectiveWatchMinutePoints} poin/mnt · +${effectiveDailyCheckinPoints} check-in`
-                : `Active rates: +${effectiveWatchMinutePoints} pts/min · +${effectiveDailyCheckinPoints} check-in`}
-            </span>
-            {activeLevelInfo.nextTier && (
-              <span className="text-[#A1A1AA] tabular-nums">
-                {isId
-                  ? `Kurang ${activeLevelInfo.nextTier.remainingPoints.toLocaleString()} poin atau ${Math.ceil(activeLevelInfo.nextTier.remainingWatchSeconds / 60).toLocaleString()} mnt nonton`
-                  : `${activeLevelInfo.nextTier.remainingPoints.toLocaleString()} pts or ${Math.ceil(activeLevelInfo.nextTier.remainingWatchSeconds / 60).toLocaleString()} min watch to unlock`}
-              </span>
-            )}
+          <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+            <div
+              className={`h-full rounded-full bg-gradient-to-r ${tierMeta.barClass} transition-[width] duration-500 ease-out`}
+              style={{
+                width: `${Math.max(activeLevelInfo.progressPct > 0 ? 4 : 0, activeLevelInfo.progressPct)}%`,
+              }}
+            />
           </div>
 
           {showLevelTiers && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
-              {levelTiers.map((tier) => {
-                const isCurrent = tier.tierId === activeLevelInfo.tierId;
-                const isUnlocked = tier.level <= activeLevelInfo.level;
-                const reqHours = Math.round(tier.minVerifiedWatchSeconds / 3600);
-                return (
-                  <div
-                    key={tier.tierId}
-                    className={`rounded-2xl p-3 border text-xs space-y-1.5 transition-colors ${
-                      isCurrent
-                        ? 'bg-white/10 border-amber-400/50 text-white'
-                        : isUnlocked
-                        ? 'bg-emerald-500/10 border-emerald-500/30 text-[#E4E4E7]'
-                        : 'bg-black/25 border-white/10 text-[#A1A1AA]'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-white">
-                        Lv.{tier.level} {tier.tierName}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold tabular-nums ${
-                          isCurrent
-                            ? 'bg-amber-400 text-[#09090B]'
-                            : 'bg-white/10 text-[#FDE68A]'
-                        }`}
-                      >
-                        {tier.multiplier.toFixed(1)}x
-                      </span>
+            <div className="space-y-3 pt-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#A1A1AA]">
+                <span className="tabular-nums">
+                  {isId
+                    ? `Tarif aktif: +${effectiveWatchMinutePoints} poin/mnt · +${effectiveDailyCheckinPoints.toLocaleString()} check-in`
+                    : `Active rate: +${effectiveWatchMinutePoints} pts/min · +${effectiveDailyCheckinPoints.toLocaleString()} check-in`}
+                </span>
+                {activeLevelInfo.nextTier && (
+                  <span className="tabular-nums">
+                    {isId
+                      ? `Butuh ${activeLevelInfo.nextTier.remainingPoints.toLocaleString()} poin atau ${Math.ceil(activeLevelInfo.nextTier.remainingWatchSeconds / 60).toLocaleString()} mnt lagi`
+                      : `${activeLevelInfo.nextTier.remainingPoints.toLocaleString()} pts or ${Math.ceil(activeLevelInfo.nextTier.remainingWatchSeconds / 60).toLocaleString()}m left`}
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                {levelTiers.map((tier) => {
+                  const isCurrent = tier.tierId === activeLevelInfo.tierId;
+                  const isUnlocked = tier.level <= activeLevelInfo.level;
+                  const reqHours = Math.round(tier.minVerifiedWatchSeconds / 3600);
+                  return (
+                    <div
+                      key={tier.tierId}
+                      className={`rounded-xl p-3 border text-xs space-y-1 transition-colors ${
+                        isCurrent
+                          ? 'bg-white/10 border-amber-400/50 text-white'
+                          : isUnlocked
+                          ? 'bg-emerald-500/10 border-emerald-500/25 text-[#E4E4E7]'
+                          : 'bg-[#0B0B0F] border-white/10 text-[#A1A1AA]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-white">
+                          Lv.{tier.level} {tier.tierName}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold tabular-nums ${
+                            isCurrent
+                              ? 'bg-amber-400 text-[#09090B]'
+                              : 'bg-white/10 text-[#FDE68A]'
+                          }`}
+                        >
+                          {tier.multiplier.toFixed(1)}x
+                        </span>
+                      </div>
+                      <p className="text-[11px] tabular-nums">
+                        +{tier.watchMinutePoints} {isId ? 'poin/mnt' : 'pts/min'} · +{tier.dailyCheckinPoints.toLocaleString()}{' '}
+                        check-in
+                      </p>
+                      <p className="text-[10px] text-[#A1A1AA] tabular-nums">
+                        {tier.minTotalEarned === 0
+                          ? isId
+                            ? 'Level awal'
+                            : 'Starter tier'
+                          : isId
+                          ? `${tier.minTotalEarned.toLocaleString()} poin / ${reqHours} jam`
+                          : `${tier.minTotalEarned.toLocaleString()} pts / ${reqHours}h watch`}
+                      </p>
                     </div>
-                    <p className="text-[11px] tabular-nums">
-                      +{tier.watchMinutePoints} {isId ? 'poin/mnt' : 'pts/min'} · +{tier.dailyCheckinPoints}{' '}
-                      check-in
+                  );
+                })}
+              </div>
+
+              {user && (
+                <div className="pt-3 border-t border-white/10 grid grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <p className="text-[11px] text-[#A1A1AA]">
+                      {isId ? 'Total Terkumpul' : 'Total Earned'}
                     </p>
-                    <p className="text-[10px] text-[#A1A1AA] tabular-nums">
-                      {tier.minTotalEarned === 0
-                        ? isId
-                          ? 'Level awal akun baru'
-                          : 'Starter account tier'
-                        : isId
-                        ? `Syarat: ${tier.minTotalEarned.toLocaleString()} poin atau ${reqHours} jam nonton`
-                        : `Req: ${tier.minTotalEarned.toLocaleString()} pts or ${reqHours}h watch`}
+                    <p className="font-bold text-emerald-300 tabular-nums mt-0.5">
+                      +{(summary?.totalEarned ?? 0).toLocaleString()}
                     </p>
                   </div>
-                );
-              })}
+                  <div>
+                    <p className="text-[11px] text-[#A1A1AA]">
+                      {isId ? 'Sedang Diproses' : 'Held Pending'}
+                    </p>
+                    <p className="font-bold text-amber-300 tabular-nums mt-0.5">
+                      {(summary?.totalHeld ?? 0).toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-[#A1A1AA]">
+                      {isId ? 'Batas Hari Ini' : 'Daily Limit'}
+                    </p>
+                    <p className="font-bold text-white tabular-nums mt-0.5">
+                      {(summary?.todayEarned ?? 0).toLocaleString()} /{' '}
+                      {(summary?.maxDailyEarnPoints ?? config.maxDailyEarnPoints).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
-
-        {/* Compact Ledger Summary Strip when signed in */}
-        {user && (
-          <div className="mt-4 pt-4 border-t border-white/10 grid grid-cols-3 gap-3 text-xs">
-            <div>
-              <p className="text-[11px] text-[#A1A1AA]">
-                {isId ? 'Total Diperoleh' : 'Lifetime Earned'}
-              </p>
-              <p className="font-extrabold text-emerald-300 tabular-nums mt-0.5">
-                +{(summary?.totalEarned ?? 0).toLocaleString()}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11px] text-[#A1A1AA]">
-                {isId ? 'Tertahan Payout' : 'Held Pending'}
-              </p>
-              <p className="font-extrabold text-amber-300 tabular-nums mt-0.5">
-                {(summary?.totalHeld ?? 0).toLocaleString()}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11px] text-[#A1A1AA]">
-                {isId ? 'Batas Hari Ini' : 'Daily Cap'}
-              </p>
-              <p className="font-extrabold text-white tabular-nums mt-0.5">
-                {(summary?.todayEarned ?? 0).toLocaleString()} /{' '}
-                {(summary?.maxDailyEarnPoints ?? config.maxDailyEarnPoints).toLocaleString()}
-              </p>
-            </div>
-          </div>
-        )}
       </section>
 
-      {/* 2. Daily Check-in Card (7-Day Visual Streak + Pill CTA + Nested WIB Status Card) */}
-      <section className="rounded-3xl bg-[#121117] border border-white/10 p-4 sm:p-6 space-y-5">
+      {/* 2. Daily Check-in Card */}
+      <section className="rounded-2xl bg-[#121117] border border-white/10 p-4 sm:p-6 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-0.5">
             <p className="text-xs font-medium text-[#A1A1AA]">
               {isId ? 'Check-in harian' : 'Daily check-in'}
             </p>
-            <h2 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight tabular-nums">
+            <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight tabular-nums">
               {isId ? `Streak ${checkinStreak} hari` : `${checkinStreak}-day streak`}
             </h2>
           </div>
 
-          <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#1C1A24] border border-white/10 text-sm font-bold text-white tabular-nums">
-            <Flame className="w-4 h-4 text-[#FB7185]" />
-            <span>{checkinStreak}</span>
+          <div className="flex items-center gap-2">
+            <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full border border-white/10 bg-[#181620] text-[11px]">
+              <ResetCountdown lang={language} nextResetAt={summary?.nextResetAt} />
+            </span>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#1C1A24] border border-white/10 text-xs sm:text-sm font-bold text-white tabular-nums">
+              <Flame className="w-3.5 h-3.5 text-[#FB7185]" />
+              <span>{checkinStreak}</span>
+            </div>
           </div>
         </div>
 
@@ -2596,16 +2560,16 @@ export const RewardsPayoutSection: React.FC = () => {
                 title={
                   dayNum === 7
                     ? isId
-                      ? `Hari ke-7: +${dayPoints.toLocaleString()} poin (hadiah puncak streak 7 hari)`
-                      : `Day 7: +${dayPoints.toLocaleString()} pts (7-day streak milestone)`
+                      ? `Hari ke-7: +${dayPoints.toLocaleString()} poin`
+                      : `Day 7: +${dayPoints.toLocaleString()} pts`
                     : `${isId ? 'Hari' : 'Day'} ${dayNum}: +${dayPoints.toLocaleString()}`
                 }
-                className={`relative rounded-2xl py-2.5 px-1 sm:px-2 flex flex-col items-center justify-between gap-1.5 border transition-all ${
+                className={`relative rounded-xl py-2.5 px-1 sm:px-2 flex flex-col items-center justify-between gap-1.5 border transition-colors ${
                   isActiveDay
-                    ? 'bg-gradient-to-b from-[#F43F5E] to-[#9F1239] border-[#FDA4AF]/60 text-white shadow-[0_8px_22px_rgba(225,29,72,0.32)]'
+                    ? 'bg-[#E11D48]/90 border-rose-300/60 text-white'
                     : isPastCompleted
-                    ? 'bg-[#171A21] border-emerald-500/40 text-white'
-                    : 'bg-[#191721] border-white/5 text-[#D4D4D8]'
+                    ? 'bg-[#171A21] border-emerald-500/35 text-white'
+                    : 'bg-[#181620] border-white/10 text-[#D4D4D8]'
                 }`}
               >
                 <span
@@ -2619,7 +2583,7 @@ export const RewardsPayoutSection: React.FC = () => {
                 <CoinStackArt level={coinLevel} />
 
                 <span
-                  className={`text-[11px] sm:text-xs font-extrabold tabular-nums ${
+                  className={`text-[11px] sm:text-xs font-bold tabular-nums ${
                     isActiveDay
                       ? 'text-white'
                       : isPastCompleted
@@ -2627,11 +2591,11 @@ export const RewardsPayoutSection: React.FC = () => {
                       : 'text-[#FDE68A]'
                   }`}
                 >
-                  +{dayPoints}
+                  +{dayPoints.toLocaleString()}
                 </span>
 
                 {isPastCompleted && !isActiveDay && (
-                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-[#09090B] flex items-center justify-center shadow">
+                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-[#09090B] flex items-center justify-center">
                     <Check className="w-2.5 h-2.5 stroke-[3]" />
                   </span>
                 )}
@@ -2640,7 +2604,7 @@ export const RewardsPayoutSection: React.FC = () => {
           })}
         </div>
 
-        {/* Full-Width Pill Check-In CTA */}
+        {/* Check-In CTA */}
         <button
           type="button"
           onClick={handleDailyCheckin}
@@ -2651,10 +2615,10 @@ export const RewardsPayoutSection: React.FC = () => {
               Boolean(summary?.dailyCheckinClaimedToday) ||
               (summary?.cooldownSecondsRemaining ?? 0) > 0)
           }
-          className={`w-full py-3.5 px-5 rounded-full text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+          className={`w-full py-3 px-5 rounded-full text-sm font-bold flex items-center justify-center gap-2 transition-colors ${
             summary?.dailyCheckinClaimedToday
-              ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 cursor-default'
-              : 'bg-gradient-to-r from-[#F43F5E] to-[#DB2777] text-white shadow-[0_10px_28px_rgba(225,29,72,0.32)] hover:brightness-110 disabled:opacity-55 disabled:cursor-not-allowed'
+              ? 'bg-emerald-500/15 border border-emerald-500/35 text-emerald-300 cursor-default'
+              : 'bg-[#E11D48] hover:bg-[#F43F5E] text-white disabled:opacity-55 disabled:cursor-not-allowed'
           }`}
         >
           {summary?.dailyCheckinClaimedToday ? (
@@ -2676,7 +2640,7 @@ export const RewardsPayoutSection: React.FC = () => {
               <Play className="w-4 h-4 fill-current shrink-0" />
               <span>
                 {isId
-                  ? `Masuk & Klaim Check-in (+${todayCheckinRewardPoints.toLocaleString()} Poin)`
+                  ? `Masuk & Check-in (+${todayCheckinRewardPoints.toLocaleString()} poin)`
                   : `Sign in to Check In (+${todayCheckinRewardPoints.toLocaleString()} pts)`}
               </span>
             </>
@@ -2692,91 +2656,78 @@ export const RewardsPayoutSection: React.FC = () => {
           )}
         </button>
 
-        {/* Centered Weekly Summary */}
-        <div className="text-center space-y-1.5 pt-0.5">
-          <p className="text-sm sm:text-base font-bold text-white tabular-nums">
-            {isId ? (
-              <>
-                Kumpulkan hingga{' '}
-                <span className="text-[#FB7185]">{weeklyCheckinMaxPoints.toLocaleString()}</span>{' '}
-                poin minggu ini
-              </>
-            ) : (
-              <>
-                Collect up to{' '}
-                <span className="text-[#FB7185]">{weeklyCheckinMaxPoints.toLocaleString()}</span>{' '}
-                points this week
-              </>
-            )}
-          </p>
-          <p className="text-xs text-[#A1A1AA] max-w-lg mx-auto leading-relaxed">
+        {/* Compact Weekly Footer + Collapsible Verification Info */}
+        <div className="pt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-[#A1A1AA]">
+          <span className="tabular-nums">
             {isId
-              ? `Check-in, milestone, dan batas harian direset serentak setiap hari pukul 00:00 WIB. Hari ke-1 s.d. ke-6 memberi +${effectiveDailyCheckinPoints.toLocaleString()} poin/hari dan Hari ke-7 memberi +${effectiveDailyCheckinDay7Points.toLocaleString()} poin.`
-              : `Daily check-ins, milestones, and daily caps reset together once per day at 17:00 UTC. Days 1–6 award +${effectiveDailyCheckinPoints.toLocaleString()} pts/day and Day 7 awards +${effectiveDailyCheckinDay7Points.toLocaleString()} pts.`}
-          </p>
+              ? `H-1–H-6 +${effectiveDailyCheckinPoints.toLocaleString()} · H-7 +${effectiveDailyCheckinDay7Points.toLocaleString()} (maks ${weeklyCheckinMaxPoints.toLocaleString()}/minggu)`
+              : `Days 1–6 +${effectiveDailyCheckinPoints.toLocaleString()} · Day 7 +${effectiveDailyCheckinDay7Points.toLocaleString()} (up to ${weeklyCheckinMaxPoints.toLocaleString()}/wk)`}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => setShowCheckinDetails((prev) => !prev)}
+            aria-expanded={showCheckinDetails}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-[#A1A1AA] hover:text-white transition-colors"
+          >
+            <span>{isId ? 'Info verifikasi' : 'Verification info'}</span>
+            <ChevronDown
+              className={`w-3.5 h-3.5 transition-transform ${
+                showCheckinDetails ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
         </div>
 
-        {/* Nested Reset Protection & Verified Progress Card (Matching Screenshot Inner Box) */}
-        <div className="rounded-2xl bg-[#181620] border border-white/10 p-4 space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5">
-              <span className="w-8 h-8 rounded-lg bg-slate-500/15 border border-white/10 flex items-center justify-center text-slate-300 shrink-0">
-                <Shield className="w-4 h-4" />
+        {showCheckinDetails && (
+          <div className="rounded-xl bg-[#0B0B0F] border border-white/10 p-3.5 space-y-2.5 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 font-semibold text-white">
+                <Shield className="w-3.5 h-3.5 text-[#A1A1AA]" />
+                <span>
+                  {isId ? 'Aturan waktu & reset' : 'Reset & verification rules'}
+                </span>
               </span>
-              <span className="text-sm font-bold text-white">
-                {isId ? 'Sinkronisasi Reset Server & Anti-Curang' : 'Server Reset Sync & Verified Watch'}
-              </span>
-            </div>
-
-            <span className="inline-flex items-center px-3 py-1 rounded-full border border-amber-500/40 bg-amber-500/10 text-[11px] font-semibold text-amber-200">
               <ResetCountdown lang={language} nextResetAt={summary?.nextResetAt} />
-            </span>
+            </div>
+            <p className="text-[#A1A1AA] leading-relaxed">
+              {isId
+                ? 'Check-in, misi nonton, dan batas harian direset setiap pukul 00.00 WIB. Durasi nonton dihitung otomatis saat diputar 1x dengan tab aktif.'
+                : 'Daily check-ins, watch missions, and daily caps reset at 17:00 UTC. Active watch time counts at 1x speed while the tab stays visible.'}
+            </p>
+            {user && (
+              <div className="flex items-center justify-between gap-3 pt-2 border-t border-white/10">
+                <span className="inline-flex items-center gap-1.5 text-[#D4D4D8]">
+                  <PlayCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>{t.rewards.verifiedWatchProgress}</span>
+                </span>
+                <span className="font-bold text-emerald-300 tabular-nums">
+                  {verifiedWatchMinutes} {t.rewards.minutesUnit}
+                </span>
+              </div>
+            )}
           </div>
-
-          <p className="text-xs text-[#A1A1AA] leading-relaxed">
-            {isId
-              ? 'Durasi menonton diverifikasi otomatis oleh server pada kecepatan 1x dengan tab aktif agar poin & kualifikasi referral aman.'
-              : 'Watch duration is server-verified at 1x playback speed with an active tab so your points and referral streak stay protected.'}
-          </p>
-
-          <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-[#121117] border border-white/5 text-xs">
-            <span className="inline-flex items-center gap-2 text-[#D4D4D8]">
-              <PlayCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>{t.rewards.verifiedWatchProgress}</span>
-            </span>
-            <span className="font-bold text-emerald-300 tabular-nums">
-              {verifiedWatchMinutes} {t.rewards.minutesUnit}
-            </span>
-          </div>
-        </div>
+        )}
       </section>
 
-      {/* 3. Daily Watching Bonus Card (Hybrid: Auto Per-Minute + Claimable Milestone Buttons) */}
-      <section className="rounded-3xl bg-[#121117] border border-white/10 p-4 sm:p-6 space-y-4">
+      {/* 3. Daily Watching Bonus Card */}
+      <section className="rounded-2xl bg-[#121117] border border-white/10 p-4 sm:p-6 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="w-10 h-10 rounded-xl bg-[#381828] border border-rose-500/25 flex items-center justify-center text-[#FB7185] shrink-0">
+            <span className="w-9 h-9 rounded-xl bg-[#261620] border border-rose-500/20 flex items-center justify-center text-[#FB7185] shrink-0">
               <Play className="w-4 h-4 fill-current" />
             </span>
             <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base sm:text-lg font-extrabold text-white">
-                  {t.rewards.dailyWatchingTitle}
-                </h2>
-                {activeLevelInfo.multiplier > 1 && (
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/35 text-[10px] font-bold text-emerald-300 tabular-nums">
-                    {activeLevelInfo.tierName} {activeLevelInfo.multiplier.toFixed(1)}x
-                  </span>
-                )}
-              </div>
-              <p className="text-[11px] text-[#A1A1AA] tabular-nums">
-                +{effectiveWatchMinutePoints} {t.rewards.pointsUnit}/{t.rewards.milestoneMinSuffix} ({t.rewards.dailyWatchingAutoBadge.toLowerCase()},{' '}
-                {missionMaxMinutes} {t.rewards.milestoneMinSuffix}) + {t.rewards.milestoneClaimBtn}
+              <h2 className="text-base sm:text-lg font-bold text-white">
+                {t.rewards.dailyWatchingTitle}
+              </h2>
+              <p className="text-xs text-[#A1A1AA] tabular-nums">
+                +{effectiveWatchMinutePoints} {t.rewards.pointsUnit}/{t.rewards.milestoneMinSuffix} ({missionMaxMinutes} {t.rewards.milestoneMinSuffix}) + bonus milestone
               </p>
             </div>
           </div>
 
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-semibold text-[#D4D4D8] tabular-nums">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-medium text-[#D4D4D8] tabular-nums">
             <Clock className="w-3.5 h-3.5 text-[#FBBF24] shrink-0" />
             <span>
               {t.rewards.dailyWatchingCapLabel}: {dailyWatchCap.toLocaleString()} {t.rewards.pointsUnit}
@@ -2785,12 +2736,12 @@ export const RewardsPayoutSection: React.FC = () => {
         </div>
 
         <div className="flex items-baseline gap-2">
-          <GoldCoinIcon className="w-7 h-7 self-center shrink-0" />
-          <span className="text-3xl font-extrabold text-white tabular-nums tracking-tight">
+          <GoldCoinIcon className="w-6 h-6 self-center shrink-0" />
+          <span className="text-2xl sm:text-3xl font-extrabold text-white tabular-nums tracking-tight">
             {todayWatchPointsEarned.toLocaleString()}
           </span>
-          <span className="text-lg font-bold text-[#A1A1AA] tabular-nums">
-            /{maxWatchMissionPoints.toLocaleString()} {t.rewards.pointsUnit}
+          <span className="text-sm sm:text-base font-semibold text-[#A1A1AA] tabular-nums">
+            / {maxWatchMissionPoints.toLocaleString()} {t.rewards.pointsUnit}
           </span>
         </div>
 
@@ -2803,22 +2754,22 @@ export const RewardsPayoutSection: React.FC = () => {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
                 {/* Base Auto Per-Minute Card */}
                 <div
-                  className={`rounded-2xl p-3 border flex flex-col items-center justify-between gap-2 text-center transition-colors ${
+                  className={`rounded-xl p-3 border flex flex-col items-center justify-between gap-2 text-center transition-colors ${
                     todayMissionMinutes < 15
-                      ? 'bg-[#1E141B] border-[#F43F5E]'
-                      : 'bg-[#191721] border-emerald-500/40'
+                      ? 'bg-[#1A141A] border-rose-500/40'
+                      : 'bg-[#181620] border-emerald-500/35'
                   }`}
                 >
                   <div className="flex flex-col items-center gap-1">
-                    <GoldCoinIcon className="w-6 h-6 sm:w-7 sm:h-7" />
-                    <span className="text-xs sm:text-sm font-extrabold text-[#FBBF24] tabular-nums">
+                    <GoldCoinIcon className="w-6 h-6" />
+                    <span className="text-xs sm:text-sm font-bold text-[#FBBF24] tabular-nums">
                       +{effectiveWatchMinutePoints}/{t.rewards.milestoneMinSuffix}
                     </span>
                     <span className="text-[11px] text-[#A1A1AA] tabular-nums">
                       {t.rewards.dailyWatchingActiveUnit}
                     </span>
                   </div>
-                  <span className="w-full py-1.5 px-2 rounded-xl bg-white/5 border border-white/10 text-[10px] sm:text-[11px] font-bold text-[#E4E4E7] inline-flex items-center justify-center gap-1">
+                  <span className="w-full py-1.5 px-2 rounded-lg bg-white/5 border border-white/10 text-[10px] sm:text-[11px] font-semibold text-[#E4E4E7] inline-flex items-center justify-center gap-1">
                     <Sparkles className="w-3 h-3 text-[#FBBF24] shrink-0" />
                     <span>{t.rewards.dailyWatchingAutoBadge}</span>
                   </span>
@@ -2838,26 +2789,20 @@ export const RewardsPayoutSection: React.FC = () => {
                     <div
                       key={tier.minutes}
                       aria-live="polite"
-                      className={`relative rounded-2xl p-3 border flex flex-col items-center justify-between gap-2 text-center transition-all duration-300 ease-out ${
+                      className={`relative rounded-xl p-3 border flex flex-col items-center justify-between gap-2 text-center transition-colors ${
                         tier.claimed
-                          ? 'bg-emerald-500/10 border-emerald-500/45 shadow-[0_0_14px_rgba(16,185,129,0.12)]'
+                          ? 'bg-emerald-500/10 border-emerald-500/35'
                           : isReadyToClaim
-                          ? 'bg-[#26121C] border-[#F43F5E] ring-1 ring-[#F43F5E]/40 shadow-[0_0_22px_rgba(244,63,94,0.24)] -translate-y-0.5'
+                          ? 'bg-[#22131B] border-[#F43F5E]/80'
                           : isNextTarget
-                          ? 'bg-[#1E141B] border-[#F43F5E]/65'
-                          : 'bg-[#191721] border-white/10'
+                          ? 'bg-[#1A141A] border-rose-500/35'
+                          : 'bg-[#181620] border-white/10'
                       }`}
                     >
                       <div className="flex flex-col items-center gap-1 w-full">
-                        <div className="relative">
-                          <GoldCoinIcon
-                            className={`w-6 h-6 sm:w-7 sm:h-7 transition-transform duration-300 ${
-                              isReadyToClaim ? 'scale-110' : ''
-                            }`}
-                          />
-                        </div>
+                        <GoldCoinIcon className="w-6 h-6" />
                         <span
-                          className={`text-xs sm:text-sm font-extrabold tabular-nums transition-colors duration-300 ${
+                          className={`text-xs sm:text-sm font-bold tabular-nums ${
                             tier.claimed
                               ? 'text-emerald-300'
                               : isReadyToClaim
@@ -2884,7 +2829,7 @@ export const RewardsPayoutSection: React.FC = () => {
                         <button
                           type="button"
                           disabled
-                          className="w-full py-1.5 px-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-[10px] sm:text-[11px] font-bold text-emerald-300 inline-flex items-center justify-center gap-1 cursor-default transition-all duration-300"
+                          className="w-full py-1.5 px-2 rounded-lg bg-emerald-500/15 border border-emerald-500/35 text-[10px] sm:text-[11px] font-bold text-emerald-300 inline-flex items-center justify-center gap-1 cursor-default"
                         >
                           <Check className="w-3 h-3 stroke-[3] shrink-0" />
                           <span>{t.rewards.milestoneClaimedBtn}</span>
@@ -2894,9 +2839,9 @@ export const RewardsPayoutSection: React.FC = () => {
                           type="button"
                           onClick={() => void handleClaimMilestone(tier.minutes)}
                           disabled={claimingMilestoneMinutes !== null || !dbAvailable}
-                          className="w-full py-1.5 px-2 rounded-xl bg-gradient-to-r from-[#F43F5E] to-[#FB7185] hover:brightness-110 active:scale-[0.97] disabled:opacity-60 text-[10px] sm:text-[11px] font-extrabold text-white shadow-md transition-all duration-200 cursor-pointer inline-flex items-center justify-center gap-1"
+                          className="w-full py-1.5 px-2 rounded-lg bg-[#E11D48] hover:bg-[#F43F5E] active:scale-[0.98] disabled:opacity-60 text-[10px] sm:text-[11px] font-bold text-white transition-colors cursor-pointer inline-flex items-center justify-center gap-1"
                         >
-                          <Gift className={`w-3 h-3 shrink-0 ${isClaimingThis ? 'animate-spin' : 'animate-pulse'}`} />
+                          <Gift className={`w-3 h-3 shrink-0 ${isClaimingThis ? 'animate-spin' : ''}`} />
                           <span>
                             {isClaimingThis
                               ? t.rewards.milestoneClaimingBtn
@@ -2907,7 +2852,7 @@ export const RewardsPayoutSection: React.FC = () => {
                         <button
                           type="button"
                           disabled
-                          className="w-full py-1.5 px-2 rounded-xl bg-white/5 border border-white/10 text-[10px] sm:text-[11px] font-semibold text-[#A1A1AA] cursor-not-allowed tabular-nums inline-flex items-center justify-center gap-1 transition-colors duration-300"
+                          className="w-full py-1.5 px-2 rounded-lg bg-white/5 border border-white/10 text-[10px] sm:text-[11px] font-medium text-[#A1A1AA] cursor-not-allowed tabular-nums inline-flex items-center justify-center gap-1"
                         >
                           <Lock className="w-3 h-3 shrink-0 opacity-75" />
                           <span>
@@ -2917,7 +2862,7 @@ export const RewardsPayoutSection: React.FC = () => {
                       )}
 
                       {tier.claimed && (
-                        <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-[#09090B] flex items-center justify-center shadow transition-transform duration-300 scale-100">
+                        <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-[#09090B] flex items-center justify-center">
                           <Check className="w-2.5 h-2.5 stroke-[3]" />
                         </span>
                       )}
@@ -2930,9 +2875,9 @@ export const RewardsPayoutSection: React.FC = () => {
                 <p
                   role="status"
                   aria-live="polite"
-                  className="text-[11px] font-medium text-rose-200 bg-rose-500/10 border border-rose-500/30 rounded-xl px-3 py-2 flex items-center gap-2 transition-opacity duration-300"
+                  className="text-xs font-medium text-rose-200 bg-rose-500/10 border border-rose-500/25 rounded-xl px-3 py-2 flex items-center gap-2"
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-[#FBBF24] shrink-0 animate-pulse" />
+                  <Sparkles className="w-3.5 h-3.5 text-[#FBBF24] shrink-0" />
                   <span>{t.rewards.milestoneUnclaimedHint}</span>
                 </p>
               )}
@@ -2942,74 +2887,63 @@ export const RewardsPayoutSection: React.FC = () => {
 
         {/* Clean Progress Rows */}
         <div className="space-y-3 pt-1">
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs sm:text-sm">
-              <span className="text-[#D4D4D8] font-medium">
-                {t.rewards.minutesWatchedLabel}
-              </span>
-              <span className="font-bold text-white tabular-nums">
-                {todayMissionMinutes}/{missionMaxMinutes} {t.rewards.milestoneMinSuffix}
-              </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[#D4D4D8] font-medium">
+                  {t.rewards.minutesWatchedLabel}
+                </span>
+                <span className="font-bold text-white tabular-nums">
+                  {todayMissionMinutes}/{missionMaxMinutes} {t.rewards.milestoneMinSuffix}
+                </span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-[#F43F5E] to-[#FBBF24] transition-all duration-500"
+                  style={{ width: `${Math.max(todayMissionMinutes > 0 ? 3 : 0, missionWatchPct)}%` }}
+                />
+              </div>
             </div>
-            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-[#F43F5E] to-[#FBBF24] transition-all duration-500"
-                style={{ width: `${Math.max(todayMissionMinutes > 0 ? 3 : 0, missionWatchPct)}%` }}
-              />
-            </div>
-          </div>
 
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs sm:text-sm">
-              <span className="text-[#D4D4D8] font-medium">
-                {t.rewards.watchingPointsLabel}
-              </span>
-              <span className="font-bold text-white tabular-nums">
-                {todayWatchPointsEarned.toLocaleString()}/{maxWatchMissionPoints.toLocaleString()}{' '}
-                {t.rewards.pointsUnit}
-              </span>
-            </div>
-            <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-[#F43F5E] to-emerald-400 transition-all duration-500"
-                style={{
-                  width: `${Math.max(
-                    todayWatchPointsEarned > 0 ? 3 : 0,
-                    Math.min(
-                      100,
-                      Math.round(
-                        (todayWatchPointsEarned / Math.max(1, maxWatchMissionPoints)) * 100
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[#D4D4D8] font-medium">
+                  {t.rewards.watchingPointsLabel}
+                </span>
+                <span className="font-bold text-white tabular-nums">
+                  {todayWatchPointsEarned.toLocaleString()}/{maxWatchMissionPoints.toLocaleString()}{' '}
+                  {t.rewards.pointsUnit}
+                </span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-[#F43F5E] to-emerald-400 transition-all duration-500"
+                  style={{
+                    width: `${Math.max(
+                      todayWatchPointsEarned > 0 ? 3 : 0,
+                      Math.min(
+                        100,
+                        Math.round(
+                          (todayWatchPointsEarned / Math.max(1, maxWatchMissionPoints)) * 100
+                        )
                       )
-                    )
-                  )}%`,
-                }}
-              />
+                    )}%`,
+                  }}
+                />
+              </div>
             </div>
           </div>
 
-          <div className="pt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-[#A1A1AA]">
-            <span className="inline-flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-[#FBBF24] shrink-0" />
-              <span>
-                {t.rewards.todaysCheckinLabel}:{' '}
-                {summary?.dailyCheckinClaimedToday
-                  ? `${t.rewards.doneLabel} ✓`
-                  : t.rewards.notYetLabel}
-              </span>
-            </span>
-            <span className="text-[11px] tabular-nums">{missionWatchPct}%</span>
-          </div>
-
-          <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs">
             <span className="inline-flex items-center gap-2 text-[#D4D4D8]">
-              <Sparkles className="w-4 h-4 text-[#FBBF24] shrink-0" />
+              <Sparkles className="w-3.5 h-3.5 text-[#FBBF24] shrink-0" />
               <span>
                 {isId
-                  ? `Misi ringan selesai episode (+${effectiveEpisodeBonusPoints.toLocaleString()} poin/episode)`
-                  : `Episode completion mission (+${effectiveEpisodeBonusPoints.toLocaleString()} pts/episode)`}
+                  ? `Bonus selesai episode (+${effectiveEpisodeBonusPoints.toLocaleString()} poin/episode)`
+                  : `Episode completion bonus (+${effectiveEpisodeBonusPoints.toLocaleString()} pts/episode)`}
               </span>
             </span>
-            <span className="font-bold text-[#FDE68A] tabular-nums">
+            <span className="font-semibold text-[#FDE68A] tabular-nums">
               {todayEpisodeBonusCount} / {effectiveMaxDailyEpisodes}{' '}
               {isId ? 'hari ini' : 'today'}
             </span>
@@ -3017,69 +2951,61 @@ export const RewardsPayoutSection: React.FC = () => {
         </div>
       </section>
 
-      {/* 3B. Daily Social Media Share Task (+1,000 pts/day, synced to canonical server WIB/UTC reset) */}
-      <section className="rounded-3xl bg-[#121117] border border-white/10 p-4 sm:p-6 space-y-4">
+      {/* 3B. Daily Social Media Share Task */}
+      <section className="rounded-2xl bg-[#121117] border border-white/10 p-4 sm:p-6 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="w-10 h-10 rounded-xl bg-[#1D243B] border border-sky-500/30 flex items-center justify-center text-sky-300 shrink-0">
+            <span className="w-9 h-9 rounded-xl bg-[#192033] border border-sky-500/25 flex items-center justify-center text-sky-300 shrink-0">
               <Share2 className="w-4 h-4" />
             </span>
             <div className="space-y-0.5">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base sm:text-lg font-extrabold text-white">
+                <h2 className="text-base sm:text-lg font-bold text-white">
                   {t.rewards.dailyShareTitle}
                 </h2>
-                <span className="px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/35 text-[11px] font-extrabold text-[#D4AF37] tabular-nums">
-                  +{(config.dailySocialSharePoints ?? 1000).toLocaleString()} {t.rewards.pointsUnit} /{' '}
+                <span className="px-2 py-0.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/30 text-[11px] font-bold text-[#FDE68A] tabular-nums">
+                  +{(config.dailySocialSharePoints ?? 1000).toLocaleString()} {t.rewards.pointsUnit}/
                   {isId ? 'hari' : 'day'}
                 </span>
               </div>
-              <p className="text-xs text-[#A1A1AA] leading-relaxed">
+              <p className="text-xs text-[#A1A1AA]">
                 {t.rewards.dailyShareSubtitle}
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center px-3 py-1 rounded-full border border-amber-500/40 bg-amber-500/10 text-[11px] font-semibold text-amber-200">
-              <ResetCountdown lang={language} nextResetAt={summary?.nextResetAt} />
+          {user && (
+            <span
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-semibold ${
+                summary?.dailySocialShareClaimedToday
+                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                  : 'bg-white/5 border-white/10 text-[#D4D4D8]'
+              }`}
+            >
+              {summary?.dailySocialShareClaimedToday ? (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    {t.rewards.dailyShareClaimedLabel}
+                    {summary.dailySocialShareChannel
+                      ? ` (${summary.dailySocialShareChannel.toUpperCase()})`
+                      : ''}
+                  </span>
+                </>
+              ) : (
+                <span>{t.rewards.dailyShareReadyLabel}</span>
+              )}
             </span>
-            {user && (
-              <span
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] font-bold ${
-                  summary?.dailySocialShareClaimedToday
-                    ? 'bg-emerald-500/15 border-emerald-500/35 text-emerald-300'
-                    : 'bg-sky-500/15 border-sky-500/35 text-sky-200'
-                }`}
-              >
-                {summary?.dailySocialShareClaimedToday ? (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                    <span>
-                      {t.rewards.dailyShareClaimedLabel}
-                      {summary.dailySocialShareChannel
-                        ? ` (${summary.dailySocialShareChannel.toUpperCase()})`
-                        : ''}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                    <span>{t.rewards.dailyShareReadyLabel}</span>
-                  </>
-                )}
-              </span>
-            )}
-          </div>
+          )}
         </div>
 
         {!user ? (
-          <div className="p-4 rounded-2xl bg-[#0B0B0F] border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="p-4 rounded-xl bg-[#0B0B0F] border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <p className="text-xs text-[#A1A1AA]">{t.rewards.dailyShareHint}</p>
             <button
               type="button"
               onClick={() => openAuthModal()}
-              className="px-4 py-2.5 min-h-[42px] rounded-xl bg-[#D4AF37] text-[#09090B] text-xs font-extrabold hover:brightness-110 transition-all whitespace-nowrap shrink-0"
+              className="px-4 py-2 min-h-[40px] rounded-xl bg-[#D4AF37] text-[#09090B] text-xs font-extrabold hover:brightness-110 transition-all whitespace-nowrap shrink-0"
             >
               {isId
                 ? `Masuk & Klaim +${(config.dailySocialSharePoints ?? 1000).toLocaleString()} Poin`
@@ -3207,15 +3133,15 @@ export const RewardsPayoutSection: React.FC = () => {
         })()}
       </section>
 
-      {/* Referral Hub (Always Uses Production https://kano-drama.live/?ref=...) */}
+      {/* Referral Hub */}
       <section
         id="referral-program"
-        className="rounded-2xl bg-[#111015] border border-[#D4AF37]/25 p-5 sm:p-6 space-y-5"
+        className="rounded-2xl bg-[#121117] border border-white/10 p-4 sm:p-6 space-y-4"
       >
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1 max-w-2xl">
             <div className="flex items-center gap-2">
-              <Gift className="w-5 h-5 text-[#D4AF37]" />
+              <Gift className="w-4 h-4 text-[#D4AF37]" />
               <h2 className="text-base sm:text-lg font-bold text-white">
                 {t.rewards.referralTitle}
               </h2>
@@ -3225,86 +3151,81 @@ export const RewardsPayoutSection: React.FC = () => {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="px-3 py-1.5 rounded-lg bg-[#D4AF37]/15 border border-[#D4AF37]/30 text-xs font-extrabold text-[#D4AF37] tabular-nums whitespace-nowrap">
-              {isId ? 'Bonus Referral' : 'Referral Bonus'}: +
-              {(referralSummary?.referralBonusPoints ?? config.referralBonusPoints).toLocaleString()}{' '}
-              {t.rewards.pointsUnit} / {qualifyMinutes} {t.rewards.minutesUnit}
-            </span>
-            <span className="px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-xs font-extrabold text-emerald-300 tabular-nums whitespace-nowrap">
-              {isId ? 'Bonus Bind' : 'Bind Bonus'}: +
-              {(
-                referralSummary?.bindReferralBonusPoints ??
-                config.bindReferralBonusPoints ??
-                200
-              ).toLocaleString()}{' '}
-              {t.rewards.pointsUnit}
-            </span>
-            <span className="px-3 py-1.5 rounded-lg bg-sky-500/15 border border-sky-500/30 text-xs font-extrabold text-sky-300 tabular-nums whitespace-nowrap">
-              {isId ? 'Lanjutan Valid' : 'Ongoing Watch'}: +{ongoingBonusPerStep.toLocaleString()}{' '}
-              {t.rewards.pointsUnit} / {ongoingStepMinutes} {t.rewards.milestoneMinSuffix}
-            </span>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowReferralDetails((prev) => !prev)}
+            aria-expanded={showReferralDetails}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-[#A1A1AA] hover:text-white transition-colors shrink-0"
+          >
+            <span>{isId ? 'Rincian bonus' : 'Bonus details'}</span>
+            <ChevronDown
+              className={`w-3.5 h-3.5 transition-transform ${
+                showReferralDetails ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
         </div>
 
-        {/* Clear 3-Tier Referral, Bind & Ongoing Qualified Watch Breakdown */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="p-3.5 rounded-xl bg-[#0B0B0F] border border-[#D4AF37]/25 space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-extrabold text-[#D4AF37]">
-                {isId ? '1. Bonus Referral Utama' : '1. Main Referral Bonus'}
-              </span>
-              <span className="text-xs font-extrabold text-white tabular-nums">
-                +{(referralSummary?.referralBonusPoints ?? config.referralBonusPoints).toLocaleString()}{' '}
-                {t.rewards.pointsUnit}
-              </span>
+        {/* Collapsible 3-Tier Referral, Bind & Ongoing Breakdown */}
+        {showReferralDetails && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="p-3.5 rounded-xl bg-[#0B0B0F] border border-white/10 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#FDE68A]">
+                  {isId ? '1. Bonus Referral Utama' : '1. Main Referral'}
+                </span>
+                <span className="text-xs font-bold text-white tabular-nums">
+                  +{(referralSummary?.referralBonusPoints ?? config.referralBonusPoints).toLocaleString()}{' '}
+                  {t.rewards.pointsUnit}
+                </span>
+              </div>
+              <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+                {isId
+                  ? `Cair setelah teman nonton aktif minimal ${qualifyMinutes} menit (1 jam).`
+                  : `Unlocked after your friend completes ${qualifyMinutes} min (1 hour) of verified watching.`}
+              </p>
             </div>
-            <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
-              {isId
-                ? `Masuk ke akun pengundang setelah teman menyelesaikan minimal ${qualifyMinutes} menit (1 jam) tonton aktif terverifikasi dan lolos validasi anti-cheat.`
-                : `Credited to the inviter once the invited friend completes at least ${qualifyMinutes} minutes (1 hour) of verified active watching and passes anti-cheat checks.`}
-            </p>
-          </div>
 
-          <div className="p-3.5 rounded-xl bg-[#0B0B0F] border border-emerald-500/25 space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-extrabold text-emerald-300">
-                {isId ? '2. Bonus Bind Referral' : '2. Bind Referral Bonus'}
-              </span>
-              <span className="text-xs font-extrabold text-white tabular-nums">
-                +
-                {(
-                  referralSummary?.bindReferralBonusPoints ??
-                  config.bindReferralBonusPoints ??
-                  200
-                ).toLocaleString()}{' '}
-                {t.rewards.pointsUnit}
-              </span>
+            <div className="p-3.5 rounded-xl bg-[#0B0B0F] border border-white/10 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-emerald-300">
+                  {isId ? '2. Bonus Bind Kode' : '2. Bind Bonus'}
+                </span>
+                <span className="text-xs font-bold text-white tabular-nums">
+                  +
+                  {(
+                    referralSummary?.bindReferralBonusPoints ??
+                    config.bindReferralBonusPoints ??
+                    200
+                  ).toLocaleString()}{' '}
+                  {t.rewards.pointsUnit}
+                </span>
+              </div>
+              <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+                {isId
+                  ? `Otomatis masuk saat daftar lewat tautan ?ref= atau bind kode 1x di bawah.`
+                  : `Credited on ?ref= sign-up or 1-time code binding below.`}
+              </p>
             </div>
-            <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
-              {isId
-                ? `Daftar lewat tautan ?ref= teman atau bind kode referral sekali di bawah untuk klaim +${(referralSummary?.bindReferralBonusPoints ?? config.bindReferralBonusPoints ?? 200).toLocaleString()} poin.`
-                : `Sign up via a friend's ?ref= link or bind a referral code once below to claim +${(referralSummary?.bindReferralBonusPoints ?? config.bindReferralBonusPoints ?? 200).toLocaleString()} pts.`}
-            </p>
-          </div>
 
-          <div className="p-3.5 rounded-xl bg-[#0B0B0F] border border-sky-500/25 space-y-1">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-extrabold text-sky-300">
-                {isId ? '3. Reward Lanjutan Valid' : '3. Ongoing Watch Bonus'}
-              </span>
-              <span className="text-xs font-extrabold text-white tabular-nums">
-                +{ongoingBonusPerStep.toLocaleString()} / {ongoingStepMinutes}{' '}
-                {t.rewards.milestoneMinSuffix}
-              </span>
+            <div className="p-3.5 rounded-xl bg-[#0B0B0F] border border-white/10 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-sky-300">
+                  {isId ? '3. Bonus Lanjutan' : '3. Ongoing Watch'}
+                </span>
+                <span className="text-xs font-bold text-white tabular-nums">
+                  +{ongoingBonusPerStep.toLocaleString()} / {ongoingStepMinutes}{' '}
+                  {t.rewards.milestoneMinSuffix}
+                </span>
+              </div>
+              <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+                {isId
+                  ? `Tiap tambahan ${ongoingStepMinutes} menit nonton teman yang sudah valid memberi +${ongoingBonusPerStep.toLocaleString()} poin (maks ${ongoingMaxSteps}x / +${ongoingMaxTotalPoints.toLocaleString()} poin).`
+                  : `Every extra ${ongoingStepMinutes} min watched by a qualified friend gives +${ongoingBonusPerStep.toLocaleString()} pts (up to ${ongoingMaxSteps}x / +${ongoingMaxTotalPoints.toLocaleString()} pts).`}
+              </p>
             </div>
-            <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
-              {isId
-                ? `Setelah teman valid (≥1 jam), setiap tambahan ${ongoingStepMinutes} menit nonton aktif lanjutan memberi +${ongoingBonusPerStep.toLocaleString()} poin lagi (maks. ${ongoingMaxSteps} tahap / +${ongoingMaxTotalPoints.toLocaleString()} poin) dengan proteksi anti-cheat.`
-                : `Once qualified (≥1h), every extra ${ongoingStepMinutes} min your friend actively watches awards +${ongoingBonusPerStep.toLocaleString()} more pts (up to ${ongoingMaxSteps} steps / +${ongoingMaxTotalPoints.toLocaleString()} pts) with anti-cheat verification.`}
-            </p>
           </div>
-        </div>
+        )}
 
         {authLoading && !user ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4" aria-busy="true">
@@ -3322,8 +3243,8 @@ export const RewardsPayoutSection: React.FC = () => {
             <div className="space-y-1">
               <p className="text-xs sm:text-sm font-bold text-white">
                 {isId
-                  ? 'Dapatkan Link Referral KanoDrama Pribadi Anda'
-                  : 'Get Your Permanent KanoDrama Referral Link'}
+                  ? 'Ambil Link Referral KanoDrama'
+                  : 'Get Your KanoDrama Referral Link'}
               </p>
               <p className="text-xs text-[#A1A1AA] leading-relaxed">
                 {t.rewards.referralRule1h}
@@ -3332,7 +3253,7 @@ export const RewardsPayoutSection: React.FC = () => {
             <button
               type="button"
               onClick={() => openAuthModal()}
-              className="px-5 py-2.5 min-h-[42px] rounded-xl bg-[#D4AF37] text-[#09090B] text-xs font-extrabold hover:brightness-110 transition-all whitespace-nowrap shrink-0"
+              className="px-5 py-2.5 min-h-[40px] rounded-xl bg-[#D4AF37] text-[#09090B] text-xs font-extrabold hover:brightness-110 transition-all whitespace-nowrap shrink-0"
             >
               {isId ? 'Masuk & Ambil Kode' : 'Sign In for Code'}
             </button>
@@ -3352,8 +3273,8 @@ export const RewardsPayoutSection: React.FC = () => {
           ) : (
             <div className="p-4 rounded-xl bg-[#0B0B0F] border border-white/10 text-xs text-[#A1A1AA]">
               {isId
-                ? 'Menunggu koneksi database PostgreSQL untuk memuat kode referral Anda.'
-                : 'Waiting for PostgreSQL database connection to load referral data.'}
+                ? 'Menunggu koneksi database untuk memuat data referral.'
+                : 'Waiting for database connection to load referral data.'}
             </div>
           )
         ) : (
@@ -3404,8 +3325,8 @@ export const RewardsPayoutSection: React.FC = () => {
                         <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                         <span>
                           {isId
-                            ? `Terhubung ke pengundang (${referralSummary.referredBy.referralCode})`
-                            : `Bound to referrer (${referralSummary.referredBy.referralCode})`}
+                            ? `Terhubung ke kode ${referralSummary.referredBy.referralCode}`
+                            : `Bound to ${referralSummary.referredBy.referralCode}`}
                         </span>
                       </span>
                       <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-300 tabular-nums">
@@ -3421,14 +3342,14 @@ export const RewardsPayoutSection: React.FC = () => {
                     <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
                       {referralSummary.referredBy.status === 'qualified'
                         ? isId
-                          ? 'Syarat 60 menit tonton aktif Anda sudah terpenuhi dan Bonus Referral utama pengundang telah cair.'
-                          : 'Your 60-minute verified watch requirement is complete and your inviter received the main referral bonus.'
+                          ? 'Target nonton 60 menit selesai dan bonus referral sudah masuk.'
+                          : '60-minute active watch target met and referral bonus credited.'
                         : isId
-                        ? `Progress syarat 60 menit tonton aktif Anda: ${Math.min(
+                        ? `Nonton aktif kamu: ${Math.min(
                             qualifyMinutes,
                             Math.floor(referralSummary.verifiedWatchSeconds / 60)
                           )} / ${qualifyMinutes} menit.`
-                        : `Your 60-minute watch qualification progress: ${Math.min(
+                        : `Your active watch progress: ${Math.min(
                             qualifyMinutes,
                             Math.floor(referralSummary.verifiedWatchSeconds / 60)
                           )} / ${qualifyMinutes} min.`}
@@ -3438,12 +3359,12 @@ export const RewardsPayoutSection: React.FC = () => {
                   <form onSubmit={handleBindReferralCode} className="pt-2 border-t border-white/10 space-y-2">
                     <label className="block text-[11px] font-medium text-[#A1A1AA]">
                       {isId
-                        ? `Tidak mendaftar lewat tautan teman? Masukkan kode referral sekali di sini untuk Bonus Bind +${(
+                        ? `Punya kode referral? Masukkan sekali untuk +${(
                             referralSummary.bindReferralBonusPoints ??
                             config.bindReferralBonusPoints ??
                             200
                           ).toLocaleString()} poin:`
-                        : `Didn't sign up via a friend's link? Bind a referral code once here for +${(
+                        : `Have a referral code? Bind once for +${(
                             referralSummary.bindReferralBonusPoints ??
                             config.bindReferralBonusPoints ??
                             200
@@ -3609,21 +3530,21 @@ export const RewardsPayoutSection: React.FC = () => {
       <div id="withdraw-section" className="grid grid-cols-1 xl:grid-cols-12 gap-6 scroll-mt-20">
         <form
           onSubmit={handleRequestWithdrawConfirmation}
-          className="xl:col-span-7 rounded-3xl bg-[#121117] border border-white/10 p-5 sm:p-6 space-y-5"
+          className="xl:col-span-7 rounded-2xl bg-[#121117] border border-white/10 p-5 sm:p-6 space-y-5"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
-              <span className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-[#FBBF24]">
+              <span className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center text-[#FBBF24]">
                 <Wallet className="w-4 h-4" />
               </span>
               <div>
-                <h2 className="text-base sm:text-lg font-extrabold text-white">
+                <h2 className="text-base sm:text-lg font-bold text-white">
                   {t.rewards.withdrawTitle}
                 </h2>
                 <p className="text-[11px] text-[#A1A1AA]">
                   {isId
-                    ? 'Pilih metode pencairan yang diinginkan'
-                    : 'Choose your preferred payout method'}
+                    ? 'Pilih metode pencairan'
+                    : 'Choose payout method'}
                 </p>
               </div>
             </div>
@@ -4130,8 +4051,8 @@ export const RewardsPayoutSection: React.FC = () => {
           </div>
         </form>
 
-        {/* Real Live Payout History Feed (No Simulated Data) */}
-        <div className="xl:col-span-5 rounded-2xl bg-[#111015] border border-white/10 p-5 sm:p-6 space-y-4">
+        {/* Real Live Payout History Feed */}
+        <div className="xl:col-span-5 rounded-2xl bg-[#121117] border border-white/10 p-5 sm:p-6 space-y-4">
           <div className="space-y-0.5">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
@@ -4145,13 +4066,13 @@ export const RewardsPayoutSection: React.FC = () => {
               <Coins className="w-6 h-6 text-[#D4AF37]/70 mx-auto" />
               <p className="text-xs font-semibold text-white">
                 {isId
-                  ? 'Belum ada riwayat penarikan selesai terbaru'
-                  : 'No recent completed payouts yet'}
+                  ? 'Belum ada pencairan terbaru'
+                  : 'No recent payouts yet'}
               </p>
               <p className="text-[11px] text-[#71717A] leading-relaxed">
                 {isId
-                  ? 'Feed ini hanya menampilkan pencairan nyata yang telah disetujui atau dibayar dari database KanoDrama.'
-                  : 'This feed only displays verified approved/paid withdrawals recorded in PostgreSQL.'}
+                  ? 'Daftar ini hanya menampilkan pencairan yang sudah disetujui atau dibayar.'
+                  : 'Only approved or completed withdrawals are shown here.'}
               </p>
             </div>
           ) : (
@@ -4544,8 +4465,8 @@ export const RewardsPayoutSection: React.FC = () => {
 
             <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
               {isId
-                ? 'Pastikan nomor rekening/e-wallet atau alamat wallet sudah benar. Poin akan langsung ditahan pada ledger saat pengajuan dikirim.'
-                : 'Verify your account number or wallet address carefully. Points are immediately held in the ledger upon submission.'}
+                ? 'Pastikan nomor tujuan atau alamat wallet sudah benar. Poin langsung ditahan saat pengajuan dikirim.'
+                : 'Double-check your receiving account or wallet address. Points are held once submitted.'}
             </p>
 
             <div className="flex items-center justify-end gap-2.5 pt-1">
