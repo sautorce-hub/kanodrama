@@ -18,8 +18,6 @@ import {
   RotateCcw,
   RotateCw,
   Bookmark,
-  Lock,
-  LockOpen,
   Smartphone,
   Monitor,
   PictureInPicture2,
@@ -255,7 +253,6 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     syncEpisodeComments,
     getEpisodeComments,
     addEpisodeComment,
-    isEpisodeUnlocked,
     claimEpisodeBonus,
   } = useDramaContext();
 
@@ -1172,15 +1169,6 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     }
   };
 
-  const isCurrentEpisodeLocked = useMemo(() => {
-    if (!drama) return false;
-    const epItem = episodes.find((item) => item.episodeNumber === episodeNumber);
-    return (
-      Boolean(epItem?.isVipLocked) &&
-      !isEpisodeUnlocked(drama.bookId, drama.provider, episodeNumber)
-    );
-  }, [drama, episodes, episodeNumber, isEpisodeUnlocked]);
-
   useEffect(() => {
     if (!drama) return;
     lastSavedTickRef.current = 0;
@@ -1681,25 +1669,6 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
 
   const attemptEpisodeChange = (targetEp: number) => {
     if (!drama || targetEp < 1 || targetEp > totalEpisodes) return;
-    const targetItem = episodeItems.find(
-      (item) => item.episodeNumber === targetEp
-    );
-    const locked =
-      Boolean(targetItem?.isVipLocked) &&
-      !isEpisodeUnlocked(drama.bookId, drama.provider, targetEp);
-    if (locked) {
-      const v = videoRef.current;
-      if (v && !v.paused) {
-        v.pause();
-        setIsPlaying(false);
-      }
-      setShareModalState({
-        open: true,
-        targetEpisode: targetEp,
-        unlockMode: true,
-      });
-      return;
-    }
     commitEpisodeChange(targetEp);
   };
 
@@ -3720,12 +3689,6 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
                 {(batches[drawerBatchIdx]?.items ?? episodeItems).map((ep) => {
                   const active = ep.episodeNumber === episodeNumber;
                   const isWatched = watchedList.includes(ep.episodeNumber);
-                  const unlocked = isEpisodeUnlocked(
-                    drama.bookId,
-                    drama.provider,
-                    ep.episodeNumber
-                  );
-                  const locked = ep.isVipLocked && !unlocked;
                   return (
                     <button
                       key={ep.chapterId}
@@ -3734,14 +3697,6 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
                       onClick={(e) => {
                         e.stopPropagation();
                         bumpHudActivity();
-                        if (locked) {
-                          setShareModalState({
-                            open: true,
-                            targetEpisode: ep.episodeNumber,
-                            unlockMode: true,
-                          });
-                          return;
-                        }
                         commitEpisodeChange(ep.episodeNumber);
                         setShowEpisodeDrawer(false);
                       }}
@@ -3757,12 +3712,6 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
                         <span>EP {ep.episodeNumber}</span>
                         {isWatched && !active && (
                           <Check className="w-3 h-3 text-[#D4AF37]" />
-                        )}
-                        {locked && (
-                          <Lock className="w-2.5 h-2.5 cd-accent-text" />
-                        )}
-                        {ep.isVipLocked && unlocked && (
-                          <LockOpen className="w-2.5 h-2.5 text-emerald-400" />
                         )}
                       </div>
                     </button>
@@ -5021,12 +4970,6 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
                     {(batches[drawerBatchIdx]?.items ?? episodeItems).map((ep) => {
                       const active = ep.episodeNumber === episodeNumber;
                       const isWatched = watchedList.includes(ep.episodeNumber);
-                      const unlocked = isEpisodeUnlocked(
-                        drama.bookId,
-                        drama.provider,
-                        ep.episodeNumber
-                      );
-                      const locked = ep.isVipLocked && !unlocked;
                       return (
                         <button
                           key={`inline-ep-${ep.chapterId}`}
@@ -5045,10 +4988,6 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
                         >
                           <div className="flex items-center justify-center gap-1 text-[11px] tabular-nums">
                             <span>{ep.episodeNumber}</span>
-                            {locked && <Lock className="w-2.5 h-2.5 cd-accent-text" />}
-                            {ep.isVipLocked && unlocked && (
-                              <LockOpen className="w-2.5 h-2.5 text-emerald-400" />
-                            )}
                           </div>
                         </button>
                       );

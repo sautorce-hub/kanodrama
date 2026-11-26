@@ -5,8 +5,6 @@ import {
   Plus,
   Check,
   Crown,
-  Lock,
-  LockOpen,
   AlertCircle,
   RotateCcw,
   Loader2,
@@ -107,7 +105,6 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
     getWatchedEpisodes,
     getDramaRating,
     setDramaRating,
-    isEpisodeUnlocked,
   } = useDramaContext();
 
   const resolvedProvider: MediaProviderName = normalizeMediaProviderName(
@@ -644,11 +641,6 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
     detail.slug,
     1
   );
-  const hasLockedEpisodes = episodes.some(
-    (ep) =>
-      ep.isVipLocked &&
-      !isEpisodeUnlocked(detail.bookId, detail.provider, ep.episodeNumber)
-  );
 
   return (
     <article
@@ -1091,45 +1083,6 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
         </div>
       </div>
 
-      {/* Share-to-Unlock Banner if VIP episodes exist */}
-      {hasLockedEpisodes && (
-        <div className="mb-5 p-4 rounded-2xl bg-[#18140F] border border-[#D4AF37]/35 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <LockOpen className="w-5 h-5 text-[#D4AF37] shrink-0" />
-            <div>
-              <p className="text-sm font-bold text-white">
-                {t.engagement.vipUnlockTitle}
-              </p>
-              <p className="text-xs text-[#D4D4D8]">
-                {t.engagement.vipUnlockDesc}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              const firstLocked = episodes.find(
-                (ep) =>
-                  ep.isVipLocked &&
-                  !isEpisodeUnlocked(
-                    detail.bookId,
-                    detail.provider,
-                    ep.episodeNumber
-                  )
-              );
-              setShareModalState({
-                open: true,
-                episode: firstLocked?.episodeNumber ?? 1,
-                unlockMode: true,
-              });
-            }}
-            className="px-4 py-2 rounded-full bg-[#D4AF37] text-[#09090B] text-xs font-bold whitespace-nowrap shrink-0 hover:brightness-110 transition-all"
-          >
-            {t.engagement.shareToUnlockBtn}
-          </button>
-        </div>
-      )}
-
       {/* Single Movie Stream Card or Episode Grid */}
       <section className="rounded-2xl sm:rounded-3xl bg-[#111115] border border-[var(--cd-border)] p-4 sm:p-8">
         {isSingleMovie && !loading && (!error || episodes.length > 0) && episodes.length <= 1 ? (
@@ -1281,12 +1234,6 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                   const isCurrentResume =
                     resumePoint && resumePoint.episode === ep.episodeNumber;
                   const isWatched = watchedList.includes(ep.episodeNumber);
-                  const unlocked = isEpisodeUnlocked(
-                    detail.bookId,
-                    detail.provider,
-                    ep.episodeNumber
-                  );
-                  const locked = ep.isVipLocked && !unlocked;
                   const epWatchHref = getWatchPath(
                     detail.bookId,
                     detail.title,
@@ -1322,24 +1269,10 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                               aria-label={t.player.watched}
                             />
                           )}
-                          {locked && (
-                            <Lock
-                              className="w-3 h-3 cd-accent-text shrink-0"
-                              aria-label={t.detail.vipShareAria}
-                            />
-                          )}
-                          {ep.isVipLocked && unlocked && (
-                            <LockOpen
-                              className="w-3 h-3 text-emerald-400 shrink-0"
-                              aria-label={t.engagement.unlockedBadge}
-                            />
-                          )}
                         </span>
                       </div>
                       <p className="text-[11px] text-[#A1A1AA] truncate">
-                        {locked
-                          ? t.detail.shareToUnlock
-                          : isCurrentResume && resumePoint.currentTime > 2
+                        {isCurrentResume && resumePoint.currentTime > 2
                           ? formatPlaybackClock(resumePoint.currentTime)
                           : isWatched
                           ? t.player.watched
@@ -1347,26 +1280,6 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                       </p>
                     </>
                   );
-
-                  if (locked) {
-                    return (
-                      <button
-                        key={ep.chapterId}
-                        type="button"
-                        data-episode-switch="true"
-                        onClick={() =>
-                          setShareModalState({
-                            open: true,
-                            episode: ep.episodeNumber,
-                            unlockMode: true,
-                          })
-                        }
-                        className={cardClasses}
-                      >
-                        {cardInner}
-                      </button>
-                    );
-                  }
 
                   return (
                     <a

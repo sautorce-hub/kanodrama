@@ -6,7 +6,6 @@ import {
   Share2,
   Send,
   MessageCircle,
-  LockOpen,
   Download,
   Sparkles,
   Loader2,
@@ -287,11 +286,11 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
   open,
   drama,
   episodeNumber = 1,
-  unlockVipMode = false,
-  onUnlockSuccess,
+  unlockVipMode: _unlockVipMode = false,
+  onUnlockSuccess: _onUnlockSuccess,
   onClose,
 }) => {
-  const { t, pushToast, unlockVipEpisode } = useDramaContext();
+  const { t, pushToast } = useDramaContext();
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [cardLoading, setCardLoading] = useState(false);
@@ -340,13 +339,7 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
   const viralCaption = `🔥 Nonton gratis "${drama.title}" (${shareBadgeLabel}) di KanoDrama [${drama.provider}]!\n\nStreaming HD Sub Indo & multi-bahasa: ${deepLink}`;
   const downloadFilename = `${slugifyDramaTitle(drama.title)}-ep${episodeNumber}-spoiler-card.png`;
 
-  const completeShareAction = () => {
-    if (unlockVipMode) {
-      unlockVipEpisode(drama.bookId, drama.provider, episodeNumber);
-      onUnlockSuccess?.();
-      onClose();
-    }
-  };
+  const completeShareAction = () => {};
 
   const handleCopyCaption = async () => {
     try {
@@ -440,15 +433,9 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
       >
         <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between sticky top-0 bg-[#111115]/95 backdrop-blur-md z-10">
           <div className="flex items-center gap-2">
-            {unlockVipMode ? (
-              <LockOpen className="w-4 h-4 text-[#D4AF37]" />
-            ) : (
-              <Sparkles className="w-4 h-4 cd-accent-text" />
-            )}
+            <Sparkles className="w-4 h-4 cd-accent-text" />
             <h2 className="text-base font-bold text-white">
-              {unlockVipMode
-                ? t.engagement.vipUnlockTitle
-                : t.engagement.shareStoryTitle}
+              {t.engagement.shareStoryTitle}
             </h2>
           </div>
           <button
@@ -462,21 +449,6 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
         </div>
 
         <div className="p-5 space-y-4 pb-[max(20px,env(safe-area-inset-bottom))]">
-          {unlockVipMode && (
-            <div className="p-3.5 rounded-2xl bg-[#D4AF37]/10 border border-[#D4AF37]/35 space-y-2">
-              <p className="text-xs text-[#FDE68A] leading-relaxed">
-                {t.engagement.vipUnlockDesc}
-              </p>
-              <button
-                type="button"
-                onClick={handleNativeShare}
-                className="w-full min-h-[44px] px-4 py-2 rounded-full bg-[#D4AF37] text-[#09090B] text-xs font-extrabold flex items-center justify-center gap-2 hover:brightness-110 transition-all"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>{t.engagement.shareToUnlockBtn}</span>
-              </button>
-            </div>
-          )}
 
           {/* Rendered HTML5 Canvas 9:16 Spoiler Card Preview */}
           <div className="mx-auto w-52 aspect-[9/16] rounded-2xl overflow-hidden relative bg-[#18181D] border border-white/15 shadow-2xl">

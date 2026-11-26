@@ -699,19 +699,12 @@ export function normalizeEpisodeList(payload: unknown): EpisodeItem[] {
       const rawTitle = cleanText(ep.chapterName ?? ep.title ?? ep.name);
       const title =
         rawTitle && !/^\d+$/.test(rawTitle) ? rawTitle : `EP ${epNum}`;
-      const providerLocked =
-        Number(ep.isCharge ?? 0) === 1 ||
-        Number(ep.isPay ?? 0) === 1 ||
-        Boolean(ep.isVip) ||
-        Boolean(ep.isLocked);
-      const isVipLocked = epNum > 10 && (providerLocked || epNum === 11);
-
       return {
         chapterId,
         episodeNumber: epNum,
         chapterIndex0,
         title,
-        isVipLocked,
+        isVipLocked: false,
         eid: rawEid && !isSyntheticEpisodeId(rawEid) ? rawEid : undefined,
       };
     })
@@ -4283,7 +4276,7 @@ function createIDramaProvider(
             episodeNumber: epNum,
             chapterIndex0: idx,
             title: `EP ${epNum}`,
-            isVipLocked: epNum > 10 && epNum === 11,
+            isVipLocked: false,
           };
         });
         cacheEpisodes(id, bookId, generated);
@@ -4783,7 +4776,7 @@ export const joyReelsProvider: DramaProviderAdapter & {
         episodeNumber: epNum,
         chapterIndex0: idx,
         title: `EP ${epNum}`,
-        isVipLocked: epNum > 10 && epNum === 11,
+        isVipLocked: false,
       };
     });
     cacheEpisodes('JoyReels', playletId, generated);
@@ -5021,7 +5014,7 @@ export const iqiyiProvider: DramaProviderAdapter & {
         episodeNumber: epNum,
         chapterIndex0: idx,
         title: `EP ${epNum}`,
-        isVipLocked: epNum > 10 && epNum === 11,
+        isVipLocked: false,
       };
     });
     cacheEpisodes('iQIYI', albumId, generated);

@@ -3312,11 +3312,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const isEpisodeUnlocked = useCallback(
-    (bookId: string, provider: MediaProviderName, episode: number) => {
-      if (episode <= 10) return true;
-      return unlockedVipList.includes(makeEpisodeKey(bookId, provider, episode));
-    },
-    [unlockedVipList]
+    (_bookId: string, _provider: MediaProviderName, _episode: number) => true,
+    []
   );
 
   const unlockVipEpisode = useCallback(
@@ -3325,9 +3322,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       setUnlockedVipList((prev) =>
         prev.includes(epKey) ? prev : [...prev, epKey]
       );
-      pushToast(`EP ${episode} unlocked free! Enjoy watching`, 'gold');
     },
-    [pushToast]
+    []
   );
 
   const addRecentSearch = useCallback((keyword: string) => {

@@ -1716,11 +1716,6 @@ async function fetchDramaForSsr(
               : idx + 1;
           while (seenNums.has(num)) num += 1;
           seenNums.add(num);
-          const providerLocked =
-            Number(ep.isCharge ?? 0) === 1 ||
-            Number(ep.isPay ?? 0) === 1 ||
-            Boolean(ep.isVip) ||
-            Boolean(ep.isLocked);
           return {
             chapterId: cleanText(
               String(
@@ -1733,7 +1728,7 @@ async function fetchDramaForSsr(
             ),
             episodeNumber: num,
             title: cleanText(ep.chapterName ?? ep.title, `EP ${num}`),
-            isVipLocked: num <= 10 ? false : providerLocked || num === 11,
+            isVipLocked: false,
           };
         })
         .sort((a, b) => a.episodeNumber - b.episodeNumber);
