@@ -877,6 +877,12 @@ function createStatefulPgMock() {
         t.active_stream_media_key = String(params[5]);
         t.last_heartbeat_at = new Date();
         t.last_video_time_sec = String(params[6]);
+        if (sql.includes('fast_delta_strikes = GREATEST(0')) {
+          t.fast_delta_strikes = Math.max(0, (t.fast_delta_strikes || 0) - 1);
+        }
+        if (sql.includes('concurrent_tab_strikes = GREATEST(0')) {
+          t.concurrent_tab_strikes = Math.max(0, (t.concurrent_tab_strikes || 0) - 1);
+        }
       }
       return { rows: [], rowCount: 1 };
     }
@@ -4597,5 +4603,253 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       delete process.env.TELEGRAM_CHAT_ID;
       clearTelegramThrottleCacheForTests();
     }
+  });
+
+  await t.test('21. CGNAT /24 Subnet False-Positive Fix, Legacy Flag Healing, Heartbeat RTT Jitter Tolerance & Reload Session Handoff', async () => {
+    const { mockPool, state } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    // 1. Simulate 6 distinct mobile CGNAT users sharing 114.122.50.x/24 with unique device fingerprints
+    const cgnatTokens: Array<{ uid: string; token: string }> = [];
+    for (let i = 1; i <= 6; i += 1) {
+      const uid = `cgnat-user-${i}`;
+      const token = signAuthSessionToken({
+        uid,
+        email: `cgnat${i}@example.com`,
+        displayName: `Viewer CGNAT ${i}`,
+        photoURL: null,
+      });
+      cgnatTokens.push({ uid, token });
+      const syncRes = await fetch(`${baseUrl}/api/users/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'cf-connecting-ip': `114.122.50.${10 + i}`,
+          'x-device-fingerprint': `fp-cgnat-device-${i}`,
+          'user-agent': `MobileBrowser/${i}.0`,
+        },
+        body: JSON.stringify({ isLoginEvent: true, displayName: `Viewer CGNAT ${i}` }),
+      });
+      assert.equal(syncRes.status, 200);
+    }
+
+    // Verify none of the 6 CGNAT users received multi_account_subnet
+    const sixthUid = cgnatTokens[5].uid;
+    const sixthToken = cgnatTokens[5].token;
+    assert.equal(state.securitySignals.get(sixthUid)?.risk_flag || '', '');
+
+    // Verify 6th CGNAT user receives +40 pts/min watch reward & +1,000 daily social share reward
+    const s6 = await startWatchSessionInDb({
+      userId: sixthUid,
+      mediaKey: 'DramaBoxV2:d-cgnat:ep1',
+      provider: 'DramaBoxV2',
+      dramaId: 'd-cgnat',
+      episodeNumber: 1,
+    });
+    await recordWatchHeartbeatInDb({
+      userId: sixthUid,
+      streamSessionId: s6.sessionToken,
+      mediaKey: 'DramaBoxV2:d-cgnat:ep1',
+      currentTimeSec: 5,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 1,
+      ipHash: 'h-ip-6',
+      subnetHash: 'h-sub-shared',
+      uaHash: 'h-ua-6',
+      deviceHash: 'h-dev-6',
+    });
+    state.telemetry.get(sixthUid)!.last_heartbeat_at = new Date(Date.now() - 62_000);
+    const hb6 = await recordWatchHeartbeatInDb({
+      userId: sixthUid,
+      streamSessionId: s6.sessionToken,
+      mediaKey: 'DramaBoxV2:d-cgnat:ep1',
+      currentTimeSec: 67,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 2,
+      ipHash: 'h-ip-6',
+      subnetHash: 'h-sub-shared',
+      uaHash: 'h-ua-6',
+      deviceHash: 'h-dev-6',
+    });
+    assert.equal(hb6.ok, true);
+    assert.equal(hb6.awardedWatchPoints, 40);
+
+    const share6 = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sixthToken}`,
+      },
+      body: JSON.stringify({ action: 'daily_social_share', channel: 'whatsapp' }),
+    });
+    assert.equal(share6.status, 200);
+    const share6Json = await share6.json();
+    assert.equal(share6Json.ok, true);
+    assert.equal(share6Json.awardedPoints, 1000);
+
+    // 2. Legacy pre-existing 'multi_account_subnet' flag in DB must NOT block watch or daily share,
+    // while genuine abuse flags ('shared_device_abuse') MUST still block cleanly (403).
+    const fifthUid = cgnatTokens[4].uid;
+    const fifthToken = cgnatTokens[4].token;
+    state.securitySignals.get(fifthUid)!.risk_flag = 'multi_account_subnet';
+
+    const share5 = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${fifthToken}`,
+      },
+      body: JSON.stringify({ action: 'daily_social_share', channel: 'copy_link' }),
+    });
+    assert.equal(share5.status, 200);
+    assert.equal((await share5.json()).awardedPoints, 1000);
+
+    const s5 = await startWatchSessionInDb({
+      userId: fifthUid,
+      mediaKey: 'DramaBoxV2:d-cgnat:ep2',
+      provider: 'DramaBoxV2',
+      dramaId: 'd-cgnat',
+      episodeNumber: 2,
+    });
+    await recordWatchHeartbeatInDb({
+      userId: fifthUid,
+      streamSessionId: s5.sessionToken,
+      mediaKey: 'DramaBoxV2:d-cgnat:ep2',
+      currentTimeSec: 2,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 1,
+      ipHash: 'h-ip-5',
+      subnetHash: 'h-sub-shared',
+      uaHash: 'h-ua-5',
+      deviceHash: 'h-dev-5',
+    });
+    state.telemetry.get(fifthUid)!.last_heartbeat_at = new Date(Date.now() - 62_000);
+    const hb5 = await recordWatchHeartbeatInDb({
+      userId: fifthUid,
+      streamSessionId: s5.sessionToken,
+      mediaKey: 'DramaBoxV2:d-cgnat:ep2',
+      currentTimeSec: 64,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 2,
+      ipHash: 'h-ip-5',
+      subnetHash: 'h-sub-shared',
+      uaHash: 'h-ua-5',
+      deviceHash: 'h-dev-5',
+    });
+    assert.equal(hb5.awardedWatchPoints, 40);
+
+    // Genuine abuse flag still blocks daily social share with 403
+    state.securitySignals.get(fifthUid)!.risk_flag = 'shared_device_abuse';
+    const fourthUid = cgnatTokens[3].uid;
+    const fourthToken = cgnatTokens[3].token;
+    state.securitySignals.get(fourthUid)!.risk_flag = 'shared_device_abuse';
+    const blockedShare = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${fourthToken}`,
+      },
+      body: JSON.stringify({ action: 'daily_social_share', channel: 'telegram' }),
+    });
+    assert.equal(blockedShare.status, 403);
+    assert.equal((await blockedShare.json()).reason, 'anti_cheat_blocked');
+
+    // 3. Moderate RTT jitter (9.5s) returns heartbeat_too_fast without adding fast_delta_strikes,
+    // and counted heartbeats decay existing strikes.
+    const sixthTel = state.telemetry.get(sixthUid)!;
+    sixthTel.fast_delta_strikes = 1;
+    sixthTel.concurrent_tab_strikes = 1;
+    sixthTel.last_heartbeat_at = new Date(Date.now() - 9_500);
+    const jitterHb = await recordWatchHeartbeatInDb({
+      userId: sixthUid,
+      streamSessionId: s6.sessionToken,
+      mediaKey: 'DramaBoxV2:d-cgnat:ep1',
+      currentTimeSec: 76,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 3,
+      ipHash: 'h-ip-6',
+      subnetHash: 'h-sub-shared',
+      uaHash: 'h-ua-6',
+      deviceHash: 'h-dev-6',
+    });
+    assert.equal(jitterHb.ok, false);
+    assert.equal(jitterHb.reason, 'heartbeat_too_fast');
+    assert.equal(sixthTel.fast_delta_strikes, 1);
+
+    // Valid counted heartbeat decays strikes down to 0
+    sixthTel.last_heartbeat_at = new Date(Date.now() - 16_000);
+    const decayHb = await recordWatchHeartbeatInDb({
+      userId: sixthUid,
+      streamSessionId: s6.sessionToken,
+      mediaKey: 'DramaBoxV2:d-cgnat:ep1',
+      currentTimeSec: 83,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 4,
+      ipHash: 'h-ip-6',
+      subnetHash: 'h-sub-shared',
+      uaHash: 'h-ua-6',
+      deviceHash: 'h-dev-6',
+    });
+    assert.equal(decayHb.ok, true);
+    assert.equal(decayHb.reason, 'counted');
+    assert.equal(sixthTel.fast_delta_strikes, 0);
+    assert.equal(sixthTel.concurrent_tab_strikes, 0);
+
+    // 4. Reload handoff via previousSessionToken cleanly deactivates prior session without triggering concurrent_stream_detected
+    const reloadSess = await fetch(`${baseUrl}/api/watch/session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sixthToken}`,
+      },
+      body: JSON.stringify({
+        dramaId: 'd-cgnat',
+        provider: 'DramaBoxV2',
+        episodeNumber: 1,
+        previousSessionToken: s6.sessionToken,
+      }),
+    });
+    assert.equal(reloadSess.status, 201);
+    const reloadJson = await reloadSess.json();
+    const reloadHb = await fetch(`${baseUrl}/api/watch/heartbeat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sixthToken}`,
+      },
+      body: JSON.stringify({
+        sessionToken: reloadJson.sessionToken,
+        seq: 1,
+        dramaId: 'd-cgnat',
+        provider: 'DramaBoxV2',
+        episodeNumber: 1,
+        currentTimeSec: 85,
+        isPlaying: true,
+        isBuffering: false,
+        tabVisible: true,
+        playbackRate: 1,
+      }),
+    });
+    assert.equal(reloadHb.status, 200);
+    assert.equal((await reloadHb.json()).reason, 'session_started');
   });
 });

@@ -290,7 +290,8 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
   onUnlockSuccess: _onUnlockSuccess,
   onClose,
 }) => {
-  const { t, pushToast } = useDramaContext();
+  const { t, user, language, getAuthHeaders, refreshPointsBalance, pushToast } =
+    useDramaContext();
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [cardLoading, setCardLoading] = useState(false);
@@ -339,28 +340,100 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
   const viralCaption = `🔥 Nonton gratis "${drama.title}" (${shareBadgeLabel}) di KanoDrama [${drama.provider}]!\n\nStreaming HD Sub Indo & multi-bahasa: ${deepLink}`;
   const downloadFilename = `${slugifyDramaTitle(drama.title)}-ep${episodeNumber}-spoiler-card.png`;
 
-  const completeShareAction = () => {};
+  const copyWithFallback = async (text: string): Promise<boolean> => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {
+      // Fall through to execCommand fallback
+    }
+    try {
+      if (typeof document === 'undefined') return false;
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-9999px';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, text.length);
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  };
+
+  const completeShareAction = (
+    channel?: 'whatsapp' | 'telegram' | 'x' | 'facebook' | 'copy_link' | 'native_share'
+  ) => {
+    if (!user || !channel) return;
+    void fetch('/api/points/claim', {
+      method: 'POST',
+      credentials: 'include',
+      keepalive: true,
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        action: 'daily_social_share',
+        channel,
+        lang: language,
+      }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          awardedPoints?: number;
+          summary?: { balance?: number } | null;
+        };
+        if (data.ok && typeof data.awardedPoints === 'number' && data.awardedPoints > 0) {
+          pushToast(
+            language === 'id'
+              ? `+${data.awardedPoints.toLocaleString('id-ID')} poin tugas share harian!`
+              : `+${data.awardedPoints.toLocaleString('en-US')} pts daily social share reward!`,
+            'gold'
+          );
+          void refreshPointsBalance();
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('kd:points-updated', {
+                detail: {
+                  source: 'daily_social_share',
+                  summary: data.summary,
+                  pointsBalance: data.summary?.balance ?? null,
+                },
+              })
+            );
+          }
+        }
+      })
+      .catch(() => {});
+  };
 
   const handleCopyCaption = async () => {
-    try {
-      await navigator.clipboard?.writeText(viralCaption);
+    const ok = await copyWithFallback(viralCaption);
+    if (ok) {
       setCopied(true);
       pushToast('Viral caption & KanoDrama link copied!', 'gold');
       window.setTimeout(() => setCopied(false), 2000);
-      completeShareAction();
-    } catch {
+      completeShareAction('copy_link');
+    } else {
       pushToast('Copy failed — please copy manually', 'error');
     }
   };
 
   const handleCopyDirectLink = async () => {
-    try {
-      await navigator.clipboard?.writeText(deepLink);
+    const ok = await copyWithFallback(deepLink);
+    if (ok) {
       setLinkCopied(true);
       pushToast(t.engagement.linkCopied, 'gold');
       window.setTimeout(() => setLinkCopied(false), 2000);
-      completeShareAction();
-    } catch {
+      completeShareAction('copy_link');
+    } else {
       pushToast('Copy failed — please copy manually', 'error');
     }
   };
@@ -382,7 +455,7 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
               text: viralCaption,
               url: deepLink,
             });
-            completeShareAction();
+            completeShareAction('native_share');
             return;
           }
         }
@@ -391,7 +464,7 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
           text: viralCaption,
           url: deepLink,
         });
-        completeShareAction();
+        completeShareAction('native_share');
       } catch {
         // User dismissed share sheet
       }
@@ -528,7 +601,7 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
               <a
                 href={cardDataUrl}
                 download={downloadFilename}
-                onClick={completeShareAction}
+                onClick={() => completeShareAction()}
                 className="min-h-[44px] px-4 py-2.5 rounded-xl bg-[#18181D] border border-[#D4AF37]/50 hover:bg-[#221C14] text-[#FDE68A] text-xs font-bold flex items-center justify-center gap-2 transition-colors"
               >
                 <Download className="w-4 h-4" />
@@ -558,7 +631,7 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
               href={whatsappUrl}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={completeShareAction}
+              onClick={() => completeShareAction('whatsapp')}
               className="min-h-[44px] px-3 py-2 rounded-xl bg-[#18181D] border border-white/10 hover:border-[#10B981]/60 text-xs font-medium text-white flex items-center justify-center gap-1.5"
             >
               <MessageCircle className="w-3.5 h-3.5 text-[#10B981]" />
@@ -569,7 +642,7 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
               href={telegramUrl}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={completeShareAction}
+              onClick={() => completeShareAction('telegram')}
               className="min-h-[44px] px-3 py-2 rounded-xl bg-[#18181D] border border-white/10 hover:border-sky-400/60 text-xs font-medium text-white flex items-center justify-center gap-1.5"
             >
               <Send className="w-3.5 h-3.5 text-sky-400" />
@@ -580,7 +653,7 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
               href={xShareUrl}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={completeShareAction}
+              onClick={() => completeShareAction('x')}
               className="min-h-[44px] px-3 py-2 rounded-xl bg-[#18181D] border border-white/10 hover:border-white/40 text-xs font-medium text-white flex items-center justify-center gap-1.5"
             >
               <span className="font-black text-xs leading-none">𝕏</span>
@@ -591,7 +664,7 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
               href={facebookShareUrl}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={completeShareAction}
+              onClick={() => completeShareAction('facebook')}
               className="min-h-[44px] px-3 py-2 rounded-xl bg-[#18181D] border border-white/10 hover:border-[#1877F2]/60 text-xs font-medium text-white flex items-center justify-center gap-1.5"
             >
               <span className="font-black text-xs text-[#3B82F6] leading-none">f</span>

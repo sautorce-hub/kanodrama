@@ -850,9 +850,11 @@ function sha256SecurityDigest(value: string): string {
 }
 
 function extractClientIpNormalized(req: Request): string {
+  const cfIp = (req.get('cf-connecting-ip') || '').trim();
+  const trueClientIp = (req.get('true-client-ip') || '').trim();
   const xff = (req.get('x-forwarded-for') || '').split(',')[0].trim();
   const realIp = (req.get('x-real-ip') || '').trim();
-  const raw = xff || realIp || req.ip || req.socket.remoteAddress || '';
+  const raw = cfIp || trueClientIp || xff || realIp || req.ip || req.socket.remoteAddress || '';
   return raw.replace(/^::ffff:/i, '').trim();
 }
 

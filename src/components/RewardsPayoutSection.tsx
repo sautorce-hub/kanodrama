@@ -970,6 +970,35 @@ function validateClientDestination(
   return { valid: true, hint };
 }
 
+async function copyTextWithFallback(text: string): Promise<boolean> {
+  if (!text) return false;
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to execCommand textarea fallback
+  }
+  try {
+    if (typeof document === 'undefined') return false;
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-9999px';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    const copied = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return copied;
+  } catch {
+    return false;
+  }
+}
+
 export const RewardsPayoutSection: React.FC = () => {
   const {
     t,
@@ -997,6 +1026,11 @@ export const RewardsPayoutSection: React.FC = () => {
   const [claimingCheckin, setClaimingCheckin] = useState(false);
   const [claimingMilestoneMinutes, setClaimingMilestoneMinutes] = useState<number | null>(null);
   const [claimingSocialShare, setClaimingSocialShare] = useState<string | null>(null);
+  const [shareFeedback, setShareFeedback] = useState<{
+    type: 'error' | 'success';
+    message: string;
+  } | null>(null);
+  const pendingSocialShareRef = useRef<boolean>(false);
 
   // Ledger & Payout History pagination states
   const [ledgerRows, setLedgerRows] = useState<PointsLedgerItem[]>([]);
@@ -1271,6 +1305,23 @@ export const RewardsPayoutSection: React.FC = () => {
   useEffect(() => {
     void loadPointsData();
   }, [loadPointsData]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const syncAfterExternalShare = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (!pendingSocialShareRef.current) return;
+      pendingSocialShareRef.current = false;
+      void loadPointsData();
+      void refreshPointsBalance();
+    };
+    window.addEventListener('focus', syncAfterExternalShare);
+    document.addEventListener('visibilitychange', syncAfterExternalShare);
+    return () => {
+      window.removeEventListener('focus', syncAfterExternalShare);
+      document.removeEventListener('visibilitychange', syncAfterExternalShare);
+    };
+  }, [loadPointsData, refreshPointsBalance]);
 
   // Background polling for real live feed — pauses automatically when tab is hidden
   useEffect(() => {
@@ -1595,13 +1646,11 @@ export const RewardsPayoutSection: React.FC = () => {
       openAuthModal();
       return;
     }
+    setShareFeedback(null);
     const shareTargetUrl = referralShareUrl || DEFAULT_SITE_ORIGIN;
+
     if (channel === 'copy_link') {
-      try {
-        await navigator.clipboard?.writeText(shareTargetUrl);
-      } catch {
-        // Ignore clipboard errors; server still validates claim
-      }
+      await copyTextWithFallback(shareTargetUrl);
     } else if (
       channel === 'native_share' &&
       typeof navigator !== 'undefined' &&
@@ -1615,16 +1664,43 @@ export const RewardsPayoutSection: React.FC = () => {
             : 'Stream Asian & short dramas in HD on KanoDrama!',
           url: shareTargetUrl,
         });
-      } catch {
-        return;
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
+        // Ignore non-abort share sheet errors and allow fallback
       }
     }
 
-    if (summary?.dailySocialShareClaimedToday || claimingSocialShare !== null) {
+    if (summary?.dailySocialShareClaimedToday) {
       if (channel === 'copy_link') {
         pushToast(t.rewards.referralCopied, 'gold');
+      } else {
+        setShareFeedback({
+          type: 'success',
+          message: isId
+            ? 'Tugas share media sosial hari ini sudah diklaim.'
+            : 'Daily social share reward already claimed today.',
+        });
       }
       return;
+    }
+
+    if (claimingSocialShare !== null) return;
+
+    if (!dbAvailable) {
+      const offlineMsg =
+        dbErrorMsg ||
+        (isId
+          ? 'Server reward belum terhubung. Muat ulang halaman atau coba lagi sebentar.'
+          : 'Rewards database is currently unavailable. Please try again shortly.');
+      setShareFeedback({ type: 'error', message: offlineMsg });
+      pushToast(offlineMsg, 'error');
+      return;
+    }
+
+    if (channel !== 'copy_link' && channel !== 'native_share') {
+      pendingSocialShareRef.current = true;
     }
 
     setClaimingSocialShare(channel);
@@ -1633,6 +1709,7 @@ export const RewardsPayoutSection: React.FC = () => {
       const res = await fetch('/api/points/claim', {
         method: 'POST',
         credentials: 'include',
+        keepalive: true,
         headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           action: 'daily_social_share',
@@ -1642,13 +1719,17 @@ export const RewardsPayoutSection: React.FC = () => {
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
+        reason?: string;
         awardedPoints?: number;
         error?: string;
         summary?: UserPointsSummary;
       };
       if (res.status === 503) {
         setDbAvailable(false);
-        setDbErrorMsg(data.error || 'Database PostgreSQL belum terhubung.');
+        const msg = data.error || 'Database PostgreSQL belum terhubung.';
+        setDbErrorMsg(msg);
+        setShareFeedback({ type: 'error', message: msg });
+        pushToast(msg, 'error');
         return;
       }
       if (data.summary) {
@@ -1657,6 +1738,7 @@ export const RewardsPayoutSection: React.FC = () => {
         setLedgerTotal(Number(data.summary.ledgerTotal ?? (data.summary.ledger || []).length));
       }
       if (res.ok && data.ok) {
+        pendingSocialShareRef.current = false;
         const awarded = Number(data.awardedPoints) || config.dailySocialSharePoints || 1000;
         const channelLabelMap: Record<string, string> = {
           whatsapp: 'WhatsApp',
@@ -1666,31 +1748,50 @@ export const RewardsPayoutSection: React.FC = () => {
           copy_link: 'Copy Link',
           native_share: 'Share',
         };
-        pushToast(
-          `+${awarded.toLocaleString()} ${t.rewards.pointsUnit} · ${t.rewards.dailyShareSuccess.replace(
-            '{channel}',
-            channelLabelMap[channel] || channel
-          )}`,
-          'gold'
-        );
+        const successMsg = `+${awarded.toLocaleString()} ${t.rewards.pointsUnit} · ${t.rewards.dailyShareSuccess.replace(
+          '{channel}',
+          channelLabelMap[channel] || channel
+        )}`;
+        setShareFeedback({ type: 'success', message: successMsg });
+        pushToast(successMsg, 'gold');
+        void refreshPointsBalance();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('kd:points-updated', {
+              detail: {
+                source: 'daily_social_share',
+                summary: data.summary,
+                pointsBalance: data.summary?.balance ?? null,
+              },
+            })
+          );
+        }
+      } else if (res.status === 409 || data.reason === 'duplicate_claim') {
+        pendingSocialShareRef.current = false;
+        const dupMsg =
+          data.error ||
+          (isId
+            ? 'Tugas share media sosial hari ini sudah diklaim.'
+            : 'Daily social share reward has already been claimed today.');
+        setShareFeedback({ type: 'success', message: dupMsg });
+        pushToast(dupMsg, 'neutral');
         void refreshPointsBalance();
       } else {
-        setFormFeedback({
-          type: 'error',
-          message:
-            data.error ||
-            (isId
-              ? 'Gagal mengklaim bonus share media sosial harian.'
-              : 'Unable to claim daily social share reward.'),
-        });
+        pendingSocialShareRef.current = false;
+        const errMsg =
+          data.error ||
+          (isId
+            ? 'Gagal mengklaim bonus share media sosial harian.'
+            : 'Unable to claim daily social share reward.');
+        setShareFeedback({ type: 'error', message: errMsg });
+        pushToast(errMsg, 'error');
       }
     } catch {
-      setFormFeedback({
-        type: 'error',
-        message: isId
-          ? 'Gagal terhubung ke server saat klaim tugas share.'
-          : 'Network error while claiming daily social share reward.',
-      });
+      const netMsg = isId
+        ? 'Gagal terhubung ke server saat klaim tugas share. Kembali ke tab ini atau coba Salin Link.'
+        : 'Network error while claiming daily social share reward. Please retry or use Copy Link.';
+      setShareFeedback({ type: 'error', message: netMsg });
+      pushToast(netMsg, 'error');
     } finally {
       setClaimingSocialShare(null);
     }
@@ -3026,12 +3127,14 @@ export const RewardsPayoutSection: React.FC = () => {
           )}&url=${encodeURIComponent(shareUrl)}`;
           const fbHref = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
           const claimedToday = Boolean(summary?.dailySocialShareClaimedToday);
-          const busy = claimingSocialShare !== null || !dbAvailable;
+          const busy = claimingSocialShare !== null;
+          const canNativeShare =
+            typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
           return (
             <div className="space-y-3">
               <p className="text-xs text-[#D4D4D8]">{t.rewards.dailyShareHint}</p>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              <div className={`grid grid-cols-2 ${canNativeShare ? 'sm:grid-cols-6' : 'sm:grid-cols-5'} gap-2`}>
                 <a
                   href={waHref}
                   target="_blank"
@@ -3104,11 +3207,33 @@ export const RewardsPayoutSection: React.FC = () => {
                   <span>{claimingSocialShare === 'facebook' ? '...' : 'Facebook'}</span>
                 </a>
 
+                {canNativeShare && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleClaimDailySocialShare('native_share')}
+                    className={`min-h-[42px] px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-60 ${
+                      claimedToday
+                        ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200'
+                        : 'bg-[#181620] border-white/10 hover:border-amber-400/60 text-white'
+                    }`}
+                  >
+                    <Share2 className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                    <span className="truncate">
+                      {claimingSocialShare === 'native_share'
+                        ? '...'
+                        : isId
+                        ? 'Bagikan'
+                        : 'Share'}
+                    </span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   disabled={busy}
                   onClick={() => void handleClaimDailySocialShare('copy_link')}
-                  className={`col-span-2 sm:col-span-1 min-h-[42px] px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-60 ${
+                  className={`${canNativeShare ? '' : 'col-span-2 sm:col-span-1 '}min-h-[42px] px-3 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-60 ${
                     claimedToday
                       ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200'
                       : 'bg-[#D4AF37]/15 border-[#D4AF37]/40 hover:bg-[#D4AF37]/25 text-[#FDE68A]'
@@ -3128,6 +3253,24 @@ export const RewardsPayoutSection: React.FC = () => {
                   </span>
                 </button>
               </div>
+
+              {shareFeedback && (
+                <div
+                  role="status"
+                  className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                    shareFeedback.type === 'error'
+                      ? 'bg-red-500/10 border-red-500/30 text-red-200'
+                      : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                  }`}
+                >
+                  {shareFeedback.type === 'error' ? (
+                    <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  )}
+                  <span>{shareFeedback.message}</span>
+                </div>
+              )}
             </div>
           );
         })()}

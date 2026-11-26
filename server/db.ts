@@ -736,6 +736,16 @@ const SCHEMA_STATEMENTS: string[] = [
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `CREATE INDEX IF NOT EXISTS idx_email_credentials_uid ON email_credentials (uid)`,
+
+  `UPDATE user_security_signals
+   SET risk_flag = ARRAY_TO_STRING(ARRAY_REMOVE(STRING_TO_ARRAY(risk_flag, ','), 'multi_account_subnet'), ','),
+       suspicious_reason = CASE
+         WHEN suspicious_reason LIKE '%IP subnet in 24h%'
+          AND ARRAY_TO_STRING(ARRAY_REMOVE(STRING_TO_ARRAY(risk_flag, ','), 'multi_account_subnet'), ',') = ''
+         THEN ''
+         ELSE suspicious_reason
+       END
+   WHERE risk_flag LIKE '%multi_account_subnet%'`,
 ];
 
 export async function ensureDatabaseReady(): Promise<boolean> {
@@ -5521,7 +5531,12 @@ export async function claimDailySocialShareInDb(input: {
       `SELECT risk_flag FROM watch_telemetry WHERE user_id = $1 LIMIT 1`,
       [input.userId]
     );
-    if (secSigRes.rows[0]?.risk_flag || telRiskRes.rows[0]?.risk_flag) {
+    if (
+      hasBlockingAntiCheatRiskFlag(
+        secSigRes.rows[0]?.risk_flag,
+        telRiskRes.rows[0]?.risk_flag
+      )
+    ) {
       const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
       await client.query('COMMIT');
       return { ok: false, reason: 'anti_cheat_blocked', summary };
@@ -5900,7 +5915,12 @@ export async function claimEpisodeBonusInDb(input: {
       `SELECT risk_flag FROM watch_telemetry WHERE user_id = $1 LIMIT 1`,
       [input.userId]
     );
-    if (secSigRes.rows[0]?.risk_flag || telRiskRes.rows[0]?.risk_flag) {
+    if (
+      hasBlockingAntiCheatRiskFlag(
+        secSigRes.rows[0]?.risk_flag,
+        telRiskRes.rows[0]?.risk_flag
+      )
+    ) {
       const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
       await client.query('COMMIT');
       return { ok: false, reason: 'anti_cheat_blocked', summary };
@@ -6370,13 +6390,20 @@ export async function createPayoutRequestInDb(input: {
       [input.userId]
     );
 
-    const flags: string[] = [];
-    const reasons: string[] = [];
     const sigRow = signalRes.rows[0];
-    if (sigRow?.sec_risk) flags.push(sigRow.sec_risk);
-    if (sigRow?.sec_reason) reasons.push(sigRow.sec_reason);
-    if (sigRow?.tel_risk && !flags.includes(sigRow.tel_risk)) flags.push(sigRow.tel_risk);
-    if (sigRow?.tel_reason && !reasons.includes(sigRow.tel_reason)) reasons.push(sigRow.tel_reason);
+    const flags: string[] = getBlockingRiskFlagList(
+      sigRow?.sec_risk,
+      sigRow?.tel_risk
+    );
+    const reasons: string[] = [];
+    if (flags.length > 0) {
+      if (sigRow?.sec_reason && !sigRow.sec_reason.includes('IP subnet in 24h')) {
+        reasons.push(sigRow.sec_reason);
+      }
+      if (sigRow?.tel_reason && !reasons.includes(sigRow.tel_reason)) {
+        reasons.push(sigRow.tel_reason);
+      }
+    }
 
     if (sharedDestRes.rows.length > 0) {
       flags.push('shared_destination_account');
@@ -6945,6 +6972,29 @@ export async function listLivePayoutFeedFromDb(
 
 // --- Referral System (1-Hour Verified Active Watch) & Multi-Layer Anti-Cheat ---
 
+const NON_BLOCKING_LEGACY_RISK_FLAGS = new Set(['multi_account_subnet']);
+
+export function getBlockingRiskFlagList(
+  ...rawFlags: Array<string | null | undefined>
+): string[] {
+  const result: string[] = [];
+  for (const raw of rawFlags) {
+    if (!raw) continue;
+    for (const part of String(raw).split(',')) {
+      const cleaned = part.trim();
+      if (!cleaned || NON_BLOCKING_LEGACY_RISK_FLAGS.has(cleaned)) continue;
+      if (!result.includes(cleaned)) result.push(cleaned);
+    }
+  }
+  return result;
+}
+
+export function hasBlockingAntiCheatRiskFlag(
+  ...rawFlags: Array<string | null | undefined>
+): boolean {
+  return getBlockingRiskFlagList(...rawFlags).length > 0;
+}
+
 export async function recordUserSecuritySignalInDb(input: {
   userId: string;
   ipHash: string;
@@ -6991,6 +7041,10 @@ export async function recordUserSecuritySignalInDb(input: {
     let riskFlag = '';
     let suspiciousReason = '';
 
+    // NOTE: Do not block /24 IPv4 or /48 IPv6 subnet sharing here because mobile carrier CGNAT
+    // (e.g. Telkomsel, XL, Indosat) and shared Wi-Fi networks routinely assign 5+ legitimate
+    // unrelated users to the same /24 prefix. Genuine self-referral / multi-account farming
+    // is still strictly caught by referral IP+UA/device matching and payout destination checks.
     if (input.deviceHash) {
       const devCluster = await client.query<{ cnt: string }>(
         `SELECT COUNT(DISTINCT user_id)::text AS cnt
@@ -6998,22 +7052,9 @@ export async function recordUserSecuritySignalInDb(input: {
          WHERE device_hash = $1 AND last_seen_at >= NOW() - INTERVAL '7 days'`,
         [input.deviceHash]
       );
-      if ((Number(devCluster.rows[0]?.cnt) || 0) >= 3) {
+      if ((Number(devCluster.rows[0]?.cnt) || 0) >= 5) {
         riskFlag = 'multi_account_device';
-        suspiciousReason = '3+ accounts detected sharing identical device fingerprint';
-      }
-    }
-
-    if (!riskFlag && input.subnetHash) {
-      const netCluster = await client.query<{ cnt: string }>(
-        `SELECT COUNT(DISTINCT user_id)::text AS cnt
-         FROM user_security_signals
-         WHERE subnet_hash = $1 AND last_seen_at >= NOW() - INTERVAL '24 hours'`,
-        [input.subnetHash]
-      );
-      if ((Number(netCluster.rows[0]?.cnt) || 0) >= 5) {
-        riskFlag = 'multi_account_subnet';
-        suspiciousReason = '5+ accounts detected from identical IP subnet in 24h';
+        suspiciousReason = '5+ accounts detected sharing identical device fingerprint';
       }
     }
 
@@ -8045,22 +8086,26 @@ export async function recordWatchHeartbeatInDb(input: {
 
     // 5. Timestamp delta check (reject faster than real time)
     if (wallElapsedMs < ANTI_CHEAT_DEFAULTS.minHeartbeatIntervalSec * 1000 - 400) {
-      fastStrikes += 1;
-      if (
-        fastStrikes >= ANTI_CHEAT_DEFAULTS.maxFastDeltaStrikes &&
-        !riskFlag.includes('heartbeat_flood')
-      ) {
-        riskFlag = riskFlag ? `${riskFlag},heartbeat_flood` : 'heartbeat_flood';
-        suspiciousReason = suspiciousReason
-          ? `${suspiciousReason}; Rapid heartbeat flood detected`
-          : 'Rapid heartbeat flood detected';
+      // Only penalize rapid automated bursts (< 8s); moderate network RTT jitter (8s-11.6s)
+      // is cleanly rejected without permanently flagging the user's account.
+      if (wallElapsedMs < 8_000) {
+        fastStrikes += 1;
+        if (
+          fastStrikes >= ANTI_CHEAT_DEFAULTS.maxFastDeltaStrikes &&
+          !riskFlag.includes('heartbeat_flood')
+        ) {
+          riskFlag = riskFlag ? `${riskFlag},heartbeat_flood` : 'heartbeat_flood';
+          suspiciousReason = suspiciousReason
+            ? `${suspiciousReason}; Rapid heartbeat flood detected`
+            : 'Rapid heartbeat flood detected';
+        }
+        await client.query(
+          `UPDATE watch_telemetry
+           SET fast_delta_strikes = $2, risk_flag = $3, suspicious_reason = $4, updated_at = NOW()
+           WHERE user_id = $1`,
+          [input.userId, fastStrikes, riskFlag.slice(0, 120), suspiciousReason.slice(0, 300)]
+        );
       }
-      await client.query(
-        `UPDATE watch_telemetry
-         SET fast_delta_strikes = $2, risk_flag = $3, suspicious_reason = $4, updated_at = NOW()
-         WHERE user_id = $1`,
-        [input.userId, fastStrikes, riskFlag.slice(0, 120), suspiciousReason.slice(0, 300)]
-      );
       const ptsState = await getQuickPointsStatePg(client, input.userId, periodStartAt, nextResetAt);
       await client.query('COMMIT');
       return {
@@ -8192,6 +8237,8 @@ export async function recordWatchHeartbeatInDb(input: {
            active_stream_media_key = $6,
            last_heartbeat_at = NOW(),
            last_video_time_sec = $7,
+           fast_delta_strikes = GREATEST(0, fast_delta_strikes - 1),
+           concurrent_tab_strikes = GREATEST(0, concurrent_tab_strikes - 1),
            updated_at = NOW()
        WHERE user_id = $1`,
       [
@@ -8219,7 +8266,11 @@ export async function recordWatchHeartbeatInDb(input: {
       `SELECT risk_flag FROM user_security_signals WHERE user_id = $1`,
       [input.userId]
     );
-    const hasRiskFlag = Boolean(riskFlag || secCheckSelf.rows[0]?.risk_flag);
+    const blockingRiskFlags = getBlockingRiskFlagList(
+      riskFlag,
+      secCheckSelf.rows[0]?.risk_flag
+    );
+    const hasRiskFlag = blockingRiskFlags.length > 0;
     const missionGrant = await grantWatchMissionPointsPg(
       client,
       input.userId,
@@ -8273,7 +8324,7 @@ export async function recordWatchHeartbeatInDb(input: {
                  suspicious_reason = 'Referee flagged by anti-cheat during 1-hour verification',
                  updated_at = NOW()
              WHERE id = $1`,
-            [pendingRef.id, riskFlag || secCheckSelf.rows[0]?.risk_flag || 'anti_cheat_flag']
+            [pendingRef.id, blockingRiskFlags.join(',').slice(0, 120) || 'anti_cheat_flag']
           );
         } else if (
           dailyCnt < cfg.maxDailyReferrals &&
@@ -8361,8 +8412,9 @@ export async function recordWatchHeartbeatInDb(input: {
                LEFT JOIN watch_telemetry t ON t.user_id = base.uid`,
               [qualRef.referrer_uid]
             );
-            const referrerRisk = Boolean(
-              referrerRiskRes.rows[0]?.sec_risk || referrerRiskRes.rows[0]?.tel_risk
+            const referrerRisk = hasBlockingAntiCheatRiskFlag(
+              referrerRiskRes.rows[0]?.sec_risk,
+              referrerRiskRes.rows[0]?.tel_risk
             );
             if (!referrerRisk) {
               await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [

@@ -528,6 +528,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   } | null>(null);
   const lastWatchHeartbeatSentAtRef = useRef<number>(0);
   const lastWatchHeartbeatMediaRef = useRef<string>('');
+  const watchHeartbeatInFlightRef = useRef<boolean>(false);
   const episodeBonusAttemptedRef = useRef<Set<string>>(new Set());
   const [helpModalOpen, setHelpModalOpen] = useState(false);
 
@@ -689,7 +690,18 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         return inFlight.promise;
       }
 
-      const previousSessionToken = cached?.token;
+      const activeUid = user?.uid || '';
+      const tabSessionStorageKey = activeUid ? `kanodrama_watch_sess_v1:${activeUid}` : '';
+      let storedPrevToken = '';
+      if (!cached?.token && tabSessionStorageKey && typeof window !== 'undefined') {
+        try {
+          storedPrevToken = window.sessionStorage.getItem(tabSessionStorageKey) || '';
+        } catch {
+          storedPrevToken = '';
+        }
+      }
+      const previousSessionToken = cached?.token || storedPrevToken || undefined;
+
       const promise = (async (): Promise<string | null> => {
         try {
           const res = await fetch('/api/watch/session', {
@@ -722,6 +734,13 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
               token: data.sessionToken,
               seq: 0,
             };
+            if (tabSessionStorageKey && typeof window !== 'undefined') {
+              try {
+                window.sessionStorage.setItem(tabSessionStorageKey, data.sessionToken);
+              } catch {
+                // Ignore sessionStorage restriction
+              }
+            }
             return data.sessionToken;
           }
         } catch {
@@ -737,7 +756,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       watchSessionPromiseRef.current = { mediaKey, promise };
       return promise;
     },
-    [getAuthHeaders]
+    [getAuthHeaders, user?.uid]
   );
 
   const [accentTheme, setAccentThemeState] = useState<AccentThemeId>(() => {
@@ -2809,13 +2828,14 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           !isNewMedia &&
           watchSessionTokenRef.current?.mediaKey === epSessionKey &&
           exactVideoTime > 0 &&
-          elapsedSinceHb >= 12_500;
+          elapsedSinceHb >= 12_200;
         const shouldSendRegularHb =
           !immediate &&
           isPlaying &&
           (isNewMedia || elapsedSinceHb >= 15_000);
 
         if (
+          !watchHeartbeatInFlightRef.current &&
           tabVisible &&
           !isBuffering &&
           playbackRate >= 0.75 &&
@@ -2826,6 +2846,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           const prevHbSentAt = lastWatchHeartbeatSentAtRef.current;
           lastWatchHeartbeatMediaRef.current = epSessionKey;
           lastWatchHeartbeatSentAtRef.current = nowMs;
+          watchHeartbeatInFlightRef.current = true;
 
           void (async () => {
             const sessionToken = await ensureWatchSessionToken(
@@ -2894,6 +2915,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
               setPointsDbError(
                 hb?.error || 'Database PostgreSQL belum terhubung (periksa DATABASE_URL).'
               );
+              lastWatchHeartbeatSentAtRef.current = Date.now();
               return;
             }
             if (
@@ -2911,12 +2933,10 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
             if (hb) {
               setPointsDbConnected(true);
               setPointsDbError(null);
-              if (hb.reason === 'session_started') {
-                lastWatchHeartbeatSentAtRef.current = Math.max(
-                  lastWatchHeartbeatSentAtRef.current,
-                  Date.now()
-                );
-              }
+              lastWatchHeartbeatSentAtRef.current =
+                hb.reason === 'heartbeat_too_fast'
+                  ? Date.now() + 3_000
+                  : Date.now();
               if (typeof hb.todayWatchSeconds === 'number') {
                 setTodayWatchSeconds(Math.max(0, Math.floor(hb.todayWatchSeconds)));
               }
@@ -2987,13 +3007,19 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
                   })
                 );
               }
+            } else {
+              lastWatchHeartbeatSentAtRef.current = Date.now();
             }
-          })().catch(() => {
-            if (lastWatchHeartbeatMediaRef.current === epSessionKey) {
-              lastWatchHeartbeatMediaRef.current = prevHbMedia;
-              lastWatchHeartbeatSentAtRef.current = prevHbSentAt;
-            }
-          });
+          })()
+            .catch(() => {
+              if (lastWatchHeartbeatMediaRef.current === epSessionKey) {
+                lastWatchHeartbeatMediaRef.current = prevHbMedia;
+                lastWatchHeartbeatSentAtRef.current = prevHbSentAt;
+              }
+            })
+            .finally(() => {
+              watchHeartbeatInFlightRef.current = false;
+            });
         }
       }
     },

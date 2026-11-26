@@ -2630,7 +2630,8 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
               onTimeUpdate={() => {
                 const v = videoRef.current;
                 if (!v) return;
-                if (isBuffering && v.readyState >= 3 && !v.paused) {
+                const stillBuffering = isBuffering && v.readyState < 3;
+                if (stillBuffering !== isBuffering && !stillBuffering && !v.paused) {
                   setIsBuffering(false);
                 }
                 if (v.currentTime > 0 && !videoReady) {
@@ -2647,7 +2648,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
                     false,
                     {
                       isPlaying: !v.paused && !v.ended,
-                      isBuffering,
+                      isBuffering: stillBuffering,
                       playbackRate: Number(v.playbackRate) || playbackSpeed,
                     }
                   );
