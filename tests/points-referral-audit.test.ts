@@ -17,6 +17,7 @@ import {
   startWatchSessionInDb,
 } from '../server/db';
 import { createServerApp, signAuthSessionToken } from '../server';
+import { getTelegramAdminChatId } from '../server/config';
 import {
   clearTelegramThrottleCacheForTests,
   formatTelegramWithdrawMessage,
@@ -24,6 +25,7 @@ import {
   notifyAdminTelegramCriticalError,
   notifyAdminTelegramNewUser,
   notifyAdminTelegramNewWithdrawal,
+  notifyAdminTelegramPointsEarned,
   notifyAdminTelegramReferralQualified,
 } from '../server/telegramNotify';
 import { getProductionReferralUrl } from '../src/config/auth';
@@ -4194,5 +4196,328 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(aliceFinalRefMe.referralSummary.referrals[0].ongoingBonusEarned, 5000);
     assert.equal(aliceFinalRefMe.referralSummary.referrals[0].nextOngoingTargetSeconds, null);
     assert.equal(aliceFinalRefMe.referralSummary.stats.totalBonusEarned, 10000);
+  });
+
+  await t.test('20. Telegram Env Fallback (TELEGRAM_CHAT_ID), 429 Queue Retry & E2E Notifications Across Registration, All Earning Events & Withdraw', async () => {
+    const { mockPool, state } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+    clearTelegramThrottleCacheForTests();
+
+    // A. Env lookup reads TELEGRAM_ADMIN_CHAT_ID or falls back to TELEGRAM_CHAT_ID after trim()
+    delete process.env.TELEGRAM_ADMIN_CHAT_ID;
+    delete process.env.TELEGRAM_CHAT_ID;
+    assert.equal(getTelegramAdminChatId(), '');
+
+    process.env.TELEGRAM_ADMIN_CHAT_ID = '   ';
+    process.env.TELEGRAM_CHAT_ID = '  -100777888999  ';
+    assert.equal(getTelegramAdminChatId(), '-100777888999');
+
+    process.env.TELEGRAM_ADMIN_CHAT_ID = '  -100111222333  ';
+    assert.equal(getTelegramAdminChatId(), '-100111222333');
+
+    // B. Queue handles HTTP 429 with retry_after cleanly and logs/recovers without throwing
+    process.env.TELEGRAM_BOT_TOKEN = '999888:TEST_QUEUE_TOKEN';
+    delete process.env.TELEGRAM_ADMIN_CHAT_ID;
+    process.env.TELEGRAM_CHAT_ID = '-100777888999';
+
+    let attempt429 = 0;
+    const retryRes = await notifyAdminTelegramPointsEarned(
+      {
+        userId: 'user-retry',
+        userDisplayName: 'Retry Tester',
+        userEmail: 'retry.user@gmail.com',
+        eventType: 'daily_checkin',
+        points: 1000,
+        balanceAfter: 26000,
+        streakDay: 1,
+        levelInfo: { level: 1, tierName: 'Bronze', multiplier: 1 },
+      },
+      {
+        minIntervalMs: 0,
+        fetchImpl: async () => {
+          attempt429 += 1;
+          if (attempt429 === 1) {
+            return new Response(
+              JSON.stringify({ ok: false, error_code: 429, parameters: { retry_after: 1 } }),
+              { status: 429, headers: { 'Content-Type': 'application/json' } }
+            );
+          }
+          return new Response(
+            JSON.stringify({ ok: true, result: { message_id: 501 } }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        },
+      }
+    );
+    assert.equal(attempt429, 2);
+    assert.equal(retryRes.sent, true);
+
+    // C. E2E HTTP route triggers (registration +25k, check-in, share, watch minute, milestone, episode, bind referral, referral qualify, ongoing referral, withdraw)
+    clearTelegramThrottleCacheForTests();
+    const capturedTelegramMessages: Array<{ chatId: string; text: string }> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.startsWith('https://api.telegram.org/bot')) {
+        const body = JSON.parse(String(init?.body || '{}')) as { chat_id?: string; text?: string };
+        capturedTelegramMessages.push({
+          chatId: String(body.chat_id || ''),
+          text: String(body.text || ''),
+        });
+        return new Response(
+          JSON.stringify({ ok: true, result: { message_id: capturedTelegramMessages.length } }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    try {
+      // Seed Referrer Alice
+      state.users.set('user-alice-tg', {
+        uid: 'user-alice-tg',
+        email: 'alice.tg@gmail.com',
+        display_name: 'Alice Referrer',
+        referral_code: 'KDA11CE99',
+        referred_by: null,
+        streak_count: 1,
+        last_visit_date: getJakartaDateKey(),
+        is_vip: false,
+      });
+
+      // 1. Register Bob via /api/auth/email/register -> triggers NewUser (+25,000 welcome bonus)
+      const regRes = await fetch(`${baseUrl}/api/auth/email/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-forwarded-for': '203.0.113.10',
+          'user-agent': 'KanoTestBrowser/1.0',
+          'x-device-fingerprint': 'dev-bob-tg-e2e',
+        },
+        body: JSON.stringify({
+          email: 'bob.tg.e2e@gmail.com',
+          password: 'password123',
+          displayName: 'Bob E2E',
+        }),
+      });
+      assert.equal(regRes.status, 201);
+      const regJson = await regRes.json();
+      assert.equal(regJson.firstLoginBonusAwarded, 25000);
+      const bobUid = regJson.user.uid as string;
+      const bobToken = regJson.sessionToken as string;
+
+      // 2. Bind Referral via /api/referrals/bind -> triggers +200 bind referral notification
+      const bindRes = await fetch(`${baseUrl}/api/referrals/bind`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bobToken}`,
+          'x-forwarded-for': '203.0.113.10',
+          'user-agent': 'KanoTestBrowser/1.0',
+          'x-device-fingerprint': 'dev-bob-tg-e2e',
+        },
+        body: JSON.stringify({ referralCode: 'KDA11CE99' }),
+      });
+      assert.equal(bindRes.status, 200);
+      assert.equal((await bindRes.json()).bindBonusAwarded, 200);
+
+      // 3. Daily Check-in -> triggers +1,000 checkin notification
+      const checkinRes = await fetch(`${baseUrl}/api/points/claim`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bobToken}`,
+        },
+        body: JSON.stringify({ action: 'daily_checkin' }),
+      });
+      assert.equal(checkinRes.status, 200);
+
+      // 4. Daily Social Share -> triggers +1,000 share notification
+      const shareRes = await fetch(`${baseUrl}/api/points/claim`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bobToken}`,
+        },
+        body: JSON.stringify({ action: 'daily_social_share', channel: 'telegram' }),
+      });
+      assert.equal(shareRes.status, 200);
+
+      // 5. Watch session + heartbeats -> triggers +40 watch_minute, +300 watch_milestone, +500 watch_episode, +5,000 referral_qualify, +500 referral_ongoing
+      const sessRes = await fetch(`${baseUrl}/api/watch/session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bobToken}`,
+        },
+        body: JSON.stringify({
+          dramaId: 'd-tg-1',
+          provider: 'DramaBoxV2',
+          episodeNumber: 1,
+        }),
+      });
+      assert.equal(sessRes.status, 201);
+      const { sessionToken: watchSess } = await sessRes.json();
+
+      // Baseline heartbeat
+      await fetch(`${baseUrl}/api/watch/heartbeat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bobToken}`,
+        },
+        body: JSON.stringify({
+          sessionToken: watchSess,
+          seq: 1,
+          dramaId: 'd-tg-1',
+          provider: 'DramaBoxV2',
+          episodeNumber: 1,
+          currentTimeSec: 5,
+          isPlaying: true,
+          isBuffering: false,
+          tabVisible: true,
+          playbackRate: 1,
+        }),
+      });
+
+      // Advance 65s -> crosses 1st minute (+40 pts) & >= 20s episode threshold
+      state.telemetry.get(bobUid)!.last_heartbeat_at = new Date(Date.now() - 65_000);
+      const hbMinRes = await fetch(`${baseUrl}/api/watch/heartbeat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bobToken}`,
+        },
+        body: JSON.stringify({
+          sessionToken: watchSess,
+          seq: 2,
+          dramaId: 'd-tg-1',
+          provider: 'DramaBoxV2',
+          episodeNumber: 1,
+          currentTimeSec: 70,
+          isPlaying: true,
+          isBuffering: false,
+          tabVisible: true,
+          playbackRate: 1,
+        }),
+      });
+      assert.equal(hbMinRes.status, 200);
+      const hbMinJson = await hbMinRes.json();
+      assert.equal(hbMinJson.awardedWatchPoints, 40);
+
+      // Claim Episode Bonus (+500 pts)
+      const epClaimRes = await fetch(`${baseUrl}/api/points/claim`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bobToken}`,
+        },
+        body: JSON.stringify({
+          action: 'watch_episode',
+          dramaId: 'd-tg-1',
+          provider: 'DramaBoxV2',
+          episodeNumber: 1,
+          title: 'CEO Secret Wife',
+          sessionToken: watchSess,
+        }),
+      });
+      assert.equal(epClaimRes.status, 200);
+
+      // Advance today_watch_seconds >= 900 (15m) & verified_watch_seconds >= 7190 so next heartbeat triggers referral_qualify + referral_ongoing
+      state.telemetry.get(bobUid)!.today_watch_seconds = 900;
+      state.telemetry.get(bobUid)!.verified_watch_seconds = 7190;
+      state.telemetry.get(bobUid)!.last_heartbeat_at = new Date(Date.now() - 25_000);
+      const hbRefRes = await fetch(`${baseUrl}/api/watch/heartbeat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bobToken}`,
+        },
+        body: JSON.stringify({
+          sessionToken: watchSess,
+          seq: 3,
+          dramaId: 'd-tg-1',
+          provider: 'DramaBoxV2',
+          episodeNumber: 1,
+          currentTimeSec: 95,
+          isPlaying: true,
+          isBuffering: false,
+          tabVisible: true,
+          playbackRate: 1,
+        }),
+      });
+      assert.equal(hbRefRes.status, 200);
+      const hbRefJson = await hbRefRes.json();
+      assert.equal(hbRefJson.referralQualified, true);
+      assert.equal(hbRefJson.referralOngoingBonusAwarded, 500);
+
+      // Claim 15m Watch Milestone (+300 pts)
+      const msClaimRes = await fetch(`${baseUrl}/api/points/claim`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bobToken}`,
+        },
+        body: JSON.stringify({ action: 'watch_milestone', milestoneMinutes: 15 }),
+      });
+      assert.equal(msClaimRes.status, 200);
+
+      // Seed extra balance so Bob can submit a valid IDR withdrawal >= Rp 50.000
+      state.ledger.push({
+        id: 'seed-bob-wd',
+        user_id: bobUid,
+        type: 'earn',
+        points: 300000,
+        description: 'Seed for withdraw notification test',
+        reference_id: 'seed:bob-wd:1',
+        balance_after: 330000,
+        created_at: new Date(),
+      });
+
+      const wdRes = await fetch(`${baseUrl}/api/points/redeem`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bobToken}`,
+        },
+        body: JSON.stringify({
+          method: 'dana',
+          pointsSpent: 300000,
+          destinationAccount: '081234567890',
+          accountHolderName: 'Bob E2E',
+          idempotencyKey: 'tg-e2e-wd-1',
+        }),
+      });
+      assert.equal(wdRes.status, 201);
+
+      // Wait for serialized Telegram FIFO queue (11 messages * 1.1s spacing -> poll up to 18s)
+      const deadline = Date.now() + 18_000;
+      while (capturedTelegramMessages.length < 11 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 150));
+      }
+
+      const allTexts = capturedTelegramMessages.map((m) => m.text);
+      assert.ok(
+        capturedTelegramMessages.length >= 11 &&
+          capturedTelegramMessages.every((m) => m.chatId === '-100777888999'),
+        'All messages must target TELEGRAM_CHAT_ID fallback'
+      );
+      assert.ok(allTexts.some((t) => /Pendaftaran Pengguna Baru/.test(t) && /\+25\.000 poin/.test(t)), 'Missing NewUser +25.000 notification');
+      assert.ok(allTexts.some((t) => /Bonus Bind Kode Referral/.test(t) && /\+200 poin/.test(t)), 'Missing Bind Referral +200 notification');
+      assert.ok(allTexts.some((t) => /Check-in Harian/.test(t) && /\+1\.000 poin/.test(t)), 'Missing Check-in notification');
+      assert.ok(allTexts.some((t) => /Tugas Harian Share Sosmed/.test(t) && /\+1\.000 poin/.test(t)), 'Missing Social Share notification');
+      assert.ok(allTexts.some((t) => /Poin Nonton Aktif/.test(t) && /\+40 poin/.test(t)), 'Missing Watch Minute +40 notification');
+      assert.ok(allTexts.some((t) => /Bonus Selesai Episode/.test(t) && /\+500 poin/.test(t)), 'Missing Episode Bonus +500 notification');
+      assert.ok(allTexts.some((t) => /Referral Valid Tercapai/.test(t) && /\+5\.000 poin/.test(t)), 'Missing Referral Qualified +5.000 notification');
+      assert.ok(allTexts.some((t) => /Bonus Lanjutan Referral Valid/.test(t) && /\+500 poin/.test(t)), 'Missing Ongoing Referral +500 notification');
+      assert.ok(allTexts.some((t) => /Milestone Nonton Aktif/.test(t) && /\+(300|360) poin/.test(t)), 'Missing Watch Milestone notification');
+      assert.ok(allTexts.some((t) => /Pengajuan Withdraw Baru/.test(t) && /300\.000 poin/.test(t)), 'Missing Withdraw notification');
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete process.env.TELEGRAM_BOT_TOKEN;
+      delete process.env.TELEGRAM_ADMIN_CHAT_ID;
+      delete process.env.TELEGRAM_CHAT_ID;
+      clearTelegramThrottleCacheForTests();
+    }
   });
 });

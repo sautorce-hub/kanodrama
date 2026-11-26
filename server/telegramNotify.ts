@@ -33,9 +33,45 @@ export interface TelegramNewUserNotificationInput {
 export interface TelegramReferralQualifiedInput {
   refereeUid: string;
   refereeDisplayName?: string;
+  referrerUid?: string;
   verifiedWatchSeconds: number;
   bonusPoints?: number;
   qualifiedAt?: string;
+}
+
+export type TelegramPointsEarnedEventType =
+  | 'welcome_login'
+  | 'daily_checkin'
+  | 'watch_minute'
+  | 'watch_milestone'
+  | 'daily_social_share'
+  | 'watch_episode'
+  | 'referral_bind'
+  | 'referral_ongoing';
+
+export interface TelegramPointsEarnedInput {
+  userId: string;
+  userEmail?: string;
+  userDisplayName?: string;
+  eventType: TelegramPointsEarnedEventType;
+  points: number;
+  balanceAfter?: number | null;
+  levelInfo?: TelegramWithdrawLevelInfo | null;
+  streakDay?: number;
+  milestoneMinutes?: number;
+  channel?: string;
+  provider?: string;
+  dramaId?: string;
+  dramaTitle?: string;
+  episodeNumber?: number;
+  todayWatchSeconds?: number;
+  verifiedWatchSeconds?: number;
+  referralCode?: string;
+  refereeUid?: string;
+  refereeDisplayName?: string;
+  ongoingStep?: number;
+  occurredAt?: string;
+  maskEmail?: boolean;
 }
 
 export interface TelegramCriticalErrorInput {
@@ -51,6 +87,7 @@ export interface TelegramSendOptions {
   throttleKey?: string;
   throttleMs?: number;
   bypassThrottle?: boolean;
+  minIntervalMs?: number;
 }
 
 export interface TelegramSendResult {
@@ -63,15 +100,37 @@ export interface TelegramSendResult {
 const DEFAULT_ERROR_THROTTLE_MS = 5 * 60_000;
 const DEFAULT_EVENT_DEDUP_MS = 24 * 60 * 60_000;
 const DEFAULT_WITHDRAW_DEDUP_MS = 60_000;
-const GLOBAL_BURST_WINDOW_MS = 60_000;
-const GLOBAL_BURST_MAX_MESSAGES = 25;
+const DEFAULT_MIN_SEND_INTERVAL_MS = 1_100;
+const MAX_QUEUE_SIZE = 120;
+const MAX_429_RETRIES = 1;
+const MISSING_ENV_WARN_COOLDOWN_MS = 10 * 60_000;
+
+interface QueuedTelegramTask {
+  contextTag: string;
+  minIntervalMs: number;
+  run: () => Promise<TelegramSendResult>;
+  resolve: (result: TelegramSendResult) => void;
+}
 
 const telegramCooldownMap = new Map<string, number>();
-let globalRecentSends: number[] = [];
+const telegramSendQueue: QueuedTelegramTask[] = [];
+let telegramQueueRunning = false;
+let lastTelegramSendFinishedAt = 0;
+let nextAllowedSendAt = 0;
+let lastMissingEnvWarnAt = 0;
 
 export function clearTelegramThrottleCacheForTests(): void {
   telegramCooldownMap.clear();
-  globalRecentSends = [];
+  telegramSendQueue.length = 0;
+  telegramQueueRunning = false;
+  lastTelegramSendFinishedAt = 0;
+  nextAllowedSendAt = 0;
+  lastMissingEnvWarnAt = 0;
+}
+
+function sleepMs(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function escapeTelegramHtml(raw: unknown): string {
@@ -155,13 +214,85 @@ function shouldThrottleTelegramEvent(
     }
   }
 
-  const cutoff = now - GLOBAL_BURST_WINDOW_MS;
-  globalRecentSends = globalRecentSends.filter((ts) => ts > cutoff);
-  if (globalRecentSends.length >= GLOBAL_BURST_MAX_MESSAGES) {
-    return true;
-  }
-  globalRecentSends.push(now);
   return false;
+}
+
+async function drainTelegramQueue(): Promise<void> {
+  if (telegramQueueRunning) return;
+  telegramQueueRunning = true;
+  try {
+    while (telegramSendQueue.length > 0) {
+      const task = telegramSendQueue.shift();
+      if (!task) continue;
+
+      const now = Date.now();
+      const targetAt = Math.max(
+        lastTelegramSendFinishedAt > 0 ? lastTelegramSendFinishedAt + task.minIntervalMs : 0,
+        nextAllowedSendAt
+      );
+      if (targetAt > now) {
+        await sleepMs(targetAt - now);
+      }
+
+      let result: TelegramSendResult;
+      try {
+        result = await task.run();
+      } catch (err) {
+        console.error(
+          `[Telegram] Unexpected queue error on ${task.contextTag}:`,
+          sanitizeTelegramErrorText(err instanceof Error ? `${err.name}: ${err.message}` : err)
+        );
+        result = { sent: false };
+      } finally {
+        lastTelegramSendFinishedAt = Date.now();
+      }
+
+      task.resolve(result);
+    }
+  } finally {
+    telegramQueueRunning = false;
+    if (telegramSendQueue.length > 0) {
+      void drainTelegramQueue();
+    }
+  }
+}
+
+function enqueueTelegramSend(
+  contextTag: string,
+  minIntervalMs: number,
+  run: () => Promise<TelegramSendResult>
+): Promise<TelegramSendResult> {
+  if (telegramSendQueue.length >= MAX_QUEUE_SIZE) {
+    console.error(
+      `[Telegram] Queue full (${MAX_QUEUE_SIZE} pending), dropping ${contextTag}`
+    );
+    return Promise.resolve({ sent: false, skipped: true, throttled: true });
+  }
+  return new Promise<TelegramSendResult>((resolve) => {
+    telegramSendQueue.push({ contextTag, minIntervalMs, run, resolve });
+    void drainTelegramQueue();
+  });
+}
+
+async function parseRetryAfterMs(res: Response, bodyText: string, isCustomFetch: boolean): Promise<number> {
+  let retryAfterSec = 0;
+  try {
+    const parsed = JSON.parse(bodyText) as { parameters?: { retry_after?: number } };
+    const paramSec = Number(parsed?.parameters?.retry_after);
+    if (Number.isFinite(paramSec) && paramSec > 0) {
+      retryAfterSec = paramSec;
+    }
+  } catch {
+    // Ignore non-JSON response body
+  }
+  if (retryAfterSec <= 0) {
+    const headerVal = Number(res.headers.get('retry-after'));
+    if (Number.isFinite(headerVal) && headerVal > 0) {
+      retryAfterSec = headerVal;
+    }
+  }
+  const boundedSec = Math.max(1, Math.min(isCustomFetch ? 2 : 15, Math.ceil(retryAfterSec || 2)));
+  return boundedSec * 1000;
 }
 
 async function sendTelegramGroupMessage(
@@ -172,6 +303,13 @@ async function sendTelegramGroupMessage(
   const token = getTelegramBotToken();
   const chatId = getTelegramAdminChatId();
   if (!token || !chatId) {
+    const now = Date.now();
+    if (now - lastMissingEnvWarnAt >= MISSING_ENV_WARN_COOLDOWN_MS) {
+      lastMissingEnvWarnAt = now;
+      console.warn(
+        `[Telegram] Notification skipped for ${contextTag}: TELEGRAM_BOT_TOKEN or TELEGRAM_ADMIN_CHAT_ID/TELEGRAM_CHAT_ID is empty`
+      );
+    }
     return { sent: false, skipped: true };
   }
 
@@ -190,36 +328,89 @@ async function sendTelegramGroupMessage(
     return { sent: false, skipped: true, throttled: true };
   }
 
+  const isCustomFetch = Boolean(options?.fetchImpl);
+  const minIntervalMs = Math.max(
+    0,
+    Number.isFinite(Number(options?.minIntervalMs))
+      ? Number(options?.minIntervalMs)
+      : DEFAULT_MIN_SEND_INTERVAL_MS
+  );
   const endpoint = `https://api.telegram.org/bot${encodeURIComponent(token)}/sendMessage`;
+  const payloadBody = JSON.stringify({
+    chat_id: chatId,
+    text,
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
+  });
 
-  try {
-    const res = await fetchFn(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: true,
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
+  return enqueueTelegramSend(contextTag, minIntervalMs, async () => {
+    for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt += 1) {
+      try {
+        const res = await fetchFn(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: payloadBody,
+          signal: AbortSignal.timeout(8000),
+        });
 
-    if (!res.ok) {
-      console.warn(`[Telegram] ${contextTag} returned HTTP ${res.status}`);
-      return { sent: false, statusCode: res.status };
+        let rawBody = '';
+        try {
+          rawBody = await res.text();
+        } catch {
+          rawBody = '';
+        }
+
+        if (res.status === 429 && attempt < MAX_429_RETRIES) {
+          const waitMs = await parseRetryAfterMs(res, rawBody, isCustomFetch);
+          nextAllowedSendAt = Date.now() + waitMs;
+          console.error(
+            `[Telegram] Rate limited (HTTP 429) on ${contextTag} -> chat=${chatId}, retrying in ${waitMs}ms`
+          );
+          await sleepMs(waitMs);
+          continue;
+        }
+
+        if (!res.ok) {
+          const detail = sanitizeTelegramErrorText(rawBody || res.statusText || `HTTP ${res.status}`);
+          console.error(
+            `[Telegram] Failed ${contextTag} -> chat=${chatId} (HTTP ${res.status}): ${detail}`
+          );
+          return { sent: false, statusCode: res.status };
+        }
+
+        let messageId: number | string | undefined;
+        try {
+          const parsed = JSON.parse(rawBody) as { ok?: boolean; result?: { message_id?: number } };
+          if (parsed?.ok === false) {
+            const detail = sanitizeTelegramErrorText(rawBody);
+            console.error(
+              `[Telegram] API rejected ${contextTag} -> chat=${chatId}: ${detail}`
+            );
+            return { sent: false, statusCode: res.status };
+          }
+          messageId = parsed?.result?.message_id;
+        } catch {
+          // Allow minimal 200 OK JSON or empty test responses
+        }
+
+        console.log(
+          `[Telegram] Sent ${contextTag} -> chat=${chatId} (HTTP ${res.status}${messageId ? `, message_id=${messageId}` : ''})`
+        );
+        return { sent: true, statusCode: res.status };
+      } catch (err) {
+        const detail = sanitizeTelegramErrorText(
+          err instanceof Error ? `${err.name}: ${err.message}` : err
+        );
+        console.error(
+          `[Telegram] Error sending ${contextTag} -> chat=${chatId}: ${detail}`
+        );
+        return { sent: false };
+      }
     }
-
-    return { sent: true, statusCode: res.status };
-  } catch (err) {
-    console.warn(
-      `[Telegram] ${contextTag} failed:`,
-      err instanceof Error ? err.name : 'UnknownError'
-    );
-    return { sent: false };
-  }
+    return { sent: false, statusCode: 429 };
+  });
 }
 
 export function formatTelegramWithdrawMessage(
@@ -376,12 +567,19 @@ export function formatTelegramReferralQualifiedMessage(
   const lines = [
     '<b>KanoDrama — Referral Valid Tercapai</b>',
     '',
+  ];
+
+  if (input.referrerUid) {
+    lines.push(`• <b>Referrer ID:</b> <code>${escapeTelegramHtml(input.referrerUid)}</code>`);
+  }
+
+  lines.push(
     `• <b>Referee ID:</b> <code>${escapeTelegramHtml(input.refereeUid)}</code>`,
     `• <b>Nama Referee:</b> ${escapeTelegramHtml(displayName)}`,
     `• <b>Nonton Aktif:</b> ${escapeTelegramHtml(watchSeconds.toLocaleString('id-ID'))} detik (${watchMinutes} menit)`,
     `• <b>Bonus Referrer:</b> +${escapeTelegramHtml(bonusPoints.toLocaleString('id-ID'))} poin`,
-    `• <b>Waktu Valid:</b> ${escapeTelegramHtml(formatWibDateTime(input.qualifiedAt))}`,
-  ];
+    `• <b>Waktu Valid:</b> ${escapeTelegramHtml(formatWibDateTime(input.qualifiedAt))}`
+  );
 
   return lines.join('\n');
 }
@@ -400,6 +598,136 @@ export async function notifyAdminTelegramReferralQualified(
     throttleKey: options?.throttleKey ?? `referral_qualify:${uid}`,
     throttleMs: options?.throttleMs ?? DEFAULT_EVENT_DEDUP_MS,
   });
+}
+
+const POINTS_EARNED_TITLES: Record<TelegramPointsEarnedEventType, string> = {
+  welcome_login: 'Bonus Login Pertama',
+  daily_checkin: 'Check-in Harian',
+  watch_minute: 'Poin Nonton Aktif',
+  watch_milestone: 'Milestone Nonton Aktif',
+  daily_social_share: 'Tugas Harian Share Sosmed',
+  watch_episode: 'Bonus Selesai Episode',
+  referral_bind: 'Bonus Bind Kode Referral',
+  referral_ongoing: 'Bonus Lanjutan Referral Valid',
+};
+
+const SHARE_CHANNEL_DISPLAY: Record<string, string> = {
+  whatsapp: 'WhatsApp',
+  telegram: 'Telegram',
+  x: 'X (Twitter)',
+  facebook: 'Facebook',
+  copy_link: 'Copy Link',
+  native_share: 'Native Share',
+};
+
+export function formatTelegramPointsEarnedMessage(
+  input: TelegramPointsEarnedInput
+): string {
+  const title = POINTS_EARNED_TITLES[input.eventType] || 'Aktivitas Earning Poin';
+  const displayName = (input.userDisplayName || 'Kano Viewer').trim();
+  const shouldMask = input.maskEmail !== false;
+  const emailDisplay = input.userEmail
+    ? shouldMask
+      ? maskTelegramEmail(input.userEmail)
+      : input.userEmail.trim()
+    : '';
+  const points = Math.max(0, Math.round(Number(input.points) || 0));
+
+  const lines = [
+    `<b>KanoDrama — ${escapeTelegramHtml(title)}</b>`,
+    '',
+    `• <b>User ID:</b> <code>${escapeTelegramHtml(input.userId)}</code>`,
+    `• <b>Nama:</b> ${escapeTelegramHtml(displayName)}`,
+  ];
+
+  if (emailDisplay) {
+    lines.push(`• <b>Email:</b> <code>${escapeTelegramHtml(emailDisplay)}</code>`);
+  }
+
+  lines.push(`• <b>Poin Masuk:</b> +${escapeTelegramHtml(points.toLocaleString('id-ID'))} poin`);
+
+  if (typeof input.balanceAfter === 'number' && Number.isFinite(input.balanceAfter)) {
+    lines.push(
+      `• <b>Saldo Setelah:</b> ${escapeTelegramHtml(Math.max(0, Math.round(input.balanceAfter)).toLocaleString('id-ID'))} poin`
+    );
+  }
+
+  if (input.levelInfo) {
+    const level = Math.max(1, Number(input.levelInfo.level) || 1);
+    const tierName = (input.levelInfo.tierName || 'Bronze').trim();
+    const multiplier = Number(input.levelInfo.multiplier) || 1;
+    lines.push(
+      `• <b>Level Akun:</b> ${escapeTelegramHtml(`Lv.${level} ${tierName} (${multiplier}x)`)}`
+    );
+  }
+
+  if (input.eventType === 'daily_checkin' && input.streakDay) {
+    const cycleDay = ((Math.max(1, input.streakDay) - 1) % 7) + 1;
+    lines.push(
+      `• <b>Streak Check-in:</b> Hari ke-${escapeTelegramHtml(input.streakDay)} (Siklus H-${escapeTelegramHtml(cycleDay)}/7)`
+    );
+  } else if (input.eventType === 'watch_milestone' && input.milestoneMinutes) {
+    lines.push(
+      `• <b>Target Milestone:</b> ${escapeTelegramHtml(input.milestoneMinutes)} menit nonton aktif`
+    );
+  } else if (input.eventType === 'daily_social_share' && input.channel) {
+    const channelLabel = SHARE_CHANNEL_DISPLAY[input.channel.toLowerCase()] || input.channel;
+    lines.push(`• <b>Kanal Share:</b> ${escapeTelegramHtml(channelLabel)}`);
+  } else if (input.eventType === 'watch_episode') {
+    const mediaLabel = input.dramaTitle
+      ? `${input.dramaTitle} (${input.provider || 'DramaBoxV2'} Ep ${input.episodeNumber || 1})`
+      : `${input.provider || 'DramaBoxV2'} ${input.dramaId || ''} Ep ${input.episodeNumber || 1}`.trim();
+    lines.push(`• <b>Episode:</b> ${escapeTelegramHtml(mediaLabel)}`);
+  } else if (input.eventType === 'watch_minute') {
+    if (input.provider || input.dramaId) {
+      const mediaLabel = `${input.provider || 'DramaBoxV2'} ${input.dramaId || ''} Ep ${input.episodeNumber || 1}`.trim();
+      lines.push(`• <b>Tayangan:</b> ${escapeTelegramHtml(mediaLabel)}`);
+    }
+    if (typeof input.todayWatchSeconds === 'number') {
+      const mins = Math.floor(Math.max(0, input.todayWatchSeconds) / 60);
+      lines.push(
+        `• <b>Nonton Hari Ini:</b> ${escapeTelegramHtml(mins)} menit (${escapeTelegramHtml(Math.max(0, Math.floor(input.todayWatchSeconds)).toLocaleString('id-ID'))} detik)`
+      );
+    }
+  } else if (input.eventType === 'referral_bind' && input.referralCode) {
+    lines.push(
+      `• <b>Kode Referral:</b> <code>${escapeTelegramHtml(input.referralCode.trim().toUpperCase())}</code>`
+    );
+  } else if (input.eventType === 'referral_ongoing') {
+    if (input.refereeUid) {
+      const refName = (input.refereeDisplayName || 'Kano Viewer').trim();
+      lines.push(
+        `• <b>Referee:</b> <code>${escapeTelegramHtml(input.refereeUid)}</code> (${escapeTelegramHtml(refName)})`
+      );
+    }
+    if (input.ongoingStep) {
+      lines.push(`• <b>Tahap Bonus:</b> Tahap ke-${escapeTelegramHtml(input.ongoingStep)}`);
+    }
+    if (typeof input.verifiedWatchSeconds === 'number') {
+      const watchMin = Math.max(1, Math.round(input.verifiedWatchSeconds / 60));
+      lines.push(
+        `• <b>Total Nonton Referee:</b> ${escapeTelegramHtml(Math.floor(input.verifiedWatchSeconds).toLocaleString('id-ID'))} detik (${watchMin} menit)`
+      );
+    }
+  }
+
+  lines.push(`• <b>Waktu:</b> ${escapeTelegramHtml(formatWibDateTime(input.occurredAt))}`);
+
+  return lines.join('\n');
+}
+
+export async function notifyAdminTelegramPointsEarned(
+  input: TelegramPointsEarnedInput,
+  options?: TelegramSendOptions
+): Promise<TelegramSendResult> {
+  const uid = String(input.userId || '').trim();
+  const points = Math.max(0, Math.round(Number(input.points) || 0));
+  if (!uid || points <= 0) {
+    return { sent: false, skipped: true };
+  }
+  const text = formatTelegramPointsEarnedMessage(input);
+  const contextTag = `PointsEarned(${input.eventType}:${uid}:+${points})`;
+  return sendTelegramGroupMessage(text, contextTag, options);
 }
 
 export function formatTelegramCriticalErrorMessage(
@@ -445,4 +773,3 @@ export async function notifyAdminTelegramCriticalError(
     throttleMs: options?.throttleMs ?? DEFAULT_ERROR_THROTTLE_MS,
   });
 }
-

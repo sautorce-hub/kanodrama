@@ -7678,6 +7678,8 @@ export async function recordWatchHeartbeatInDb(input: {
   levelInfo?: AccountLevelStatus;
   referralQualified: boolean;
   referralOngoingBonusAwarded?: number;
+  referralReferrerUid?: string;
+  referralOngoingStep?: number;
   riskFlag: string;
   reason?:
     | 'session_started'
@@ -8233,6 +8235,8 @@ export async function recordWatchHeartbeatInDb(input: {
     // 8. Auto-qualify referral if verifiedWatchSeconds >= 3600 (1 hour)
     let referralQualified = false;
     let referralOngoingBonusAwarded = 0;
+    let referralReferrerUid: string | undefined;
+    let referralOngoingStep: number | undefined;
     if (verifiedWatchSeconds >= cfg.referralQualifySeconds) {
       const refRes = await client.query<{
         id: string;
@@ -8311,6 +8315,9 @@ export async function recordWatchHeartbeatInDb(input: {
             ]
           );
           referralQualified = (insertBonus.rowCount ?? 0) > 0;
+          if (referralQualified) {
+            referralReferrerUid = pendingRef.referrer_uid;
+          }
         }
       }
 
@@ -8415,6 +8422,10 @@ export async function recordWatchHeartbeatInDb(input: {
                    WHERE id = $1`,
                   [qualRef.id, highestStep, totalOngoingPts]
                 );
+                if (referralOngoingBonusAwarded > 0) {
+                  referralReferrerUid = qualRef.referrer_uid;
+                  referralOngoingStep = highestStep;
+                }
               }
             }
           }
@@ -8436,6 +8447,8 @@ export async function recordWatchHeartbeatInDb(input: {
       levelInfo: missionGrant.levelInfo,
       referralQualified,
       referralOngoingBonusAwarded,
+      ...(referralReferrerUid ? { referralReferrerUid } : {}),
+      ...(referralOngoingStep ? { referralOngoingStep } : {}),
       riskFlag,
       reason: 'counted',
     };

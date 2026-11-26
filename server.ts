@@ -156,6 +156,7 @@ import {
   notifyAdminTelegramCriticalError,
   notifyAdminTelegramNewUser,
   notifyAdminTelegramNewWithdrawal,
+  notifyAdminTelegramPointsEarned,
   notifyAdminTelegramReferralQualified,
 } from './server/telegramNotify.ts';
 import type {
@@ -4925,6 +4926,27 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           bindBonusAwarded: referralBindResult?.bindBonusAwarded ?? 0,
           firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
         }).catch(() => {});
+      } else {
+        if (firstLoginBonus.granted && firstLoginBonus.points > 0) {
+          void notifyAdminTelegramPointsEarned({
+            userId: uid,
+            userEmail: email,
+            userDisplayName: synced?.displayName || displayName,
+            eventType: 'welcome_login',
+            points: firstLoginBonus.points,
+            balanceAfter: 'entry' in firstLoginBonus ? firstLoginBonus.entry?.balanceAfter : undefined,
+          }).catch(() => {});
+        }
+        if (referralBindResult?.bound && (referralBindResult.bindBonusAwarded ?? 0) > 0) {
+          void notifyAdminTelegramPointsEarned({
+            userId: uid,
+            userEmail: email,
+            userDisplayName: synced?.displayName || displayName,
+            eventType: 'referral_bind',
+            points: referralBindResult.bindBonusAwarded ?? 0,
+            referralCode: pendingRefCode,
+          }).catch(() => {});
+        }
       }
 
       const sessionToken = signAuthSessionToken({
@@ -5173,6 +5195,27 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         displayName: dbUser.displayName,
       }).catch(() => ({ granted: false, points: 0, dbConnected: false }));
 
+      if (firstLoginBonus.granted && firstLoginBonus.points > 0) {
+        void notifyAdminTelegramPointsEarned({
+          userId: dbUser.uid,
+          userEmail: dbUser.email,
+          userDisplayName: dbUser.displayName,
+          eventType: 'welcome_login',
+          points: firstLoginBonus.points,
+          balanceAfter: 'entry' in firstLoginBonus ? firstLoginBonus.entry?.balanceAfter : undefined,
+        }).catch(() => {});
+      }
+      if (referralBindResult?.bound && (referralBindResult.bindBonusAwarded ?? 0) > 0) {
+        void notifyAdminTelegramPointsEarned({
+          userId: dbUser.uid,
+          userEmail: dbUser.email,
+          userDisplayName: dbUser.displayName,
+          eventType: 'referral_bind',
+          points: referralBindResult.bindBonusAwarded ?? 0,
+          referralCode: pendingRefCode,
+        }).catch(() => {});
+      }
+
       const sessionToken = signAuthSessionToken({
         uid: dbUser.uid,
         email: dbUser.email,
@@ -5344,6 +5387,15 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
             authMethod: 'Google',
             firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
           }).catch(() => {});
+        } else if (firstLoginBonus.granted && firstLoginBonus.points > 0) {
+          void notifyAdminTelegramPointsEarned({
+            userId: uid,
+            userEmail: email,
+            userDisplayName: synced?.displayName || displayName,
+            eventType: 'welcome_login',
+            points: firstLoginBonus.points,
+            balanceAfter: 'entry' in firstLoginBonus ? firstLoginBonus.entry?.balanceAfter : undefined,
+          }).catch(() => {});
         }
 
         const sessionToken = signAuthSessionToken({
@@ -5456,12 +5508,13 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           }).catch(() => null)
         : null;
 
-      const firstLoginBonus = isLoginEvent
-        ? await grantFirstLoginBonusIfEligibleInDb({
-            userId: uid,
-            displayName: synced?.displayName || displayName,
-          }).catch(() => ({ granted: false, points: 0, dbConnected: false }))
-        : { granted: false, points: 0, dbConnected: false };
+      const firstLoginBonus: Awaited<ReturnType<typeof grantFirstLoginBonusIfEligibleInDb>> =
+        isLoginEvent
+          ? await grantFirstLoginBonusIfEligibleInDb({
+              userId: uid,
+              displayName: synced?.displayName || displayName,
+            }).catch(() => ({ granted: false, points: 0, dbConnected: false }))
+          : { granted: false, points: 0, dbConnected: false };
 
       if (isNewUser) {
         void notifyAdminTelegramNewUser({
@@ -5475,6 +5528,27 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           bindBonusAwarded: referralBindResult?.bindBonusAwarded ?? 0,
           firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
         }).catch(() => {});
+      } else {
+        if (firstLoginBonus.granted && firstLoginBonus.points > 0) {
+          void notifyAdminTelegramPointsEarned({
+            userId: uid,
+            userEmail: email,
+            userDisplayName: synced?.displayName || displayName,
+            eventType: 'welcome_login',
+            points: firstLoginBonus.points,
+            balanceAfter: firstLoginBonus.entry?.balanceAfter,
+          }).catch(() => {});
+        }
+        if (referralBindResult?.bound && (referralBindResult.bindBonusAwarded ?? 0) > 0) {
+          void notifyAdminTelegramPointsEarned({
+            userId: uid,
+            userEmail: email,
+            userDisplayName: synced?.displayName || displayName,
+            eventType: 'referral_bind',
+            points: referralBindResult.bindBonusAwarded ?? 0,
+            referralCode: pendingRefCode,
+          }).catch(() => {});
+        }
       }
 
       res.setHeader('Cache-Control', 'no-store');
@@ -5917,9 +5991,21 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           return;
         }
 
+        const awardedPoints = result.entry?.points ?? cfg.dailyCheckinPoints;
+        void notifyAdminTelegramPointsEarned({
+          userId: session.uid,
+          userEmail: session.email,
+          userDisplayName: session.displayName,
+          eventType: 'daily_checkin',
+          points: awardedPoints,
+          balanceAfter: result.entry?.balanceAfter ?? result.summary?.balance,
+          streakDay: result.streakDay,
+          levelInfo: result.summary?.levelInfo,
+        }).catch(() => {});
+
         res.json({
           ok: true,
-          awardedPoints: result.entry?.points ?? cfg.dailyCheckinPoints,
+          awardedPoints,
           streakDay: result.streakDay,
           streak: result.streakDay,
           entry: result.entry,
@@ -5985,9 +6071,21 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           return;
         }
 
+        const awardedPoints = result.entry?.points ?? cfg.dailySocialSharePoints;
+        void notifyAdminTelegramPointsEarned({
+          userId: session.uid,
+          userEmail: session.email,
+          userDisplayName: session.displayName,
+          eventType: 'daily_social_share',
+          points: awardedPoints,
+          balanceAfter: result.entry?.balanceAfter ?? result.summary?.balance,
+          channel: result.channel,
+          levelInfo: result.summary?.levelInfo,
+        }).catch(() => {});
+
         res.json({
           ok: true,
-          awardedPoints: result.entry?.points ?? cfg.dailySocialSharePoints,
+          awardedPoints,
           channel: result.channel,
           entry: result.entry,
           summary: result.summary,
@@ -6060,10 +6158,26 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           return;
         }
 
+        const awardedPoints =
+          result.awardedPoints ?? result.entry?.points ?? cfg.episodeBonusPoints;
+        void notifyAdminTelegramPointsEarned({
+          userId: session.uid,
+          userEmail: session.email,
+          userDisplayName: session.displayName,
+          eventType: 'watch_episode',
+          points: awardedPoints,
+          balanceAfter: result.entry?.balanceAfter ?? result.summary?.balance,
+          provider,
+          dramaId,
+          episodeNumber: result.episodeNumber ?? episodeNumber,
+          dramaTitle: title || undefined,
+          levelInfo: result.summary?.levelInfo,
+        }).catch(() => {});
+
         res.json({
           ok: true,
           episodeNumber: result.episodeNumber,
-          awardedPoints: result.awardedPoints ?? result.entry?.points ?? cfg.episodeBonusPoints,
+          awardedPoints,
           entry: result.entry,
           summary: result.summary,
           config: cfg,
@@ -6120,10 +6234,24 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           return;
         }
 
+        const awardedPoints = result.awardedPoints ?? result.entry?.points ?? 0;
+        if (awardedPoints > 0) {
+          void notifyAdminTelegramPointsEarned({
+            userId: session.uid,
+            userEmail: session.email,
+            userDisplayName: session.displayName,
+            eventType: 'watch_milestone',
+            points: awardedPoints,
+            balanceAfter: result.entry?.balanceAfter ?? result.summary?.balance,
+            milestoneMinutes: result.milestoneMinutes ?? milestoneMinutes,
+            levelInfo: result.summary?.levelInfo,
+          }).catch(() => {});
+        }
+
         res.json({
           ok: true,
           milestoneMinutes: result.milestoneMinutes,
-          awardedPoints: result.awardedPoints ?? result.entry?.points ?? 0,
+          awardedPoints,
           entry: result.entry,
           summary: result.summary,
           config: cfg,
@@ -6339,6 +6467,17 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         displayName: session.displayName,
       });
 
+      if (result.bound && (result.bindBonusAwarded ?? 0) > 0) {
+        void notifyAdminTelegramPointsEarned({
+          userId: session.uid,
+          userEmail: session.email,
+          userDisplayName: session.displayName,
+          eventType: 'referral_bind',
+          points: result.bindBonusAwarded ?? 0,
+          referralCode,
+        }).catch(() => {});
+      }
+
       res.setHeader('Cache-Control', 'no-store');
       res.json({
         ok: result.bound,
@@ -6506,13 +6645,44 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         return;
       }
 
+      if (hbRes.ok && hbRes.awardedWatchPoints > 0) {
+        void notifyAdminTelegramPointsEarned({
+          userId: session.uid,
+          userEmail: session.email,
+          userDisplayName: session.displayName,
+          eventType: 'watch_minute',
+          points: hbRes.awardedWatchPoints,
+          balanceAfter: hbRes.pointsBalance ?? undefined,
+          provider,
+          dramaId,
+          episodeNumber,
+          todayWatchSeconds: hbRes.todayWatchSeconds,
+          verifiedWatchSeconds: hbRes.verifiedWatchSeconds,
+          levelInfo: hbRes.levelInfo,
+        }).catch(() => {});
+      }
+
       if (hbRes.ok && hbRes.referralQualified) {
         const cfg = getPayoutRuntimeConfig();
         void notifyAdminTelegramReferralQualified({
           refereeUid: session.uid,
           refereeDisplayName: session.displayName,
+          referrerUid: hbRes.referralReferrerUid,
           verifiedWatchSeconds: hbRes.verifiedWatchSeconds,
           bonusPoints: cfg.referralBonusPoints,
+        }).catch(() => {});
+      }
+
+      if (hbRes.ok && (hbRes.referralOngoingBonusAwarded ?? 0) > 0) {
+        void notifyAdminTelegramPointsEarned({
+          userId: hbRes.referralReferrerUid || session.uid,
+          userDisplayName: hbRes.referralReferrerUid ? undefined : session.displayName,
+          eventType: 'referral_ongoing',
+          points: hbRes.referralOngoingBonusAwarded ?? 0,
+          refereeUid: session.uid,
+          refereeDisplayName: session.displayName,
+          verifiedWatchSeconds: hbRes.verifiedWatchSeconds,
+          ongoingStep: hbRes.referralOngoingStep,
         }).catch(() => {});
       }
 

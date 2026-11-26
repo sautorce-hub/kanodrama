@@ -138,7 +138,10 @@ export function getTelegramBotToken(): string {
 }
 
 export function getTelegramAdminChatId(): string {
-  return (process.env.TELEGRAM_ADMIN_CHAT_ID || '').trim();
+  return (
+    (process.env.TELEGRAM_ADMIN_CHAT_ID || '').trim() ||
+    (process.env.TELEGRAM_CHAT_ID || '').trim()
+  );
 }
 
 export function getStreamSigningSecret(): string {
