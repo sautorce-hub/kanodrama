@@ -62,6 +62,7 @@ import { getWatchPath, syncEpisodePlayerSeo } from '../utils/seo';
 import { ProviderBadge } from './ProviderBadge';
 import { ShareDramaModal } from './ShareDramaModal';
 import { VideoPointsCounter } from './VideoPointsCounter';
+import { resolveEpisodeTransitionWithAd } from '../utils/adRedirect';
 import type {
   DramaItem,
   EpisodeItem,
@@ -328,6 +329,10 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     targetEpisode: number;
     unlockMode: boolean;
   }>({ open: false, targetEpisode: episodeNumber, unlockMode: false });
+  const [pendingRedirectAd, setPendingRedirectAd] = useState<{
+    targetEpisode: number;
+    adUrl: string;
+  } | null>(null);
 
   const [commentInput, setCommentInput] = useState('');
   const [floatingBursts, setFloatingBursts] = useState<
@@ -674,6 +679,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     if (!drama) return;
     setNextEpCountdown(null);
     setUpNextCountdown(null);
+    setPendingRedirectAd(null);
     setUpNextCoverBroken(false);
     setIsOfflineReady(
       isEpisodeCachedOffline(drama.bookId, drama.provider, episodeNumber)
@@ -686,7 +692,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     if (nextEpCountdown === null || !hasNext) return;
     if (nextEpCountdown <= 0) {
       setNextEpCountdown(null);
-      attemptEpisodeChange(episodeNumber + 1);
+      attemptEpisodeChange(episodeNumber + 1, { fromAutoNext: true });
       return;
     }
     const timer = window.setTimeout(() => {
@@ -1663,12 +1669,32 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
 
   const commitEpisodeChange = (targetEp: number) => {
     if (!drama) return;
+    setPendingRedirectAd(null);
     flushProgress(undefined, true);
     onChangeEpisode(targetEp);
   };
 
-  const attemptEpisodeChange = (targetEp: number) => {
+  const attemptEpisodeChange = (
+    targetEp: number,
+    options?: { fromAutoNext?: boolean }
+  ) => {
     if (!drama || targetEp < 1 || targetEp > totalEpisodes) return;
+    const transition = resolveEpisodeTransitionWithAd({
+      dramaId: drama.bookId,
+      provider: drama.provider,
+      currentEpisode: episodeNumber,
+      targetEpisode: targetEp,
+      fromAutoNext: options?.fromAutoNext,
+    });
+    if (transition.action === 'prompt' && transition.adUrl) {
+      const v = videoRef.current;
+      if (v && !v.paused) {
+        v.pause();
+        setIsPlaying(false);
+      }
+      setPendingRedirectAd({ targetEpisode: targetEp, adUrl: transition.adUrl });
+      return;
+    }
     commitEpisodeChange(targetEp);
   };
 
@@ -3698,7 +3724,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
                       onClick={(e) => {
                         e.stopPropagation();
                         bumpHudActivity();
-                        commitEpisodeChange(ep.episodeNumber);
+                        attemptEpisodeChange(ep.episodeNumber);
                         setShowEpisodeDrawer(false);
                       }}
                       className={`p-2.5 rounded-xl border text-center transition-colors ${
@@ -5171,6 +5197,54 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
           setShareModalState((prev) => ({ ...prev, open: false }))
         }
       />
+
+      {/* Popup-Safe Episode Redirect Continue Gate */}
+      {pendingRedirectAd && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => e.stopPropagation()}
+          className="fixed inset-0 z-[90] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-[#141418] border border-white/15 p-5 shadow-2xl space-y-4 text-center">
+            <div className="mx-auto w-12 h-12 rounded-full cd-accent-bg/20 border border-[var(--cd-accent)]/40 flex items-center justify-center">
+              <Play className="w-5 h-5 cd-accent-text fill-current ml-0.5" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-base font-bold text-white">
+                Episode {pendingRedirectAd.targetEpisode}
+              </p>
+              <p className="text-xs text-[#A1A1AA] truncate">
+                {drama.title}
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <a
+                href={pendingRedirectAd.adUrl}
+                target="_blank"
+                rel="noopener"
+                referrerPolicy="no-referrer-when-downgrade"
+                onClick={() => {
+                  const ep = pendingRedirectAd.targetEpisode;
+                  setPendingRedirectAd(null);
+                  commitEpisodeChange(ep);
+                }}
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-full cd-accent-bg text-white text-sm font-bold flex items-center justify-center gap-2 shadow-lg hover:brightness-110 transition"
+              >
+                <Play className="w-4 h-4 fill-current" />
+                <span>{t.retention.playNow} · EP {pendingRedirectAd.targetEpisode}</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => setPendingRedirectAd(null)}
+                className="w-full min-h-[38px] px-4 py-2 rounded-full bg-white/10 hover:bg-white/15 text-xs font-semibold text-[#D4D4D8] transition-colors"
+              >
+                {t.retention.cancel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

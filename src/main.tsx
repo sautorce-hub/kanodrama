@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
 import App from './App.tsx';
 import { DramaProvider } from './context/DramaContext.tsx';
+import { mountPopunderScript } from './utils/adRedirect.ts';
 import './index.css';
 
 class RootErrorBoundary extends React.Component<
@@ -88,6 +89,12 @@ try {
   }
 } catch {
   // Ignore service worker security/storage restrictions in Incognito or embedded contexts
+}
+
+try {
+  mountPopunderScript({});
+} catch {
+  // Ignore blocked popunder initialization
 }
 
 createRoot(document.getElementById('root')!).render(

