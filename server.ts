@@ -36,6 +36,7 @@ import {
   getUserPointsSummaryFromDb,
   getUserReferralSummaryFromDb,
   grantFirstLoginBonusIfEligibleInDb,
+  hasBlockingAntiCheatRiskFlag,
   isDatabaseEnabled,
   listAdminPayoutRequestsFromDb,
   listCatalogForSitemapFromDb,
@@ -4895,11 +4896,14 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       });
 
       const secHashes = extractClientSecurityHashes(req);
-      await recordUserSecuritySignalInDb({
+      const secSignal = await recordUserSecuritySignalInDb({
         userId: uid,
         ...secHashes,
         displayName: synced?.displayName || displayName,
       }).catch(() => null);
+      const antiCheatBlocked = Boolean(
+        secSignal && hasBlockingAntiCheatRiskFlag(secSignal.riskFlag)
+      );
 
       const pendingRefCode = cleanText(req.body?.referralCode);
       const referralBindResult = pendingRefCode
@@ -4964,6 +4968,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         sessionToken,
         gmailLoginCount,
         firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+        antiCheatBlocked,
+        ...(antiCheatBlocked && secSignal?.suspiciousReason
+          ? { antiCheatReason: secSignal.suspiciousReason }
+          : {}),
         ...(referralBindResult
           ? {
               referralBindResult: {
@@ -5051,11 +5059,14 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }
 
       const dbUser = regResult.user;
-      await recordUserSecuritySignalInDb({
+      const secSignal = await recordUserSecuritySignalInDb({
         userId: dbUser.uid,
         ...secHashes,
         displayName: dbUser.displayName,
       }).catch(() => null);
+      const antiCheatBlocked = Boolean(
+        secSignal && hasBlockingAntiCheatRiskFlag(secSignal.riskFlag)
+      );
 
       const pendingRefCode = cleanText(req.body?.referralCode);
       const referralBindResult = pendingRefCode
@@ -5101,6 +5112,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         sessionToken,
         gmailLoginCount,
         firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+        antiCheatBlocked,
+        ...(antiCheatBlocked && secSignal?.suspiciousReason
+          ? { antiCheatReason: secSignal.suspiciousReason }
+          : {}),
         ...(referralBindResult
           ? {
               referralBindResult: {
@@ -5172,11 +5187,14 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }
 
       const dbUser = authResult.user;
-      await recordUserSecuritySignalInDb({
+      const secSignal = await recordUserSecuritySignalInDb({
         userId: dbUser.uid,
         ...secHashes,
         displayName: dbUser.displayName,
       }).catch(() => null);
+      const antiCheatBlocked = Boolean(
+        secSignal && hasBlockingAntiCheatRiskFlag(secSignal.riskFlag)
+      );
 
       const pendingRefCode = cleanText(req.body?.referralCode);
       const referralBindResult = pendingRefCode
@@ -5231,6 +5249,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         sessionToken,
         gmailLoginCount,
         firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+        antiCheatBlocked,
+        ...(antiCheatBlocked && secSignal?.suspiciousReason
+          ? { antiCheatReason: secSignal.suspiciousReason }
+          : {}),
         ...(referralBindResult
           ? {
               referralBindResult: {
@@ -5370,11 +5392,14 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         });
 
         const secHashes = extractClientSecurityHashes(req);
-        await recordUserSecuritySignalInDb({
+        const secSignal = await recordUserSecuritySignalInDb({
           userId: uid,
           ...secHashes,
           displayName: synced?.displayName || displayName,
         }).catch(() => null);
+        const antiCheatBlocked = Boolean(
+          secSignal && hasBlockingAntiCheatRiskFlag(secSignal.riskFlag)
+        );
 
         const firstLoginBonus = await grantFirstLoginBonusIfEligibleInDb({
           userId: uid,
@@ -5413,6 +5438,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           sessionToken,
           gmailLoginCount,
           firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+          antiCheatBlocked,
+          ...(antiCheatBlocked && secSignal?.suspiciousReason
+            ? { antiCheatReason: secSignal.suspiciousReason }
+            : {}),
           user: {
             uid,
             email,
@@ -5494,11 +5523,14 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       });
 
       const secHashes = extractClientSecurityHashes(req);
-      await recordUserSecuritySignalInDb({
+      const secSignal = await recordUserSecuritySignalInDb({
         userId: uid,
         ...secHashes,
         displayName: synced?.displayName || displayName,
       }).catch(() => null);
+      const antiCheatBlocked = Boolean(
+        secSignal && hasBlockingAntiCheatRiskFlag(secSignal.riskFlag)
+      );
 
       const pendingRefCode = cleanText(req.body?.referralCode);
       const referralBindResult = pendingRefCode
@@ -5559,6 +5591,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         user: synced,
         gmailLoginCount,
         firstLoginBonusAwarded: firstLoginBonus.granted ? firstLoginBonus.points : 0,
+        antiCheatBlocked,
+        ...(antiCheatBlocked && secSignal?.suspiciousReason
+          ? { antiCheatReason: secSignal.suspiciousReason }
+          : {}),
         ...(referralBindResult
           ? {
               referralBindResult: {

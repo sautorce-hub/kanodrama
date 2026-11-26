@@ -67,63 +67,62 @@ if (!self.define) {
     });
   };
 }
-define(['./workbox-118b6b25'], (function (workbox) { 'use strict';
+define(['./workbox-7b8118b4'], (function (workbox) { 'use strict';
 
-  workbox.setCacheNameDetails({
-    prefix: "house-drama-pwa-v2"
-  });
-  self.skipWaiting();
-  workbox.clientsClaim();
-  /**
-   * The precacheAndRoute() method efficiently caches and responds to
-   * requests for URLs in the manifest.
-   * See https://goo.gl/S9QRab
-   */
-  workbox.precacheAndRoute([{
-    "url": "index.html",
-    "revision": "0.mlrkalh7qb8"
-  }], {});
-  workbox.cleanupOutdatedCaches();
-  workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
-    allowlist: [/^\/$/]
-  }));
-  workbox.registerRoute(/^https:\/\/fonts\.googleapis\.com\/.*/i, new workbox.CacheFirst({
-    "cacheName": "google-fonts-cache",
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 10,
-      maxAgeSeconds: 31536000
-    }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
-    })]
-  }), 'GET');
-  workbox.registerRoute(/\/api\/home(?:\?.*)?$/i, new workbox.NetworkFirst({
-    "cacheName": "home-catalog-api-cache",
-    "networkTimeoutSeconds": 4,
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 12,
-      maxAgeSeconds: 86400
-    }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
-    })]
-  }), 'GET');
-  workbox.registerRoute(/\/api\/mola\/.*(?:detail|allepisode|episode|foryou|ranking|trending|new|terbaru|rank)/i, new workbox.NetworkFirst({
-    "cacheName": "episodes-catalog-api-cache",
-    "networkTimeoutSeconds": 5,
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 80,
-      maxAgeSeconds: 259200
-    }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
-    })]
-  }), 'GET');
-  workbox.registerRoute(/\.(?:jpg|jpeg|png|webp|gif)$/i, new workbox.StaleWhileRevalidate({
-    "cacheName": "poster-images-cache",
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 180,
-      maxAgeSeconds: 604800
-    }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
-    })]
-  }), 'GET');
+	workbox.setCacheNameDetails({
+	  prefix: "kano-drama-pwa-v4"
+	});
+	self.skipWaiting();
+	workbox.clientsClaim();
+	workbox.registerRoute(({
+	  request
+	}) => request.mode === "navigate", new workbox.NetworkFirst({
+	  "cacheName": "html-pages-cache",
+	  "networkTimeoutSeconds": 4,
+	  plugins: [new workbox.ExpirationPlugin({
+	    maxEntries: 24,
+	    maxAgeSeconds: 86400
+	  }), new workbox.CacheableResponsePlugin({
+	    statuses: [0, 200]
+	  })]
+	}), 'GET');
+	workbox.registerRoute(/^https:\/\/fonts\.googleapis\.com\/.*/i, new workbox.CacheFirst({
+	  "cacheName": "google-fonts-cache",
+	  plugins: [new workbox.ExpirationPlugin({
+	    maxEntries: 10,
+	    maxAgeSeconds: 31536000
+	  }), new workbox.CacheableResponsePlugin({
+	    statuses: [0, 200]
+	  })]
+	}), 'GET');
+	workbox.registerRoute(/\/api\/home(?:\?.*)?$/i, new workbox.NetworkFirst({
+	  "cacheName": "home-catalog-api-cache",
+	  "networkTimeoutSeconds": 4,
+	  plugins: [new workbox.ExpirationPlugin({
+	    maxEntries: 12,
+	    maxAgeSeconds: 86400
+	  }), new workbox.CacheableResponsePlugin({
+	    statuses: [0, 200]
+	  })]
+	}), 'GET');
+	workbox.registerRoute(/\/api\/mola\/.*(?:detail|allepisode|episode|foryou|ranking|trending|new|terbaru|rank)/i, new workbox.NetworkFirst({
+	  "cacheName": "episodes-catalog-api-cache",
+	  "networkTimeoutSeconds": 5,
+	  plugins: [new workbox.ExpirationPlugin({
+	    maxEntries: 80,
+	    maxAgeSeconds: 259200
+	  }), new workbox.CacheableResponsePlugin({
+	    statuses: [0, 200]
+	  })]
+	}), 'GET');
+	workbox.registerRoute(/\.(?:jpg|jpeg|png|webp|gif)$/i, new workbox.StaleWhileRevalidate({
+	  "cacheName": "poster-images-cache",
+	  plugins: [new workbox.ExpirationPlugin({
+	    maxEntries: 180,
+	    maxAgeSeconds: 604800
+	  }), new workbox.CacheableResponsePlugin({
+	    statuses: [0, 200]
+	  })]
+	}), 'GET');
 
 }));

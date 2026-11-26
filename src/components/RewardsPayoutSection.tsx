@@ -1008,6 +1008,7 @@ export const RewardsPayoutSection: React.FC = () => {
     pointsDbConnected,
     pointsDbError,
     openAuthModal,
+    openBlockedAccountPopup,
     getAuthHeaders,
     refreshPointsBalance,
     pushToast,
@@ -1522,6 +1523,7 @@ export const RewardsPayoutSection: React.FC = () => {
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
+        reason?: string;
         awardedPoints?: number;
         streakBonus?: number;
         error?: string;
@@ -1537,16 +1539,38 @@ export const RewardsPayoutSection: React.FC = () => {
         setLedgerRows(data.summary.ledger || []);
         setLedgerTotal(Number(data.summary.ledgerTotal ?? (data.summary.ledger || []).length));
       }
+      if (res.status === 403 || data.reason === 'anti_cheat_blocked') {
+        openBlockedAccountPopup({ reason: data.error, source: 'claim' });
+        setFormFeedback({
+          type: 'error',
+          message: data.error || 'Account restricted by 1-device protection.',
+        });
+        return;
+      }
       if (res.ok && data.ok) {
+        const awarded = Number(data.awardedPoints) || effectiveDailyCheckinPoints;
         const bonusNote =
           data.streakBonus && data.streakBonus > 0
             ? isId
-              ? ` (termasuk bonus streak +${data.streakBonus})`
-              : ` (incl. +${data.streakBonus} streak bonus)`
-            : '';
+              ? `Termasuk bonus streak +${data.streakBonus.toLocaleString()}`
+              : `Includes +${data.streakBonus.toLocaleString()} streak bonus`
+            : isId
+            ? 'Check-in harian berhasil diklaim'
+            : 'Daily check-in reward claimed';
         pushToast(
-          `+${data.awardedPoints || effectiveDailyCheckinPoints} ${t.rewards.pointsUnit}${bonusNote}!`,
-          'gold'
+          `+${awarded.toLocaleString()} ${t.rewards.pointsUnit}`,
+          'gold',
+          {
+            variant: 'points',
+            points: awarded,
+            balance:
+              typeof data.summary?.balance === 'number'
+                ? data.summary.balance
+                : null,
+            title: isId ? 'Check-in Harian Masuk' : 'Daily Check-In Credited',
+            subtitle: bonusNote,
+            durationMs: 4200,
+          }
         );
         void refreshPointsBalance();
       } else {
@@ -1587,6 +1611,7 @@ export const RewardsPayoutSection: React.FC = () => {
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
+        reason?: string;
         awardedPoints?: number;
         error?: string;
         summary?: UserPointsSummary;
@@ -1601,11 +1626,33 @@ export const RewardsPayoutSection: React.FC = () => {
         setLedgerRows(data.summary.ledger || []);
         setLedgerTotal(Number(data.summary.ledgerTotal ?? (data.summary.ledger || []).length));
       }
+      if (res.status === 403 || data.reason === 'anti_cheat_blocked') {
+        openBlockedAccountPopup({ reason: data.error, source: 'claim' });
+        setFormFeedback({
+          type: 'error',
+          message: data.error || 'Account restricted by 1-device protection.',
+        });
+        return;
+      }
       if (res.ok && data.ok) {
         const awarded = Number(data.awardedPoints) || 0;
         pushToast(
           `+${awarded.toLocaleString()} ${t.rewards.pointsUnit} (${milestoneMinutes} ${t.rewards.milestoneMinSuffix})!`,
-          'gold'
+          'gold',
+          {
+            variant: 'points',
+            points: awarded,
+            balance:
+              typeof data.summary?.balance === 'number'
+                ? data.summary.balance
+                : null,
+            title: isId ? 'Bonus Milestone Nonton' : 'Watch Milestone Bonus',
+            category: `${milestoneMinutes} ${t.rewards.milestoneMinSuffix}`,
+            subtitle: isId
+              ? 'Target menonton aktif tercapai'
+              : 'Active watch milestone completed',
+            durationMs: 4200,
+          }
         );
         if (typeof window !== 'undefined' && awarded > 0) {
           window.dispatchEvent(
@@ -1753,7 +1800,20 @@ export const RewardsPayoutSection: React.FC = () => {
           channelLabelMap[channel] || channel
         )}`;
         setShareFeedback({ type: 'success', message: successMsg });
-        pushToast(successMsg, 'gold');
+        pushToast(successMsg, 'gold', {
+          variant: 'points',
+          points: awarded,
+          balance:
+            typeof data.summary?.balance === 'number'
+              ? data.summary.balance
+              : null,
+          title: isId ? 'Bonus Share Harian' : 'Daily Share Reward',
+          category: channelLabelMap[channel] || channel,
+          subtitle: isId
+            ? 'Tugas share media sosial selesai'
+            : 'Daily social share mission completed',
+          durationMs: 4200,
+        });
         void refreshPointsBalance();
         if (typeof window !== 'undefined') {
           window.dispatchEvent(
@@ -1766,6 +1826,15 @@ export const RewardsPayoutSection: React.FC = () => {
             })
           );
         }
+      } else if (res.status === 403 || data.reason === 'anti_cheat_blocked') {
+        pendingSocialShareRef.current = false;
+        const errMsg =
+          data.error ||
+          (isId
+            ? 'Akun ini dibatasi karena 1 perangkat hanya dapat dipakai untuk 1 akun utama.'
+            : 'Account restricted by 1-device primary account policy.');
+        setShareFeedback({ type: 'error', message: errMsg });
+        openBlockedAccountPopup({ reason: errMsg, source: 'share' });
       } else if (res.status === 409 || data.reason === 'duplicate_claim') {
         pendingSocialShareRef.current = false;
         const dupMsg =
@@ -2008,7 +2077,15 @@ export const RewardsPayoutSection: React.FC = () => {
             : `Referral bound!${bindBonus > 0 ? ` +${bindBonus.toLocaleString()} pts Bind Referral bonus credited.` : ''} Complete 60m verified watch time to unlock the +${(referralSummary?.referralBonusPoints ?? config.referralBonusPoints).toLocaleString()} pts Referral reward for your inviter.`,
         });
         if (bindBonus > 0) {
-          pushToast(`+${bindBonus.toLocaleString()} ${t.rewards.pointsUnit}`, 'gold');
+          pushToast(`+${bindBonus.toLocaleString()} ${t.rewards.pointsUnit}`, 'gold', {
+            variant: 'points',
+            points: bindBonus,
+            title: isId ? 'Bonus Bind Referral' : 'Referral Bind Bonus',
+            subtitle: isId
+              ? 'Kode undangan berhasil ditautkan'
+              : 'Referral code linked successfully',
+            durationMs: 4200,
+          });
           void refreshPointsBalance();
         }
         void loadPointsData();

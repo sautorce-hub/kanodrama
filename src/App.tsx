@@ -121,6 +121,7 @@ import { CarouselSkeleton, DetailPageSkeleton } from './components/SkeletonCard'
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { ToastContainer } from './components/ToastContainer';
+import { SpotlightFeedbackModal } from './components/SpotlightFeedbackModal';
 import { Footer } from './components/Footer';
 
 const ExploreView = lazy(() => import('./components/ExploreView'));
@@ -5080,6 +5081,7 @@ export default function App() {
 
       <PWAInstallBanner hidden={Boolean(playerState)} />
       <OfflineIndicator />
+      <SpotlightFeedbackModal />
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );

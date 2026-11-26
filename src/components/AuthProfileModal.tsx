@@ -81,6 +81,8 @@ export const AuthProfileModal: React.FC = () => {
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const gsiBtnContainerRef = useRef<HTMLDivElement | null>(null);
 
   const isId = language === 'id';
@@ -95,20 +97,30 @@ export const AuthProfileModal: React.FC = () => {
       setLocalError(null);
       setPasswordInput('');
       setShowPassword(false);
+      setConfirmSignOut(false);
+      setSigningOut(false);
       return;
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeAuthModal();
+      if (e.key === 'Escape') {
+        if (confirmSignOut) {
+          setConfirmSignOut(false);
+        } else {
+          closeAuthModal();
+        }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [authModalOpen, closeAuthModal]);
+  }, [authModalOpen, closeAuthModal, confirmSignOut]);
 
   useEffect(() => {
     if (user) {
       setPasswordInput('');
       setLocalError(null);
       setGsiFallbackError(null);
+      setConfirmSignOut(false);
+      setSigningOut(false);
     }
   }, [user]);
 
@@ -191,19 +203,27 @@ export const AuthProfileModal: React.FC = () => {
   return (
     <div
       onClick={closeAuthModal}
-      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center sm:p-4 bg-black/80 backdrop-blur-md"
+      className="fixed inset-0 z-[85] flex items-end sm:items-center justify-center sm:p-4 bg-black/80 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
       aria-label={user ? t.auth.profileTitle : t.auth.signInTitle}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-[#121013]/95 backdrop-blur-2xl border-t sm:border border-white/15 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+        className="spotlight-card-enter relative w-full sm:max-w-md max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-[#0E0D12]/98 backdrop-blur-2xl border-t sm:border border-white/15 shadow-[0_28px_90px_rgba(0,0,0,0.92)]"
       >
+        <div
+          aria-hidden="true"
+          className="absolute inset-x-0 top-0 h-32 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(ellipse at 50% 0%, rgba(239,68,68,0.14) 0%, rgba(212,175,55,0.05) 55%, transparent 82%)',
+          }}
+        />
         {/* Top Bar */}
-        <div className="sticky top-0 z-10 bg-[#121013]/95 backdrop-blur-xl px-5 py-4 border-b border-white/10 flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-[#0E0D12]/95 backdrop-blur-xl px-5 py-4 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center shadow-sm">
+            <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center shadow-sm">
               {user && !user.uid.startsWith('google_') ? (
                 <Mail className="w-4 h-4 text-[#09090B]" />
               ) : (
@@ -212,10 +232,22 @@ export const AuthProfileModal: React.FC = () => {
             </div>
             <div>
               <h2 className="text-base font-bold text-white leading-tight">
-                {user ? t.auth.profileTitle : t.auth.signInTitle}
+                {user
+                  ? confirmSignOut
+                    ? isId
+                      ? 'Konfirmasi Keluar Akun'
+                      : 'Confirm Sign Out'
+                    : t.auth.profileTitle
+                  : t.auth.signInTitle}
               </h2>
               <p className="text-[11px] text-[#A1A1AA]">
-                {user ? t.auth.signedInAs : 'KanoDrama Account'}
+                {user
+                  ? confirmSignOut
+                    ? user.email
+                    : t.auth.signedInAs
+                  : isId
+                  ? 'Akses Akun & Dompet Poin KanoDrama'
+                  : 'KanoDrama Account & Rewards'}
               </p>
             </div>
           </div>
@@ -224,28 +256,30 @@ export const AuthProfileModal: React.FC = () => {
             type="button"
             onClick={closeAuthModal}
             aria-label="Close account modal"
-            className="p-2 rounded-full bg-white/5 hover:bg-white/15 text-white transition-colors"
+            className="min-w-[44px] min-h-[44px] rounded-full bg-white/5 hover:bg-white/12 text-white flex items-center justify-center transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {!user ? (
-          <div className="p-5 space-y-4 pb-[max(24px,env(safe-area-inset-bottom))]">
-            {/* Contextual Reason Banner (e.g. triggered by Movie Watchlist / Heart / Comment gate) */}
-            <div className="p-3.5 rounded-2xl bg-[var(--cd-accent-soft)] border border-[var(--cd-accent)]/40 flex items-start gap-2.5">
-              <Sparkles className="w-4 h-4 cd-accent-text shrink-0 mt-0.5" />
+          <div className="relative p-5 space-y-4 pb-[max(24px,env(safe-area-inset-bottom))]">
+            {/* Contextual Reason & First-Login Bonus Callout */}
+            <div className="p-4 rounded-2xl bg-[#15131A] border border-amber-400/25 flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-400/15 border border-amber-400/30 flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4 text-amber-300" />
+              </div>
               <div className="space-y-1">
                 <p className="text-xs font-bold text-white">
                   {isId ? 'Masuk dengan Email atau Google' : 'Sign in with Email or Google'}
                 </p>
-                <p className="text-[11px] text-[#E4E4E7] leading-relaxed">
+                <p className="text-[11px] text-[#D4D4D8] leading-relaxed">
                   {authPromptReason || t.auth.gateReasonDefault}
                 </p>
-                <p className="text-[11px] font-bold text-[#FDE68A] tabular-nums">
+                <p className="text-xs font-bold text-amber-300 tabular-nums pt-0.5">
                   {isId
-                    ? 'Bonus login pertama akun baru: +25.000 poin otomatis'
-                    : 'New account first login bonus: +25,000 pts automatically'}
+                    ? '+25.000 poin otomatis saat login pertama akun baru'
+                    : '+25,000 pts automatically on first new-account login'}
                 </p>
               </div>
             </div>
@@ -479,10 +513,79 @@ export const AuthProfileModal: React.FC = () => {
               </button>
             </div>
           </div>
+        ) : confirmSignOut ? (
+          <div className="relative p-6 space-y-5 pb-[max(24px,env(safe-area-inset-bottom))]">
+            <div className="flex flex-col items-center text-center space-y-3">
+              <div className="w-14 h-14 rounded-2xl bg-red-500/15 border border-red-500/35 flex items-center justify-center text-red-400">
+                <LogOut className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-lg font-bold text-white">
+                  {isId ? 'Keluar dari akun ini?' : 'Sign out of this account?'}
+                </h3>
+                <p className="text-xs text-[#A1A1AA] leading-relaxed">
+                  {isId
+                    ? 'Saldo poin, riwayat tontonan, dan progres misi harian tetap tersimpan aman di akunmu.'
+                    : 'Your points balance, watch history, and mission progress remain safely saved.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="border-t border-white/10 pt-4 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[#A1A1AA]">{isId ? 'Akun Aktif' : 'Active Account'}</span>
+                <span className="font-semibold text-white truncate max-w-[210px]">
+                  {user.email}
+                </span>
+              </div>
+              {typeof pointsBalance === 'number' && (
+                <div className="border-t border-white/6 pt-2.5 flex items-center justify-between gap-3">
+                  <span className="text-[#A1A1AA]">
+                    {isId ? 'Saldo Tersimpan' : 'Saved Balance'}
+                  </span>
+                  <span className="font-bold text-amber-300 tabular-nums">
+                    {pointsBalance.toLocaleString(isId ? 'id-ID' : 'en-US')}{' '}
+                    {t.rewards.pointsUnit}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-1">
+              <button
+                type="button"
+                disabled={signingOut}
+                onClick={() => setConfirmSignOut(false)}
+                className="min-h-[44px] px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white transition-colors"
+              >
+                {isId ? 'Batal' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                disabled={signingOut}
+                onClick={async () => {
+                  setSigningOut(true);
+                  try {
+                    await signOut();
+                  } finally {
+                    setSigningOut(false);
+                  }
+                }}
+                className="min-h-[44px] px-4 py-2.5 rounded-xl bg-red-500/90 hover:bg-red-500 disabled:opacity-60 text-xs font-bold text-white inline-flex items-center justify-center gap-2 transition-colors"
+              >
+                {signingOut ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <LogOut className="w-4 h-4" />
+                )}
+                <span>{isId ? 'Ya, Keluar' : 'Yes, Sign Out'}</span>
+              </button>
+            </div>
+          </div>
         ) : (
-          /* Signed-in Real Google Profile, Separated Watchlists, Streak & Logout Drawer */
-          <div className="p-5 space-y-4 pb-[max(24px,env(safe-area-inset-bottom))]">
-            <div className="p-4 rounded-2xl bg-[#19161A] border border-white/10 flex items-center gap-3.5">
+          /* Signed-in Real Google / Email Profile, Separated Watchlists, Streak & Logout Drawer */
+          <div className="relative p-5 space-y-4 pb-[max(24px,env(safe-area-inset-bottom))]">
+            <div className="p-4 rounded-2xl bg-[#16151C] border border-white/10 flex items-center gap-3.5">
               {user.photoURL && !avatarBroken ? (
                 <img
                   src={user.photoURL}
@@ -509,16 +612,16 @@ export const AuthProfileModal: React.FC = () => {
                 </div>
                 <p className="text-xs text-[#A1A1AA] truncate">{user.email}</p>
                 {streak.isVipCoffeeLover && (
-                  <span className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#D4AF37]/20 border border-[#D4AF37]/50 text-[#FDE68A] text-[10px] font-bold">
+                  <p className="mt-1 inline-flex items-center gap-1 text-[#FDE68A] text-[11px] font-semibold">
                     <Crown className="w-3 h-3 text-[#D4AF37]" />
-                    {t.retention.vipCoffeeLover}
-                  </span>
+                    <span>{t.retention.vipCoffeeLover}</span>
+                  </p>
                 )}
               </div>
             </div>
 
             {/* Daily Watch Streak Card */}
-            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-[#1F1512] to-[#19161A] border border-[#D4AF37]/30 space-y-2">
+            <div className="p-3.5 rounded-2xl bg-gradient-to-r from-[#1D1612] to-[#16151C] border border-[#D4AF37]/30 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="inline-flex items-center gap-1.5 text-xs font-bold text-white">
                   <Flame className="w-4 h-4 text-orange-400 fill-orange-400" />
@@ -529,7 +632,7 @@ export const AuthProfileModal: React.FC = () => {
                 </span>
                 {streak.isVipCoffeeLover ? (
                   <span className="text-[11px] font-bold text-[#D4AF37]">
-                    Active VIP Badge
+                    Active VIP
                   </span>
                 ) : (
                   <span className="text-[11px] text-[#A1A1AA] tabular-nums">
@@ -551,7 +654,7 @@ export const AuthProfileModal: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-3 gap-2.5">
-              <div className="p-3 rounded-2xl bg-[#19161A] border border-white/10">
+              <div className="p-3 rounded-2xl bg-[#16151C] border border-white/10">
                 <div className="flex items-center gap-1 text-[10px] text-[#A1A1AA]">
                   <Heart className="w-3 h-3 text-[#EF4444] shrink-0" />
                   <span className="truncate">{t.auth.likedCount}</span>
@@ -564,7 +667,7 @@ export const AuthProfileModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => openDashboardWatchlist('movie')}
-                className="p-3 rounded-2xl bg-[#19161A] hover:bg-[#221D24] border border-white/10 hover:border-[#E50914]/60 text-left transition-colors"
+                className="p-3 rounded-2xl bg-[#16151C] hover:bg-[#1F1D26] border border-white/10 hover:border-[#E50914]/60 text-left transition-colors"
               >
                 <div className="flex items-center gap-1 text-[10px] text-[#A1A1AA]">
                   <Clapperboard className="w-3 h-3 text-[#E50914] shrink-0" />
@@ -578,7 +681,7 @@ export const AuthProfileModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => openDashboardWatchlist('drama')}
-                className="p-3 rounded-2xl bg-[#19161A] hover:bg-[#221D24] border border-white/10 hover:border-[#D4AF37]/60 text-left transition-colors"
+                className="p-3 rounded-2xl bg-[#16151C] hover:bg-[#1F1D26] border border-white/10 hover:border-[#D4AF37]/60 text-left transition-colors"
               >
                 <div className="flex items-center gap-1 text-[10px] text-[#A1A1AA]">
                   <Bookmark className="w-3 h-3 text-[#D4AF37] shrink-0" />
@@ -594,7 +697,7 @@ export const AuthProfileModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => openDashboardWatchlist('movie')}
-                className="w-full min-h-[44px] px-4 py-2.5 rounded-2xl bg-[#19161A] hover:bg-[#221D24] border border-[#E50914]/35 text-xs font-bold text-white flex items-center justify-between transition-all"
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-2xl bg-[#16151C] hover:bg-[#1F1D26] border border-[#E50914]/35 text-xs font-bold text-white flex items-center justify-between transition-all"
               >
                 <span className="inline-flex items-center gap-2.5">
                   <Clapperboard className="w-4 h-4 text-[#E50914]" />
@@ -608,7 +711,7 @@ export const AuthProfileModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => openDashboardWatchlist('drama')}
-                className="w-full min-h-[44px] px-4 py-2.5 rounded-2xl bg-[#19161A] hover:bg-[#221D24] border border-[#D4AF37]/30 text-xs font-bold text-white flex items-center justify-between transition-all"
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-2xl bg-[#16151C] hover:bg-[#1F1D26] border border-[#D4AF37]/30 text-xs font-bold text-white flex items-center justify-between transition-all"
               >
                 <span className="inline-flex items-center gap-2.5">
                   <Bookmark className="w-4 h-4 text-[#D4AF37]" />
@@ -629,7 +732,7 @@ export const AuthProfileModal: React.FC = () => {
                     })
                   );
                 }}
-                className="w-full min-h-[44px] px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#231B0E] to-[#19161A] hover:brightness-110 border border-[#D4AF37]/45 text-xs font-bold text-[#FDE68A] flex items-center justify-between transition-all"
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#231B0E] to-[#16151C] hover:brightness-110 border border-[#D4AF37]/45 text-xs font-bold text-[#FDE68A] flex items-center justify-between transition-all"
               >
                 <span className="inline-flex items-center gap-2.5">
                   <Coins className="w-4 h-4 text-[#D4AF37]" />
@@ -668,7 +771,7 @@ export const AuthProfileModal: React.FC = () => {
                   closeAuthModal();
                   setHelpModalOpen(true);
                 }}
-                className="w-full min-h-[44px] px-4 py-2.5 rounded-2xl bg-[#19161A] hover:bg-[#221D24] border border-white/10 text-xs font-semibold text-white flex items-center justify-between transition-colors"
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-2xl bg-[#16151C] hover:bg-[#1F1D26] border border-white/10 text-xs font-semibold text-white flex items-center justify-between transition-colors"
               >
                 <span className="inline-flex items-center gap-2.5">
                   <HelpCircle className="w-4 h-4 text-[#D4AF37]" />
@@ -679,10 +782,8 @@ export const AuthProfileModal: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => {
-                  void signOut();
-                }}
-                className="w-full min-h-[44px] px-4 py-2.5 rounded-full bg-red-500/15 hover:bg-red-500/25 border border-red-500/35 text-xs font-bold text-red-300 flex items-center justify-center gap-2 transition-colors"
+                onClick={() => setConfirmSignOut(true)}
+                className="w-full min-h-[44px] px-4 py-2.5 rounded-xl bg-red-500/12 hover:bg-red-500/22 border border-red-500/35 text-xs font-bold text-red-300 flex items-center justify-center gap-2 transition-colors"
               >
                 <LogOut className="w-4 h-4" />
                 <span>{t.auth.signOut}</span>

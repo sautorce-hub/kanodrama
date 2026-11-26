@@ -410,11 +410,57 @@ export interface DramaProviderAdapter {
   ) => Promise<StreamSource>;
 }
 
-export interface ToastItem {
+export type ToastVariant =
+  | 'default'
+  | 'points'
+  | 'signin'
+  | 'signout'
+  | 'blocked'
+  | 'error';
+
+export interface ToastMeta {
+  variant?: ToastVariant;
+  title?: string;
+  subtitle?: string;
+  points?: number;
+  balance?: number | null;
+  category?: string;
+  userName?: string;
+  userEmail?: string;
+  photoURL?: string | null;
+  avatarInitials?: string;
+  avatarColor?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  durationMs?: number;
+}
+
+export interface ToastItem extends ToastMeta {
   id: string;
   message: string;
   tone: 'gold' | 'error' | 'neutral';
 }
+
+export type SpotlightPopupState =
+  | {
+      kind: 'welcome_bonus';
+      points: number;
+      bindBonusPoints?: number;
+      totalBalance?: number | null;
+      authMethod: 'email' | 'google';
+      displayName: string;
+      email: string;
+      photoURL?: string | null;
+      avatarInitials: string;
+      avatarColor: string;
+    }
+  | {
+      kind: 'account_blocked';
+      reason?: string;
+      source?: 'login' | 'watch' | 'claim' | 'share' | 'referral';
+      userEmail?: string;
+      displayName?: string;
+    };
 
 export type LegalModalTopic =
   | 'about'

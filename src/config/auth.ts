@@ -27,6 +27,8 @@ export interface GoogleAuthResult {
   user: ServerAuthenticatedUser;
   gmailLoginCount: number;
   firstLoginBonusAwarded?: number;
+  antiCheatBlocked?: boolean;
+  antiCheatReason?: string;
   referralBindResult?: {
     bound: boolean;
     bindBonusAwarded?: number;
@@ -323,6 +325,8 @@ export async function exchangeGoogleCredentialWithBackend(payload: {
     user?: ServerAuthenticatedUser;
     gmailLoginCount?: number;
     firstLoginBonusAwarded?: number;
+    antiCheatBlocked?: boolean;
+    antiCheatReason?: string;
     referralBindResult?: {
       bound: boolean;
       bindBonusAwarded?: number;
@@ -341,6 +345,8 @@ export async function exchangeGoogleCredentialWithBackend(payload: {
       typeof data.gmailLoginCount === 'number' ? data.gmailLoginCount : 0,
     firstLoginBonusAwarded:
       typeof data.firstLoginBonusAwarded === 'number' ? data.firstLoginBonusAwarded : 0,
+    antiCheatBlocked: Boolean(data.antiCheatBlocked),
+    antiCheatReason: data.antiCheatReason,
     referralBindResult: data.referralBindResult,
   };
 }
@@ -411,6 +417,8 @@ export async function loginWithEmail(payload: {
     user?: ServerAuthenticatedUser;
     gmailLoginCount?: number;
     firstLoginBonusAwarded?: number;
+    antiCheatBlocked?: boolean;
+    antiCheatReason?: string;
     referralBindResult?: {
       bound: boolean;
       bindBonusAwarded?: number;
@@ -429,6 +437,8 @@ export async function loginWithEmail(payload: {
       typeof data.gmailLoginCount === 'number' ? data.gmailLoginCount : 0,
     firstLoginBonusAwarded:
       typeof data.firstLoginBonusAwarded === 'number' ? data.firstLoginBonusAwarded : 0,
+    antiCheatBlocked: Boolean(data.antiCheatBlocked),
+    antiCheatReason: data.antiCheatReason,
     referralBindResult: data.referralBindResult,
   };
 }
@@ -469,6 +479,8 @@ export async function registerWithEmail(payload: {
     user?: ServerAuthenticatedUser;
     gmailLoginCount?: number;
     firstLoginBonusAwarded?: number;
+    antiCheatBlocked?: boolean;
+    antiCheatReason?: string;
     referralBindResult?: {
       bound: boolean;
       bindBonusAwarded?: number;
@@ -487,6 +499,8 @@ export async function registerWithEmail(payload: {
       typeof data.gmailLoginCount === 'number' ? data.gmailLoginCount : 0,
     firstLoginBonusAwarded:
       typeof data.firstLoginBonusAwarded === 'number' ? data.firstLoginBonusAwarded : 0,
+    antiCheatBlocked: Boolean(data.antiCheatBlocked),
+    antiCheatReason: data.antiCheatReason,
     referralBindResult: data.referralBindResult,
   };
 }

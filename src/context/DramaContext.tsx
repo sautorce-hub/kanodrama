@@ -43,8 +43,10 @@ import type {
   LanguagePreference,
   MediaProviderName,
   ReactionKey,
+  SpotlightPopupState,
   SubtitleStyleConfig,
   ToastItem,
+  ToastMeta,
   WatchHistoryEntry,
   WatchlistFolder,
   WatchStatusFilter,
@@ -158,6 +160,12 @@ interface DramaContextValue {
   completeGoogleSignIn: (result: GoogleAuthResult) => GoogleUser;
   signOut: () => Promise<void>;
   requireAuth: (reason: string, action: (u: GoogleUser) => void) => Promise<void>;
+  spotlightPopup: SpotlightPopupState | null;
+  openBlockedAccountPopup: (info?: {
+    reason?: string;
+    source?: 'login' | 'watch' | 'claim' | 'share' | 'referral';
+  }) => void;
+  closeSpotlightPopup: () => void;
   gmailLoginCount: number;
   refreshGmailLoginCount: () => Promise<number>;
   pointsBalance: number | null;
@@ -312,7 +320,11 @@ interface DramaContextValue {
   clearRecentSearches: () => void;
   episodesWatchedCount: number;
   toasts: ToastItem[];
-  pushToast: (message: string, tone?: ToastItem['tone']) => void;
+  pushToast: (
+    message: string,
+    tone?: ToastItem['tone'],
+    meta?: ToastMeta
+  ) => void;
   dismissToast: (id: string) => void;
   getDramaLiveStats: (
     bookId: string,
@@ -950,6 +962,9 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [spotlightPopup, setSpotlightPopup] =
+    useState<SpotlightPopupState | null>(null);
+  const blockedPopupShownForUidRef = useRef<string | null>(null);
   const [liveBadgeMap, setLiveBadgeMap] = useState<
     Record<
       string,
@@ -1008,18 +1023,42 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [refreshLiveBadges]);
 
   const pushToast = useCallback(
-    (message: string, tone: ToastItem['tone'] = 'gold') => {
+    (message: string, tone: ToastItem['tone'] = 'gold', meta?: ToastMeta) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      setToasts((prev) => [...prev.slice(-2), { id, message, tone }]);
+      const durationMs = meta?.durationMs ?? (meta?.variant === 'blocked' ? 5200 : 3800);
+      setToasts((prev) => [
+        ...prev.slice(-2),
+        { id, message, tone, ...meta, durationMs },
+      ]);
       window.setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, 3400);
+      }, durationMs);
     },
     []
   );
 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const openBlockedAccountPopup = useCallback(
+    (info?: {
+      reason?: string;
+      source?: 'login' | 'watch' | 'claim' | 'share' | 'referral';
+    }) => {
+      setSpotlightPopup({
+        kind: 'account_blocked',
+        reason: info?.reason,
+        source: info?.source,
+        userEmail: user?.email,
+        displayName: user?.displayName,
+      });
+    },
+    [user?.displayName, user?.email]
+  );
+
+  const closeSpotlightPopup = useCallback(() => {
+    setSpotlightPopup(null);
   }, []);
 
   const refreshGmailLoginCount = useCallback(async (): Promise<number> => {
@@ -1937,40 +1976,75 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       }
       void hydrateUserLibraryFromPostgres(mapped.uid);
       void refreshPointsBalance();
+      const isId = language === 'id';
+      const locale = isId ? 'id-ID' : 'en-US';
+      const authMethod: 'email' | 'google' = mapped.uid.startsWith('google_')
+        ? 'google'
+        : 'email';
       const firstLoginBonus =
         typeof result.firstLoginBonusAwarded === 'number' && result.firstLoginBonusAwarded > 0
           ? result.firstLoginBonusAwarded
           : 0;
-      if (firstLoginBonus > 0 && autoBindBonus > 0) {
-        const locale = language === 'id' ? 'id-ID' : 'en-US';
-        pushToast(
-          language === 'id'
-            ? `Masuk sebagai ${mapped.displayName} · Bonus login +${firstLoginBonus.toLocaleString(locale)} & bind referral +${autoBindBonus.toLocaleString(locale)} poin!`
-            : `Signed in as ${mapped.displayName} · +${firstLoginBonus.toLocaleString(locale)} login & +${autoBindBonus.toLocaleString(locale)} bind referral pts!`,
-          'gold'
-        );
+
+      if (result.antiCheatBlocked) {
+        blockedPopupShownForUidRef.current = mapped.uid;
+        setSpotlightPopup({
+          kind: 'account_blocked',
+          reason: result.antiCheatReason,
+          source: 'login',
+          userEmail: mapped.email,
+          displayName: mapped.displayName,
+        });
       } else if (firstLoginBonus > 0) {
-        const formattedBonus = firstLoginBonus.toLocaleString(
-          language === 'id' ? 'id-ID' : 'en-US'
-        );
-        pushToast(
-          language === 'id'
-            ? `Masuk sebagai ${mapped.displayName} · Bonus login pertama +${formattedBonus} poin!`
-            : `Signed in as ${mapped.displayName} · First login bonus +${formattedBonus} pts!`,
-          'gold'
-        );
+        setSpotlightPopup({
+          kind: 'welcome_bonus',
+          points: firstLoginBonus,
+          bindBonusPoints: autoBindBonus,
+          totalBalance: firstLoginBonus + autoBindBonus,
+          authMethod,
+          displayName: mapped.displayName,
+          email: mapped.email,
+          photoURL: mapped.photoURL,
+          avatarInitials: mapped.avatarInitials,
+          avatarColor: mapped.avatarColor,
+        });
       } else if (autoBindBonus > 0) {
-        const formattedBind = autoBindBonus.toLocaleString(
-          language === 'id' ? 'id-ID' : 'en-US'
-        );
+        const formattedBind = autoBindBonus.toLocaleString(locale);
         pushToast(
-          language === 'id'
+          isId
             ? `Masuk sebagai ${mapped.displayName} · Bonus bind referral +${formattedBind} poin!`
             : `Signed in as ${mapped.displayName} · Bind referral bonus +${formattedBind} pts!`,
-          'gold'
+          'gold',
+          {
+            variant: 'points',
+            points: autoBindBonus,
+            title: isId ? 'Masuk & Bonus Bind Referral' : 'Signed In · Referral Bind Bonus',
+            subtitle: `${mapped.displayName} · ${mapped.email}`,
+            category: authMethod === 'email' ? 'Email' : 'Google',
+            durationMs: 4600,
+          }
         );
       } else {
-        pushToast(`Signed in as ${mapped.displayName}`, 'gold');
+        pushToast(
+          isId ? `Masuk sebagai ${mapped.displayName}` : `Signed in as ${mapped.displayName}`,
+          'gold',
+          {
+            variant: 'signin',
+            title: isId
+              ? authMethod === 'email'
+                ? 'Masuk dengan Email Berhasil'
+                : 'Masuk dengan Google Berhasil'
+              : authMethod === 'email'
+              ? 'Email Sign-In Successful'
+              : 'Google Sign-In Successful',
+            userName: mapped.displayName,
+            userEmail: mapped.email,
+            photoURL: mapped.photoURL,
+            avatarInitials: mapped.avatarInitials,
+            avatarColor: mapped.avatarColor,
+            durationMs: 3800,
+          }
+        );
       }
 
       const cb = pendingAuthCallbackRef.current;
@@ -2055,9 +2129,11 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const signOut = useCallback(async () => {
+    const prevEmail = user?.email || '';
     const activeToken = sessionTokenRef.current;
     sessionTokenRef.current = null;
     activeActorUidRef.current = null;
+    blockedPopupShownForUidRef.current = null;
     try {
       await signOutRealGoogle(activeToken);
     } catch {
@@ -2074,8 +2150,23 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
     setMovieListItemsRaw([]);
     setStreak(EMPTY_STREAK);
     setAuthModalOpen(false);
-    pushToast('Signed out', 'neutral');
-  }, [pushToast]);
+    setSpotlightPopup((prev) =>
+      prev?.kind === 'welcome_bonus' ? null : prev
+    );
+    const isId = language === 'id';
+    pushToast(isId ? 'Berhasil Keluar Akun' : 'Signed Out Safely', 'neutral', {
+      variant: 'signout',
+      title: isId ? 'Berhasil Keluar Akun' : 'Signed Out Safely',
+      subtitle: prevEmail
+        ? isId
+          ? `${prevEmail} · Saldo poin & riwayat tetap aman.`
+          : `${prevEmail} · Points & history remain saved.`
+        : isId
+        ? 'Saldo poin & riwayat tonton tetap tersimpan aman.'
+        : 'Your points balance & watch history remain safely saved.',
+      durationMs: 3600,
+    });
+  }, [language, pushToast, user?.email]);
 
   const requireAuth = useCallback(
     async (reason: string, action: (u: GoogleUser) => void) => {
@@ -2932,8 +3023,27 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
             }
             if (res.status === 403 || hb?.reason === 'anti_cheat_blocked') {
               lastWatchHeartbeatSentAtRef.current = Date.now() + 30_000;
-              if (hb?.error) {
-                pushToast(hb.error, 'neutral');
+              const isId = language === 'id';
+              const blockedReason =
+                hb?.error ||
+                (isId
+                  ? 'Akun ini dibatasi karena 1 perangkat hanya mendukung 1 akun utama.'
+                  : 'Watch rewards restricted: only 1 primary account is allowed per device.');
+              if (user?.uid && blockedPopupShownForUidRef.current !== user.uid) {
+                blockedPopupShownForUidRef.current = user.uid;
+                openBlockedAccountPopup({ reason: blockedReason, source: 'watch' });
+              } else {
+                pushToast(blockedReason, 'error', {
+                  variant: 'blocked',
+                  title: isId
+                    ? 'Akun Dibatasi (1 Device = 1 Akun)'
+                    : 'Account Restricted (1 Device Policy)',
+                  subtitle: blockedReason,
+                  actionLabel: isId ? 'Detail' : 'Details',
+                  onAction: () =>
+                    openBlockedAccountPopup({ reason: blockedReason, source: 'watch' }),
+                  durationMs: 5200,
+                });
               }
               return;
             }
@@ -2996,7 +3106,23 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
                   language === 'id'
                     ? `+${awardedWatch.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit} nonton (${watchedMins}m)`
                     : `+${awardedWatch.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit} (${watchedMins}m)`;
-                pushToast(autoLabel, 'gold');
+                pushToast(autoLabel, 'gold', {
+                  variant: 'points',
+                  points: awardedWatch,
+                  balance:
+                    typeof hb.pointsBalance === 'number'
+                      ? Math.max(0, Math.floor(hb.pointsBalance))
+                      : null,
+                  title:
+                    language === 'id' ? 'Poin Nonton Masuk' : 'Watch Reward Credited',
+                  category:
+                    language === 'id' ? `${watchedMins}m hari ini` : `${watchedMins}m today`,
+                  subtitle:
+                    language === 'id'
+                      ? `Nonton aktif terverifikasi · ${drama.title}`
+                      : `Verified active watch · ${drama.title}`,
+                  durationMs: 3800,
+                });
               }
               if (awardedWatch > 0 || hb.referralQualified || (hb.referralOngoingBonusAwarded ?? 0) > 0) {
                 void refreshPointsBalance();
@@ -3045,6 +3171,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       getAuthHeaders,
       refreshPointsBalance,
       pushToast,
+      openBlockedAccountPopup,
       language,
     ]
   );
@@ -3078,8 +3205,16 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           ok?: boolean;
           awardedPoints?: number;
           reason?: string;
+          error?: string;
           summary?: { balance?: number } | null;
         };
+        if (res.status === 403 || data.reason === 'anti_cheat_blocked') {
+          if (user?.uid && blockedPopupShownForUidRef.current !== user.uid) {
+            blockedPopupShownForUidRef.current = user.uid;
+            openBlockedAccountPopup({ reason: data.error, source: 'watch' });
+          }
+          return;
+        }
         if (res.ok && data.ok && typeof data.awardedPoints === 'number' && data.awardedPoints > 0) {
           if (typeof data.summary?.balance === 'number') {
             setPointsBalance(Math.max(0, Math.floor(data.summary.balance)));
@@ -3088,7 +3223,21 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
             language === 'id'
               ? `+${data.awardedPoints.toLocaleString('id-ID')} poin bonus selesai Episode ${safeEp}!`
               : `+${data.awardedPoints.toLocaleString('en-US')} pts Episode ${safeEp} completion bonus!`;
-          pushToast(label, 'gold');
+          pushToast(label, 'gold', {
+            variant: 'points',
+            points: data.awardedPoints,
+            balance:
+              typeof data.summary?.balance === 'number'
+                ? Math.max(0, Math.floor(data.summary.balance))
+                : null,
+            title:
+              language === 'id'
+                ? 'Bonus Selesai Episode'
+                : 'Episode Completion Bonus',
+            category: `Ep ${safeEp}`,
+            subtitle: drama.title,
+            durationMs: 4200,
+          });
           if (typeof window !== 'undefined') {
             window.dispatchEvent(
               new CustomEvent('kd:points-updated', {
@@ -3108,7 +3257,15 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
         episodeBonusAttemptedRef.current.delete(dedupKey);
       }
     },
-    [user, ensureWatchSessionToken, getAuthHeaders, language, pushToast, refreshPointsBalance]
+    [
+      user,
+      ensureWatchSessionToken,
+      getAuthHeaders,
+      language,
+      pushToast,
+      openBlockedAccountPopup,
+      refreshPointsBalance,
+    ]
   );
 
   const getDramaLiveStats = useCallback(
@@ -3427,6 +3584,9 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       completeGoogleSignIn,
       signOut,
       requireAuth,
+      spotlightPopup,
+      openBlockedAccountPopup,
+      closeSpotlightPopup,
       gmailLoginCount,
       refreshGmailLoginCount,
       pointsBalance,
@@ -3519,6 +3679,9 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       completeGoogleSignIn,
       signOut,
       requireAuth,
+      spotlightPopup,
+      openBlockedAccountPopup,
+      closeSpotlightPopup,
       gmailLoginCount,
       refreshGmailLoginCount,
       pointsBalance,

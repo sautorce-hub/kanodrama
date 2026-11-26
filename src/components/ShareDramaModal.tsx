@@ -290,8 +290,15 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
   onUnlockSuccess: _onUnlockSuccess,
   onClose,
 }) => {
-  const { t, user, language, getAuthHeaders, refreshPointsBalance, pushToast } =
-    useDramaContext();
+  const {
+    t,
+    user,
+    language,
+    getAuthHeaders,
+    refreshPointsBalance,
+    pushToast,
+    openBlockedAccountPopup,
+  } = useDramaContext();
   const [copied, setCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [cardLoading, setCardLoading] = useState(false);
@@ -384,18 +391,39 @@ export const ShareDramaModal: React.FC<ShareDramaModalProps> = ({
       }),
     })
       .then(async (res) => {
-        if (!res.ok) return;
         const data = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
+          reason?: string;
+          error?: string;
           awardedPoints?: number;
           summary?: { balance?: number } | null;
         };
+        if (res.status === 403 || data.reason === 'anti_cheat_blocked') {
+          openBlockedAccountPopup({ reason: data.error, source: 'share' });
+          return;
+        }
+        if (!res.ok) return;
         if (data.ok && typeof data.awardedPoints === 'number' && data.awardedPoints > 0) {
           pushToast(
             language === 'id'
               ? `+${data.awardedPoints.toLocaleString('id-ID')} poin tugas share harian!`
               : `+${data.awardedPoints.toLocaleString('en-US')} pts daily social share reward!`,
-            'gold'
+            'gold',
+            {
+              variant: 'points',
+              points: data.awardedPoints,
+              balance:
+                typeof data.summary?.balance === 'number'
+                  ? data.summary.balance
+                  : null,
+              title: language === 'id' ? 'Bonus Share Harian' : 'Daily Share Reward',
+              category: channel,
+              subtitle:
+                language === 'id'
+                  ? 'Tugas share media sosial selesai'
+                  : 'Daily social share mission completed',
+              durationMs: 4200,
+            }
           );
           void refreshPointsBalance();
           if (typeof window !== 'undefined') {
