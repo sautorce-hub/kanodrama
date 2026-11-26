@@ -4252,6 +4252,84 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(attempt429, 2);
     assert.equal(retryRes.sent, true);
 
+    // B2. Transient network error ('fetch failed' with err.cause) retries up to 2 times, logs cause, and passes AbortSignal
+    let attemptNet = 0;
+    let sawAbortSignal = false;
+    const origConsoleError = console.error;
+    const capturedErrorLogs: string[] = [];
+    console.error = (...args: unknown[]) => {
+      capturedErrorLogs.push(args.map((a) => String(a)).join(' '));
+      origConsoleError(...args);
+    };
+    try {
+      const netRetryRes = await notifyAdminTelegramPointsEarned(
+        {
+          userId: 'user-net-retry',
+          userDisplayName: 'Net Retry',
+          eventType: 'daily_social_share',
+          points: 1000,
+          channel: 'telegram',
+        },
+        {
+          minIntervalMs: 0,
+          retryDelayMs: 20,
+          fetchImpl: async (_url, init) => {
+            if (init?.signal instanceof AbortSignal) sawAbortSignal = true;
+            attemptNet += 1;
+            if (attemptNet <= 2) {
+              const causeErr = Object.assign(new Error('connect ETIMEDOUT 149.154.167.220:443'), {
+                code: 'ETIMEDOUT',
+              });
+              throw new TypeError('fetch failed', { cause: causeErr });
+            }
+            return new Response(
+              JSON.stringify({ ok: true, result: { message_id: 502 } }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } }
+            );
+          },
+        }
+      );
+      assert.equal(sawAbortSignal, true);
+      assert.equal(attemptNet, 3);
+      assert.equal(netRetryRes.sent, true);
+      assert.ok(
+        capturedErrorLogs.some((line) => /fetch failed/.test(line) && /ETIMEDOUT/.test(line)),
+        'Error log must include fetch failed and err.cause detail'
+      );
+    } finally {
+      console.error = origConsoleError;
+    }
+
+    // B3. Transient HTTP 5xx (502 Bad Gateway) retries and succeeds
+    let attempt5xx = 0;
+    const fiveXxRes = await notifyAdminTelegramPointsEarned(
+      {
+        userId: 'user-5xx-retry',
+        userDisplayName: '5xx Retry',
+        eventType: 'watch_episode',
+        points: 500,
+        provider: 'DramaBoxV2',
+        dramaId: 'd-5xx',
+        episodeNumber: 1,
+      },
+      {
+        minIntervalMs: 0,
+        retryDelayMs: 20,
+        fetchImpl: async () => {
+          attempt5xx += 1;
+          if (attempt5xx === 1) {
+            return new Response('Bad Gateway', { status: 502, statusText: 'Bad Gateway' });
+          }
+          return new Response(
+            JSON.stringify({ ok: true, result: { message_id: 503 } }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        },
+      }
+    );
+    assert.equal(attempt5xx, 2);
+    assert.equal(fiveXxRes.sent, true);
+
     // C. E2E HTTP route triggers (registration +25k, check-in, share, watch minute, milestone, episode, bind referral, referral qualify, ongoing referral, withdraw)
     clearTelegramThrottleCacheForTests();
     const capturedTelegramMessages: Array<{ chatId: string; text: string }> = [];

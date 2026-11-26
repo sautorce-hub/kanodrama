@@ -88,6 +88,9 @@ export interface TelegramSendOptions {
   throttleMs?: number;
   bypassThrottle?: boolean;
   minIntervalMs?: number;
+  timeoutMs?: number;
+  maxRetries?: number;
+  retryDelayMs?: number;
 }
 
 export interface TelegramSendResult {
@@ -101,8 +104,10 @@ const DEFAULT_ERROR_THROTTLE_MS = 5 * 60_000;
 const DEFAULT_EVENT_DEDUP_MS = 24 * 60 * 60_000;
 const DEFAULT_WITHDRAW_DEDUP_MS = 60_000;
 const DEFAULT_MIN_SEND_INTERVAL_MS = 1_100;
+const TELEGRAM_FETCH_TIMEOUT_MS = 10_000;
 const MAX_QUEUE_SIZE = 120;
-const MAX_429_RETRIES = 1;
+const MAX_TRANSIENT_RETRIES = 2;
+const TRANSIENT_RETRY_BASE_MS = 650;
 const MISSING_ENV_WARN_COOLDOWN_MS = 10 * 60_000;
 
 interface QueuedTelegramTask {
@@ -163,10 +168,50 @@ function sanitizeTelegramErrorText(raw: unknown): string {
     .replace(/\s+/g, ' ')
     .trim();
   if (!text) text = 'Unknown server error';
-  if (text.length > 260) {
-    text = `${text.slice(0, 257)}...`;
+  if (text.length > 420) {
+    text = `${text.slice(0, 417)}...`;
   }
   return text;
+}
+
+function formatTelegramNetworkErrorDetail(err: unknown): string {
+  if (!(err instanceof Error)) {
+    return sanitizeTelegramErrorText(err);
+  }
+  const errWithProps = err as Error & { code?: unknown; cause?: unknown };
+  const parts: string[] = [`${err.name}: ${err.message}`];
+  if (errWithProps.code) {
+    parts.push(`code=${String(errWithProps.code)}`);
+  }
+  if (errWithProps.cause !== undefined && errWithProps.cause !== null) {
+    const cause = errWithProps.cause;
+    if (cause instanceof Error) {
+      const causeWithProps = cause as Error & {
+        code?: unknown;
+        errno?: unknown;
+        syscall?: unknown;
+        address?: unknown;
+        port?: unknown;
+      };
+      const causeBits = [
+        `${cause.name}: ${cause.message}`,
+        causeWithProps.code ? `code=${String(causeWithProps.code)}` : '',
+        causeWithProps.syscall ? `syscall=${String(causeWithProps.syscall)}` : '',
+        causeWithProps.address ? `addr=${String(causeWithProps.address)}` : '',
+        causeWithProps.port ? `port=${String(causeWithProps.port)}` : '',
+      ].filter(Boolean);
+      parts.push(`cause=(${causeBits.join(' ')})`);
+    } else if (typeof cause === 'object') {
+      try {
+        parts.push(`cause=${JSON.stringify(cause)}`);
+      } catch {
+        parts.push(`cause=${String(cause)}`);
+      }
+    } else {
+      parts.push(`cause=${String(cause)}`);
+    }
+  }
+  return sanitizeTelegramErrorText(parts.join(' | '));
 }
 
 function formatWibDateTime(isoOrDate?: string): string {
@@ -335,6 +380,21 @@ async function sendTelegramGroupMessage(
       ? Number(options?.minIntervalMs)
       : DEFAULT_MIN_SEND_INTERVAL_MS
   );
+  const timeoutMs = Math.max(
+    1_000,
+    Number.isFinite(Number(options?.timeoutMs))
+      ? Number(options?.timeoutMs)
+      : TELEGRAM_FETCH_TIMEOUT_MS
+  );
+  const maxRetries = Math.max(
+    0,
+    Math.min(
+      3,
+      Number.isFinite(Number(options?.maxRetries))
+        ? Math.floor(Number(options?.maxRetries))
+        : MAX_TRANSIENT_RETRIES
+    )
+  );
   const endpoint = `https://api.telegram.org/bot${encodeURIComponent(token)}/sendMessage`;
   const payloadBody = JSON.stringify({
     chat_id: chatId,
@@ -343,8 +403,17 @@ async function sendTelegramGroupMessage(
     disable_web_page_preview: true,
   });
 
+  const getTransientWaitMs = (attempt: number): number => {
+    if (Number.isFinite(Number(options?.retryDelayMs))) {
+      return Math.max(0, Number(options?.retryDelayMs));
+    }
+    const base = isCustomFetch ? 80 : TRANSIENT_RETRY_BASE_MS;
+    return base * (attempt + 1);
+  };
+
   return enqueueTelegramSend(contextTag, minIntervalMs, async () => {
-    for (let attempt = 0; attempt <= MAX_429_RETRIES; attempt += 1) {
+    let lastStatusCode: number | undefined;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       try {
         const res = await fetchFn(endpoint, {
           method: 'POST',
@@ -352,8 +421,9 @@ async function sendTelegramGroupMessage(
             'Content-Type': 'application/json',
           },
           body: payloadBody,
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(timeoutMs),
         });
+        lastStatusCode = res.status;
 
         let rawBody = '';
         try {
@@ -362,14 +432,37 @@ async function sendTelegramGroupMessage(
           rawBody = '';
         }
 
-        if (res.status === 429 && attempt < MAX_429_RETRIES) {
-          const waitMs = await parseRetryAfterMs(res, rawBody, isCustomFetch);
-          nextAllowedSendAt = Date.now() + waitMs;
+        if (res.status === 429) {
+          if (attempt < maxRetries) {
+            const waitMs = await parseRetryAfterMs(res, rawBody, isCustomFetch);
+            nextAllowedSendAt = Date.now() + waitMs;
+            console.error(
+              `[Telegram] Rate limited (HTTP 429) on ${contextTag} -> chat=${chatId}, retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`
+            );
+            await sleepMs(waitMs);
+            continue;
+          }
+          const detail = sanitizeTelegramErrorText(rawBody || res.statusText || 'HTTP 429');
           console.error(
-            `[Telegram] Rate limited (HTTP 429) on ${contextTag} -> chat=${chatId}, retrying in ${waitMs}ms`
+            `[Telegram] Failed ${contextTag} -> chat=${chatId} (HTTP 429) after ${attempt + 1} attempt(s): ${detail}`
           );
-          await sleepMs(waitMs);
-          continue;
+          return { sent: false, statusCode: 429 };
+        }
+
+        if (res.status >= 500 && res.status <= 599) {
+          const detail = sanitizeTelegramErrorText(rawBody || res.statusText || `HTTP ${res.status}`);
+          if (attempt < maxRetries) {
+            const waitMs = getTransientWaitMs(attempt);
+            console.error(
+              `[Telegram] Transient HTTP ${res.status} on ${contextTag} -> chat=${chatId}: ${detail}; retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`
+            );
+            await sleepMs(waitMs);
+            continue;
+          }
+          console.error(
+            `[Telegram] Failed ${contextTag} -> chat=${chatId} (HTTP ${res.status}) after ${attempt + 1} attempt(s): ${detail}`
+          );
+          return { sent: false, statusCode: res.status };
         }
 
         if (!res.ok) {
@@ -400,16 +493,22 @@ async function sendTelegramGroupMessage(
         );
         return { sent: true, statusCode: res.status };
       } catch (err) {
-        const detail = sanitizeTelegramErrorText(
-          err instanceof Error ? `${err.name}: ${err.message}` : err
-        );
+        const detail = formatTelegramNetworkErrorDetail(err);
+        if (attempt < maxRetries) {
+          const waitMs = getTransientWaitMs(attempt);
+          console.error(
+            `[Telegram] Network error on ${contextTag} -> chat=${chatId}: ${detail}; retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`
+          );
+          await sleepMs(waitMs);
+          continue;
+        }
         console.error(
-          `[Telegram] Error sending ${contextTag} -> chat=${chatId}: ${detail}`
+          `[Telegram] Error sending ${contextTag} -> chat=${chatId} after ${attempt + 1} attempt(s): ${detail}`
         );
-        return { sent: false };
+        return { sent: false, statusCode: lastStatusCode };
       }
     }
-    return { sent: false, statusCode: 429 };
+    return { sent: false, statusCode: lastStatusCode };
   });
 }
 
