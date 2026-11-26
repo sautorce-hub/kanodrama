@@ -106,6 +106,7 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
           source?: string;
           awardedWatchPoints?: number;
           awardedMilestonePoints?: number;
+          awardedEpisodePoints?: number;
         }>
       ).detail;
       if (!detail) return;
@@ -118,7 +119,11 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
         detail.awardedMilestonePoints > 0
           ? Math.floor(detail.awardedMilestonePoints)
           : 0;
-      const awardedAmount = watchPts + milestonePts;
+      const episodePts =
+        typeof detail.awardedEpisodePoints === 'number' && detail.awardedEpisodePoints > 0
+          ? Math.floor(detail.awardedEpisodePoints)
+          : 0;
+      const awardedAmount = watchPts + milestonePts + episodePts;
       if (awardedAmount <= 0) return;
 
       burstSeqRef.current += 1;

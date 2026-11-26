@@ -142,6 +142,8 @@ interface MemReferral {
   referral_code: string;
   status: 'pending_watch' | 'qualified' | 'rejected_fraud';
   bonus_points: number;
+  ongoing_bonus_points: number;
+  ongoing_steps_awarded: number;
   referee_ip_hash: string;
   referee_subnet_hash: string;
   referee_ua_hash: string;
@@ -565,6 +567,17 @@ function createStatefulPgMock() {
     }
 
     // 5. Rewarded episodes queries
+    if (sql.includes('COUNT(*)::text AS cnt FROM rewarded_episodes WHERE user_id = $1')) {
+      const uid = String(params[0]);
+      const pStart = params[1] instanceof Date ? params[1].getTime() : 0;
+      const pEnd = params[2] instanceof Date ? params[2].getTime() : Number.MAX_SAFE_INTEGER;
+      const cnt = state.rewardedEpisodes.filter((r) => {
+        const ts = r.created_at.getTime();
+        return r.user_id === uid && ts >= pStart && ts < pEnd;
+      }).length;
+      return { rows: [{ cnt: String(cnt) }], rowCount: 1 };
+    }
+
     if (sql.includes('FROM rewarded_episodes WHERE user_id = $1')) {
       const uid = String(params[0]);
       const prov = String(params[1]).toLowerCase();
@@ -994,7 +1007,7 @@ function createStatefulPgMock() {
               lastWatchMission = l.created_at;
             }
           }
-          if (l.reference_id.startsWith('checkin:') || l.reference_id.startsWith('watch:')) {
+          if (l.reference_id.startsWith('checkin:')) {
             if (!lastClaim || l.created_at > lastClaim) {
               lastClaim = l.created_at;
             }
@@ -1277,6 +1290,8 @@ function createStatefulPgMock() {
         referral_code: String(params[3]),
         status: sql.includes("'rejected_fraud'") ? 'rejected_fraud' : 'pending_watch',
         bonus_points: Number(params[4]),
+        ongoing_bonus_points: 0,
+        ongoing_steps_awarded: 0,
         referee_ip_hash: String(params[5] || ''),
         referee_subnet_hash: String(params[6] || ''),
         referee_ua_hash: String(params[7] || ''),
@@ -1299,6 +1314,35 @@ function createStatefulPgMock() {
         rows: r ? [{ id: r.id, referrer_uid: r.referrer_uid, bonus_points: r.bonus_points }] : [],
         rowCount: r ? 1 : 0,
       };
+    }
+
+    if (sql.includes("FROM referrals WHERE referee_uid = $1 AND status = 'qualified'")) {
+      const r = state.referrals.find(
+        (x) => x.referee_uid === String(params[0]) && x.status === 'qualified'
+      );
+      return {
+        rows: r
+          ? [
+              {
+                id: r.id,
+                referrer_uid: r.referrer_uid,
+                ongoing_bonus_points: r.ongoing_bonus_points,
+                ongoing_steps_awarded: r.ongoing_steps_awarded,
+              },
+            ]
+          : [],
+        rowCount: r ? 1 : 0,
+      };
+    }
+
+    if (sql.startsWith('UPDATE referrals SET ongoing_steps_awarded = $2')) {
+      const r = state.referrals.find((x) => x.id === String(params[0]));
+      if (r) {
+        r.ongoing_steps_awarded = Number(params[1]);
+        r.ongoing_bonus_points = Number(params[2]);
+        r.updated_at = new Date();
+      }
+      return { rows: [], rowCount: r ? 1 : 0 };
     }
 
     if (sql.includes('FROM referrals WHERE referee_uid = $1 LIMIT 1')) {
@@ -1343,6 +1387,8 @@ function createStatefulPgMock() {
           referee_name: state.users.get(r.referee_uid)?.display_name || 'Viewer',
           status: r.status,
           bonus_points: r.bonus_points,
+          ongoing_bonus_points: r.ongoing_bonus_points ?? 0,
+          ongoing_steps_awarded: r.ongoing_steps_awarded ?? 0,
           verified_watch_seconds: state.telemetry.get(r.referee_uid)?.verified_watch_seconds ?? 0,
           risk_flag: r.risk_flag,
           qualified_at: r.qualified_at,
@@ -1537,8 +1583,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const sessJson = await sessRes.json();
     assert.ok(sessJson.sessionToken);
 
-    // Removed watch_episode bonus action is rejected cleanly (400)
-    const removedEpClaim = await fetch(`${baseUrl}/api/points/claim`, {
+    // Episode finish bonus requires >= 20s verified watch time on the episode (400)
+    const prematureEpClaim = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1552,8 +1598,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
         sessionToken: sessJson.sessionToken,
       }),
     });
-    assert.equal(removedEpClaim.status, 400);
-    assert.equal((await removedEpClaim.json()).reason, 'feature_removed');
+    assert.equal(prematureEpClaim.status, 400);
+    assert.equal((await prematureEpClaim.json()).reason, 'watch_duration_insufficient');
 
     // Baseline heartbeat seq=1
     const hb1 = await fetch(`${baseUrl}/api/watch/heartbeat`, {
@@ -1724,8 +1770,31 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(valid20.reason, 'counted');
     assert.equal(valid20.addedSeconds, 20);
 
-    // Confirm watch_episode bonus remains disabled even after >= 20s verified watch
+    // Claiming watch_episode after >= 20s verified watch grants +500 pts once per episode (max 3/day)
     const epClaimAfterWatch = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${aliceToken}`,
+      },
+      body: JSON.stringify({
+        action: 'watch_episode',
+        dramaId: 'd-101',
+        provider: 'DramaBox',
+        episodeNumber: 3,
+        title: 'Episode Tiga',
+        sessionToken: sessJson.sessionToken,
+      }),
+    });
+    assert.equal(epClaimAfterWatch.status, 200);
+    const epClaimJson = await epClaimAfterWatch.json();
+    assert.equal(epClaimJson.ok, true);
+    assert.equal(epClaimJson.awardedPoints, 500);
+    assert.equal(epClaimJson.summary.todayEpisodeBonusCount, 1);
+    assert.equal(epClaimJson.summary.ledger[0].eventCode, 'watch_episode');
+
+    // Duplicate episode claim blocked cleanly (409)
+    const dupEpClaim = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1739,8 +1808,51 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
         sessionToken: sessJson.sessionToken,
       }),
     });
-    assert.equal(epClaimAfterWatch.status, 400);
-    assert.equal((await epClaimAfterWatch.json()).reason, 'feature_removed');
+    assert.equal(dupEpClaim.status, 409);
+    assert.equal((await dupEpClaim.json()).reason, 'duplicate_claim');
+
+    // Daily episode bonus cap (max 3/day) blocks 4th episode cleanly (429)
+    for (const epNum of [4, 5, 6]) {
+      const s = await startWatchSessionInDb({
+        userId: 'user-alice',
+        mediaKey: `DramaBox:d-101:ep${epNum}`,
+        provider: 'DramaBox',
+        dramaId: 'd-101',
+        episodeNumber: epNum,
+      });
+      state.watchSessions.get(s.sessionToken)!.accumulated_sec = 30;
+    }
+    for (const epNum of [4, 5]) {
+      const res = await fetch(`${baseUrl}/api/points/claim`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${aliceToken}`,
+        },
+        body: JSON.stringify({
+          action: 'watch_episode',
+          dramaId: 'd-101',
+          provider: 'DramaBox',
+          episodeNumber: epNum,
+        }),
+      });
+      assert.equal(res.status, 200);
+    }
+    const fourthEpRes = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${aliceToken}`,
+      },
+      body: JSON.stringify({
+        action: 'watch_episode',
+        dramaId: 'd-101',
+        provider: 'DramaBox',
+        episodeNumber: 6,
+      }),
+    });
+    assert.equal(fourthEpRes.status, 429);
+    assert.equal((await fourthEpRes.json()).reason, 'daily_episode_cap_reached');
   });
 
   await t.test('4. Production Referral URL, Self/Clone Referral Block & 1h Verification Bonus', async () => {
@@ -1888,7 +2000,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.equal(qualHb.referralQualified, true);
 
-    // Verify Alice received +5,000 referral bonus AND Bob received +200 bind + auto 20 pts/min (1,200 pts) with milestones ready to claim
+    // Verify Alice received +5,000 referral bonus AND Bob received +200 bind + auto 40 pts/min (2,400 pts) with milestones ready to claim
     const aliceMe = await fetch(`${baseUrl}/api/points/me`, {
       headers: { Authorization: `Bearer ${aliceToken}` },
     }).then((r) => r.json());
@@ -1898,8 +2010,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const bobMe = await fetch(`${baseUrl}/api/points/me`, {
       headers: { Authorization: `Bearer ${bobToken}` },
     }).then((r) => r.json());
-    assert.equal(bobMe.summary.todayWatchPointsEarned, 1200);
-    assert.equal(bobMe.summary.balance, 1400);
+    assert.equal(bobMe.summary.todayWatchPointsEarned, 2400);
+    assert.equal(bobMe.summary.balance, 2600);
     assert.ok(bobMe.summary.ledgerTotal >= 61);
     assert.ok(bobMe.summary.milestones.every((m: any) => m.reached === true && m.claimed === false));
   });
@@ -2103,19 +2215,23 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(cfg.pointsPerUsd, 100000);
     assert.equal(cfg.minPayoutIdr, 50000);
     assert.equal(cfg.minPayoutUsd, 5);
-    assert.equal(cfg.firstLoginBonusPoints, 10000);
+    assert.equal(cfg.firstLoginBonusPoints, 25000);
     assert.equal(cfg.bindReferralBonusPoints, 200);
-    assert.equal(cfg.dailyCheckinPoints, 500);
+    assert.equal(cfg.dailyCheckinPoints, 1000);
     assert.equal(cfg.dailyCheckinDay7Points, 2000);
-    assert.equal(cfg.watchMinutePoints, 20);
-    assert.equal(cfg.dailySocialSharePoints, 500);
+    assert.equal(cfg.watchMinutePoints, 40);
+    assert.equal(cfg.episodeBonusPoints, 500);
+    assert.equal(cfg.maxDailyEpisodeBonusCount, 3);
+    assert.equal(cfg.dailySocialSharePoints, 1000);
     assert.equal(cfg.referralBonusPoints, 5000);
-    assert.equal(cfg.maxDailyWatchPoints, 2500);
-    assert.equal(cfg.maxDailyEarnPoints, 10000);
+    assert.equal(cfg.referralOngoingBonusPoints, 500);
+    assert.equal(cfg.referralOngoingMaxSteps, 10);
+    assert.equal(cfg.maxDailyWatchPoints, 5500);
+    assert.equal(cfg.maxDailyEarnPoints, 25000);
     assert.deepEqual(cfg.dailyMissionMilestones, [
-      { minutes: 15, bonusPoints: 150 },
-      { minutes: 30, bonusPoints: 300 },
-      { minutes: 60, bonusPoints: 600 },
+      { minutes: 15, bonusPoints: 300 },
+      { minutes: 30, bonusPoints: 600 },
+      { minutes: 60, bonusPoints: 1200 },
     ]);
     assert.equal(cfg.levelTiers.length, 4);
   });
@@ -2141,16 +2257,16 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       last_visit_date: '',
       is_vip: false,
     });
-    // Seed 15,000 lifetime points yesterday -> qualifies for Lv.2 Silver (1.2x)
+    // Seed 35,000 lifetime points yesterday -> qualifies for Lv.2 Silver (1.2x)
     const twoDaysAgo = new Date(Date.now() - 86_400_000 * 2);
     state.ledger.push({
       id: 'seed-silver-1',
       user_id: silverUid,
       type: 'earn',
-      points: 15000,
+      points: 35000,
       description: 'Seed Silver Level',
       reference_id: 'seed:silver:1',
-      balance_after: 15000,
+      balance_after: 35000,
       created_at: twoDaysAgo,
     });
 
@@ -2160,11 +2276,11 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(silverMe.ok, true);
     assert.equal(silverMe.summary.levelInfo.tierId, 'silver');
     assert.equal(silverMe.summary.levelInfo.multiplier, 1.2);
-    assert.equal(silverMe.summary.levelInfo.dailyCheckinPoints, 600);
+    assert.equal(silverMe.summary.levelInfo.dailyCheckinPoints, 1200);
     assert.equal(silverMe.summary.levelInfo.dailyCheckinDay7Points, 2400);
-    assert.equal(silverMe.summary.levelInfo.watchMinutePoints, 24);
+    assert.equal(silverMe.summary.levelInfo.watchMinutePoints, 48);
 
-    // Claim daily check-in at Silver -> server grants +600 pts (ignores any client input)
+    // Claim daily check-in at Silver -> server grants +1,200 pts (ignores any client input)
     const silverCheckin = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
@@ -2174,9 +2290,9 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       body: JSON.stringify({ action: 'daily_checkin', multiplier: 99, points: 9999 }),
     }).then((r) => r.json());
     assert.equal(silverCheckin.ok, true);
-    assert.equal(silverCheckin.awardedPoints, 600);
+    assert.equal(silverCheckin.awardedPoints, 1200);
 
-    // Seed Platinum account (100,000 lifetime points) -> Lv.4 Platinum (1.6x)
+    // Seed Platinum account (160,000 lifetime points) -> Lv.4 Platinum (1.6x)
     const platUid = 'u-plat-1';
     const platToken = signAuthSessionToken({
       uid: platUid,
@@ -2198,10 +2314,10 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       id: 'seed-plat-1',
       user_id: platUid,
       type: 'earn',
-      points: 100000,
+      points: 160000,
       description: 'Seed Platinum Level',
       reference_id: 'seed:plat:1',
-      balance_after: 100000,
+      balance_after: 160000,
       created_at: twoDaysAgo,
     });
 
@@ -2214,9 +2330,9 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       body: JSON.stringify({ action: 'daily_checkin' }),
     }).then((r) => r.json());
     assert.equal(platCheckin.ok, true);
-    assert.equal(platCheckin.awardedPoints, 800);
+    assert.equal(platCheckin.awardedPoints, 1600);
     assert.equal(platCheckin.summary.levelInfo.tierId, 'platinum');
-    assert.equal(platCheckin.summary.levelInfo.watchMinutePoints, 32);
+    assert.equal(platCheckin.summary.levelInfo.watchMinutePoints, 64);
     assert.equal(platCheckin.summary.levelInfo.dailyCheckinDay7Points, 3200);
   });
 
@@ -2235,7 +2351,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       is_vip: false,
     });
 
-    // 1. Simulate reaching 15m (880s + 20s heartbeat = 900s) -> auto 15*20 = 300 pts, milestones still unclaimed
+    // 1. Simulate reaching 15m (880s + 20s heartbeat = 900s) -> auto 15*40 = 600 pts, milestones still unclaimed
     const sess = await startWatchSessionInDb({
       userId: 'user-alice',
       mediaKey: 'DramaBoxV2:d-808:ep1',
@@ -2275,8 +2391,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       uaHash: 'ua-a',
       deviceHash: 'dev-a',
     });
-    assert.equal(hb15.awardedWatchPoints, 300);
-    assert.equal(hb15.todayWatchPointsEarned, 300);
+    assert.equal(hb15.awardedWatchPoints, 600);
+    assert.equal(hb15.todayWatchPointsEarned, 600);
 
     // 2. Premature 30m milestone claim fails (400 milestone_not_reached)
     const premature30 = await fetch(`${baseUrl}/api/points/claim`, {
@@ -2290,7 +2406,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(premature30.status, 400);
     assert.equal((await premature30.json()).reason, 'milestone_not_reached');
 
-    // 3. Valid 15m milestone claim succeeds (+150 pts)
+    // 3. Valid 15m milestone claim succeeds (+300 pts)
     const claim15 = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
@@ -2302,8 +2418,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(claim15.status, 200);
     const claim15Json = await claim15.json();
     assert.equal(claim15Json.ok, true);
-    assert.equal(claim15Json.awardedPoints, 150);
-    assert.equal(claim15Json.summary.todayWatchPointsEarned, 450);
+    assert.equal(claim15Json.awardedPoints, 300);
+    assert.equal(claim15Json.summary.todayWatchPointsEarned, 900);
     assert.equal(claim15Json.summary.milestones[0].claimed, true);
     assert.equal(claim15Json.summary.milestones[1].reached, false);
 
@@ -2319,7 +2435,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(dup15.status, 409);
     assert.equal((await dup15.json()).reason, 'duplicate_claim');
 
-    // 5. Advance watch time to 60m -> auto awards remaining 45m (900 pts), 30m & 60m ready to claim back-to-back
+    // 5. Advance watch time to 60m -> auto awards remaining 45m (1,800 pts), 30m & 60m ready to claim back-to-back
     const aliceTel = state.telemetry.get('user-alice')!;
     aliceTel.verified_watch_seconds = 3580;
     aliceTel.today_watch_seconds = 3580;
@@ -2339,7 +2455,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       uaHash: 'ua-a',
       deviceHash: 'dev-a',
     });
-    assert.equal(hb60.awardedWatchPoints, 900);
+    assert.equal(hb60.awardedWatchPoints, 1800);
 
     const claim30 = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
@@ -2350,7 +2466,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       body: JSON.stringify({ action: 'watch_milestone', milestoneMinutes: 30 }),
     });
     assert.equal(claim30.status, 200);
-    assert.equal((await claim30.json()).awardedPoints, 300);
+    assert.equal((await claim30.json()).awardedPoints, 600);
 
     const claim60 = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
@@ -2362,11 +2478,11 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.equal(claim60.status, 200);
     const claim60Json = await claim60.json();
-    assert.equal(claim60Json.awardedPoints, 600);
-    assert.equal(claim60Json.summary.todayWatchPointsEarned, 2250);
+    assert.equal(claim60Json.awardedPoints, 1200);
+    assert.equal(claim60Json.summary.todayWatchPointsEarned, 4500);
     assert.ok(claim60Json.summary.milestones.every((m: any) => m.reached && m.claimed));
 
-    // 6. Enforce MAX_DAILY_WATCH_POINTS (2500) cap cleanly with 429
+    // 6. Enforce MAX_DAILY_WATCH_POINTS (5500) cap cleanly with 429
     state.users.set('user-bob', {
       uid: 'user-bob',
       email: 'bob@example.com',
@@ -2396,10 +2512,10 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       id: 'seed-bob-watch-cap',
       user_id: 'user-bob',
       type: 'earn',
-      points: 2400,
+      points: 5400,
       description: 'Seed near daily watch cap',
       reference_id: `watch_min:user-bob:${todayKey}:m99`,
-      balance_after: 2400,
+      balance_after: 5400,
       created_at: new Date(),
     });
     const capRes = await fetch(`${baseUrl}/api/points/claim`, {
@@ -2441,7 +2557,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.equal(utcCheckin.status, 200);
     const utcCheckinJson = await utcCheckin.json();
-    assert.equal(utcCheckinJson.awardedPoints, 500);
+    assert.equal(utcCheckinJson.awardedPoints, 1000);
     assert.ok(utcCheckinJson.summary.resetPeriodKey);
     assert.ok(utcCheckinJson.summary.nextResetAt);
 
@@ -2485,7 +2601,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       deviceHash: 'dev-tz',
       timeZone: 'UTC',
     });
-    assert.equal(hbUtc.awardedWatchPoints, 300);
+    assert.equal(hbUtc.awardedWatchPoints, 600);
 
     const claim15Utc = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
@@ -2497,7 +2613,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       body: JSON.stringify({ action: 'watch_milestone', milestoneMinutes: 15 }),
     });
     assert.equal(claim15Utc.status, 200);
-    assert.equal((await claim15Utc.json()).awardedPoints, 150);
+    assert.equal((await claim15Utc.json()).awardedPoints, 300);
 
     // 3. Switch display timezone header to WIB (Asia/Jakarta): UI status MUST stay locked & claims MUST return 409
     const meWib = await fetch(`${baseUrl}/api/points/me`, {
@@ -2509,9 +2625,9 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(meWib.summary.resetPeriodKey, canonicalKey);
     assert.equal(meWib.summary.dailyCheckinClaimedToday, true);
     assert.equal(meWib.summary.milestones[0].claimed, true);
-    assert.equal(meWib.summary.todayWatchPointsEarned, 450);
-    assert.equal(meWib.summary.todayEarned, 950);
-    assert.equal(meWib.summary.balance, 950);
+    assert.equal(meWib.summary.todayWatchPointsEarned, 900);
+    assert.equal(meWib.summary.todayEarned, 1900);
+    assert.equal(meWib.summary.balance, 1900);
 
     const wibReCheckin = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
@@ -2685,11 +2801,11 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       { videoSec: 15.25, elapsedMs: 14_700, expectedTotalSec: 15, expectedAward: 0, expectedBal: 0 },
       { videoSec: 30.25, elapsedMs: 15_000, expectedTotalSec: 30, expectedAward: 0, expectedBal: 0 },
       { videoSec: 45.25, elapsedMs: 15_000, expectedTotalSec: 45, expectedAward: 0, expectedBal: 0 },
-      { videoSec: 60.25, elapsedMs: 15_000, expectedTotalSec: 60, expectedAward: 20, expectedBal: 20 },
-      { videoSec: 75.25, elapsedMs: 15_000, expectedTotalSec: 75, expectedAward: 0, expectedBal: 20 },
-      { videoSec: 90.25, elapsedMs: 15_000, expectedTotalSec: 90, expectedAward: 0, expectedBal: 20 },
-      { videoSec: 105.25, elapsedMs: 15_000, expectedTotalSec: 105, expectedAward: 0, expectedBal: 20 },
-      { videoSec: 120.25, elapsedMs: 15_000, expectedTotalSec: 120, expectedAward: 20, expectedBal: 40 },
+      { videoSec: 60.25, elapsedMs: 15_000, expectedTotalSec: 60, expectedAward: 40, expectedBal: 40 },
+      { videoSec: 75.25, elapsedMs: 15_000, expectedTotalSec: 75, expectedAward: 0, expectedBal: 40 },
+      { videoSec: 90.25, elapsedMs: 15_000, expectedTotalSec: 90, expectedAward: 0, expectedBal: 40 },
+      { videoSec: 105.25, elapsedMs: 15_000, expectedTotalSec: 105, expectedAward: 0, expectedBal: 40 },
+      { videoSec: 120.25, elapsedMs: 15_000, expectedTotalSec: 120, expectedAward: 40, expectedBal: 80 },
     ];
 
     let seq = 1;
@@ -2802,13 +2918,13 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       /\/provider\/(?:dramabox|melolo|storyreel|vibeshort|shortmax|idrama|reelshort)<\/loc>/i
     );
     // Default EN /rewards must strictly use UTC (no WIB), updated proportional rates, and USDT-only estimation (no IDR)
-    assert.match(rewardsResEn, /\+150 points \(15 min\), \+300 points \(30 min\), and \+600 points \(60 min\)/);
+    assert.match(rewardsResEn, /\+300 points \(15 min\), \+600 points \(30 min\), and \+1,200 points \(60 min\)/);
     assert.match(rewardsResEn, /17:00 UTC/);
     assert.doesNotMatch(rewardsResEn, /\bWIB\b/);
     assert.doesNotMatch(rewardsResEn, /Rp\s*18[.,]200|Rp\s*50[.,]000/i);
     assert.doesNotMatch(rewardsResEn, /kano-drama\.xyz|HouseDrama|house-drama\.xyz|house-drama\.web\.id|CoffeeDrama/i);
     // Indonesian /rewards?lang=id uses WIB and updated proportional rates
-    assert.match(rewardsResId, /\+150 poin \(15 menit\), \+300 poin \(30 menit\), dan \+600 poin \(60 menit\)/);
+    assert.match(rewardsResId, /\+300 poin \(15 menit\), \+600 poin \(30 menit\), dan \+1\.200 poin \(60 menit\)/);
     assert.match(rewardsResId, /00\.00 WIB/);
     assert.doesNotMatch(homeHtmlRes, /kano-drama\.xyz|HouseDrama|house-drama\.xyz|house-drama\.web\.id/i);
     assert.match(homeHtmlRes, /rel="canonical" href="https:\/\/kano-drama\.live\/"/);
@@ -2884,17 +3000,17 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(commPostIdor.status, 403);
   });
 
-  await t.test('13. First-login bonus awards +10,000 points once per account without consuming daily earn cap', async () => {
+  await t.test('13. First-login bonus awards +25,000 points once per account without consuming daily earn cap', async () => {
     const { mockPool } = createStatefulPgMock();
     _setDbPoolForTest(mockPool);
 
     const cfgRes = await fetch(`${baseUrl}/api/points/config`).then((r) => r.json());
-    assert.equal(cfgRes.config.firstLoginBonusPoints, 10000);
+    assert.equal(cfgRes.config.firstLoginBonusPoints, 25000);
     assert.equal(cfgRes.config.bindReferralBonusPoints, 200);
-    assert.equal(cfgRes.config.dailyCheckinPoints, 500);
+    assert.equal(cfgRes.config.dailyCheckinPoints, 1000);
     assert.equal(cfgRes.config.dailyCheckinDay7Points, 2000);
 
-    // 1. First registration via email grants +10,000 first-login bonus
+    // 1. First registration via email grants +25,000 first-login bonus
     const regRes = await fetch(`${baseUrl}/api/auth/email/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2907,7 +3023,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(regRes.status, 201);
     const regBody = await regRes.json();
     assert.equal(regBody.ok, true);
-    assert.equal(regBody.firstLoginBonusAwarded, 10000);
+    assert.equal(regBody.firstLoginBonusAwarded, 25000);
     const newbieToken = regBody.sessionToken as string;
     assert.ok(newbieToken);
 
@@ -2925,17 +3041,17 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(loginBody.ok, true);
     assert.equal(loginBody.firstLoginBonusAwarded, 0);
 
-    // 3. Points summary reflects 10,000 balance, 0 todayEarned, and structured welcome_login eventCode
+    // 3. Points summary reflects 25,000 balance, 0 todayEarned, and structured welcome_login eventCode
     const meBefore = await fetch(`${baseUrl}/api/points/me`, {
       headers: { Authorization: `Bearer ${newbieToken}` },
     }).then((r) => r.json());
     assert.equal(meBefore.ok, true);
-    assert.equal(meBefore.summary.balance, 10000);
-    assert.equal(meBefore.summary.totalEarned, 10000);
+    assert.equal(meBefore.summary.balance, 25000);
+    assert.equal(meBefore.summary.totalEarned, 25000);
     assert.equal(meBefore.summary.todayEarned, 0);
     assert.equal(meBefore.summary.ledger[0].eventCode, 'welcome_login');
 
-    // 4. Daily check-in awards +500 points cleanly -> total balance 10,500
+    // 4. Daily check-in awards +1,000 points cleanly -> total balance 26,000
     const checkinRes = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
@@ -2945,11 +3061,11 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       body: JSON.stringify({ action: 'daily_checkin' }),
     }).then((r) => r.json());
     assert.equal(checkinRes.ok, true);
-    assert.equal(checkinRes.awardedPoints, 500);
-    assert.equal(checkinRes.summary.balance, 10500);
-    assert.equal(checkinRes.summary.todayEarned, 500);
+    assert.equal(checkinRes.awardedPoints, 1000);
+    assert.equal(checkinRes.summary.balance, 26000);
+    assert.equal(checkinRes.summary.todayEarned, 1000);
 
-    // 5. /api/users/sync with isLoginEvent=true grants +10,000 once for first-time OAuth sync and 0 on repeat
+    // 5. /api/users/sync with isLoginEvent=true grants +25,000 once for first-time OAuth sync and 0 on repeat
     const syncFirst = await fetch(`${baseUrl}/api/users/sync`, {
       method: 'POST',
       headers: {
@@ -2959,7 +3075,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       body: JSON.stringify({ isLoginEvent: true, displayName: 'Bob Viewer' }),
     }).then((r) => r.json());
     assert.equal(syncFirst.ok, true);
-    assert.equal(syncFirst.firstLoginBonusAwarded, 10000);
+    assert.equal(syncFirst.firstLoginBonusAwarded, 25000);
 
     const syncSecond = await fetch(`${baseUrl}/api/users/sync`, {
       method: 'POST',
@@ -3332,7 +3448,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.match(formattedSample, /KanoDrama — Pengajuan Withdraw Baru/);
   });
 
-  await t.test('15. Daily Social Media Share (+500 pts/day) enforces canonical WIB/UTC reset, channel allowlist, and anti-cheat', async () => {
+  await t.test('15. Daily Social Media Share (+1,000 pts/day) enforces canonical WIB/UTC reset, channel allowlist, and anti-cheat', async () => {
     const { mockPool, state } = createStatefulPgMock();
     _setDbPoolForTest(mockPool);
 
@@ -3355,7 +3471,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.equal(badChannelRes.status, 400);
 
-    // 2. First claim via WhatsApp grants +500 pts and marks dailySocialShareClaimedToday
+    // 2. First claim via WhatsApp grants +1,000 pts and marks dailySocialShareClaimedToday
     const claim1Res = await fetch(`${baseUrl}/api/points/claim`, {
       method: 'POST',
       headers: {
@@ -3367,10 +3483,10 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(claim1Res.status, 200);
     const claim1Body = await claim1Res.json();
     assert.equal(claim1Body.ok, true);
-    assert.equal(claim1Body.awardedPoints, 500);
+    assert.equal(claim1Body.awardedPoints, 1000);
     assert.equal(claim1Body.channel, 'whatsapp');
-    assert.equal(claim1Body.summary.balance, 500);
-    assert.equal(claim1Body.summary.todayEarned, 500);
+    assert.equal(claim1Body.summary.balance, 1000);
+    assert.equal(claim1Body.summary.todayEarned, 1000);
     assert.equal(claim1Body.summary.dailySocialShareClaimedToday, true);
     assert.equal(claim1Body.summary.dailySocialShareChannel, 'whatsapp');
     assert.equal(claim1Body.summary.ledger[0].eventCode, 'daily_social_share');
@@ -3450,7 +3566,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.equal(nextDayRes.status, 200);
     const nextDayBody = await nextDayRes.json();
-    assert.equal(nextDayBody.summary.balance, 1000);
+    assert.equal(nextDayBody.summary.balance, 2000);
     assert.equal(nextDayBody.summary.dailySocialShareChannel, 'copy_link');
   });
 
@@ -3469,7 +3585,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       is_vip: false,
     });
 
-    // 1. Registering via ?ref=KDA11CE01 auto-binds and grants +200 Bind Referral bonus (+10,000 first login = 10,200)
+    // 1. Registering via ?ref=KDA11CE01 auto-binds and grants +200 Bind Referral bonus (+25,000 first login = 25,200)
     const regAutoRes = await fetch(`${baseUrl}/api/auth/email/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3484,7 +3600,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.equal(regAutoRes.status, 201);
     const regAutoBody = await regAutoRes.json();
     assert.equal(regAutoBody.ok, true);
-    assert.equal(regAutoBody.firstLoginBonusAwarded, 10000);
+    assert.equal(regAutoBody.firstLoginBonusAwarded, 25000);
     assert.deepEqual(regAutoBody.referralBindResult, {
       bound: true,
       bindBonusAwarded: 200,
@@ -3494,7 +3610,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     const linkPointsMe = await fetch(`${baseUrl}/api/points/me`, {
       headers: { Authorization: `Bearer ${linkToken}` },
     }).then((r) => r.json());
-    assert.equal(linkPointsMe.summary.balance, 10200);
+    assert.equal(linkPointsMe.summary.balance, 25200);
     assert.ok(
       linkPointsMe.summary.ledger.some(
         (row: { eventCode?: string; points?: number }) =>
@@ -3504,7 +3620,7 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.ok(
       linkPointsMe.summary.ledger.some(
         (row: { eventCode?: string; points?: number }) =>
-          row.eventCode === 'welcome_login' && row.points === 10000
+          row.eventCode === 'welcome_login' && row.points === 25000
       )
     );
 
@@ -3764,5 +3880,201 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     assert.match(watchEn.description, /Episode 12 of 68 — The Secret Ledger.*DramaBox V2/);
     assert.equal(watchEn.openGraph.title, watchEn.title);
     assert.equal(watchEn.twitter.description, watchEn.description);
+  });
+
+  await t.test('19. Ongoing Qualified Referral Watch Rewards (+500 pts/extra hour up to 10 steps) & Anti-Cheat Guards', async () => {
+    const { mockPool, state } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    state.users.set('user-alice', {
+      uid: 'user-alice',
+      email: 'alice@example.com',
+      display_name: 'Alice Inviter',
+      referral_code: 'KDA11CE01',
+      referred_by: null,
+      streak_count: 1,
+      last_visit_date: '',
+      is_vip: false,
+    });
+    state.users.set('user-bob', {
+      uid: 'user-bob',
+      email: 'bob@example.com',
+      display_name: 'Bob Viewer',
+      referral_code: 'KDB0B0001',
+      referred_by: 'user-alice',
+      streak_count: 1,
+      last_visit_date: '',
+      is_vip: false,
+    });
+    state.referrals.push({
+      id: 'ref-alice-bob',
+      referrer_uid: 'user-alice',
+      referee_uid: 'user-bob',
+      referral_code: 'KDA11CE01',
+      status: 'qualified',
+      bonus_points: 5000,
+      ongoing_bonus_points: 0,
+      ongoing_steps_awarded: 0,
+      referee_ip_hash: 'ip-b',
+      referee_subnet_hash: 'sub-b',
+      referee_ua_hash: 'ua-b',
+      referee_device_hash: 'dev-b',
+      risk_flag: '',
+      suspicious_reason: '',
+      qualified_at: new Date(),
+      created_at: new Date(),
+      updated_at: new Date(),
+    });
+    state.ledger.push({
+      id: 'seed-ref-qual-alice',
+      user_id: 'user-alice',
+      type: 'earn',
+      points: 5000,
+      description: 'Main referral bonus',
+      event_code: 'referral_qualify',
+      event_meta: {},
+      reference_id: 'referral:user-bob',
+      balance_after: 5000,
+      created_at: new Date(),
+    });
+
+    const bobSess = await startWatchSessionInDb({
+      userId: 'user-bob',
+      mediaKey: 'DramaBoxV2:d-ongoing:ep1',
+      provider: 'DramaBoxV2',
+      dramaId: 'd-ongoing',
+      episodeNumber: 1,
+    });
+    const todayKey = getJakartaDateKey();
+
+    // Step 1: Bob reaches 7200s (2h verified watch) -> Alice receives +500 ongoing step 1
+    state.telemetry.set('user-bob', {
+      user_id: 'user-bob',
+      verified_watch_seconds: 7180,
+      today_watch_seconds: 1000,
+      today_date_key: todayKey,
+      active_stream_session_id: bobSess.sessionToken,
+      active_stream_media_key: 'DramaBoxV2:d-ongoing:ep1',
+      last_heartbeat_at: new Date(Date.now() - 20_000),
+      last_video_time_sec: '20',
+      fast_delta_strikes: 0,
+      concurrent_tab_strikes: 0,
+      risk_flag: '',
+      suspicious_reason: '',
+      updated_at: new Date(),
+    });
+    const hbStep1 = await recordWatchHeartbeatInDb({
+      userId: 'user-bob',
+      streamSessionId: bobSess.sessionToken,
+      mediaKey: 'DramaBoxV2:d-ongoing:ep1',
+      currentTimeSec: 40,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 1,
+      ipHash: 'ip-b',
+      subnetHash: 'sub-b',
+      uaHash: 'ua-b',
+      deviceHash: 'dev-b',
+    });
+    assert.equal(hbStep1.referralOngoingBonusAwarded, 500);
+
+    // Step 2 & 3 catch-up: Bob reaches 14400s (4h) -> Alice receives +1,000 pts across steps 2 & 3
+    state.telemetry.get('user-bob')!.verified_watch_seconds = 14380;
+    state.telemetry.get('user-bob')!.last_heartbeat_at = new Date(Date.now() - 20_000);
+    const hbCatchup = await recordWatchHeartbeatInDb({
+      userId: 'user-bob',
+      streamSessionId: bobSess.sessionToken,
+      mediaKey: 'DramaBoxV2:d-ongoing:ep1',
+      currentTimeSec: 60,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 2,
+      ipHash: 'ip-b',
+      subnetHash: 'sub-b',
+      uaHash: 'ua-b',
+      deviceHash: 'dev-b',
+    });
+    assert.equal(hbCatchup.referralOngoingBonusAwarded, 1000);
+
+    // Verify /api/referrals/me and /api/points/me report ongoing progress & ledger eventCode accurately
+    const [aliceRefMe, alicePointsMe] = await Promise.all([
+      fetch(`${baseUrl}/api/referrals/me`, {
+        headers: { Authorization: `Bearer ${aliceToken}` },
+      }).then((r) => r.json()),
+      fetch(`${baseUrl}/api/points/me`, {
+        headers: { Authorization: `Bearer ${aliceToken}` },
+      }).then((r) => r.json()),
+    ]);
+    assert.equal(aliceRefMe.referralSummary.stats.mainBonusEarned, 5000);
+    assert.equal(aliceRefMe.referralSummary.stats.ongoingBonusEarned, 1500);
+    assert.equal(aliceRefMe.referralSummary.stats.totalBonusEarned, 6500);
+    assert.equal(aliceRefMe.referralSummary.referrals[0].ongoingStepsAwarded, 3);
+    assert.equal(aliceRefMe.referralSummary.referrals[0].ongoingBonusEarned, 1500);
+    assert.equal(aliceRefMe.referralSummary.referrals[0].nextOngoingTargetSeconds, 18000);
+    assert.equal(alicePointsMe.summary.balance, 6500);
+    assert.equal(alicePointsMe.summary.ledger[0].eventCode, 'referral_ongoing');
+
+    // Anti-cheat guard: flagged referrer blocks ongoing payout even when referee crosses step 4
+    state.securitySignals.set('user-alice', {
+      user_id: 'user-alice',
+      ip_hash: 'ip-a',
+      subnet_hash: 'sub-a',
+      ua_hash: 'ua-a',
+      device_hash: 'dev-a',
+      risk_flag: 'shared_device_abuse',
+      suspicious_reason: 'flagged referrer',
+      last_seen_at: new Date(),
+    });
+    state.telemetry.get('user-bob')!.verified_watch_seconds = 17980;
+    state.telemetry.get('user-bob')!.last_heartbeat_at = new Date(Date.now() - 20_000);
+    const hbFlaggedReferrer = await recordWatchHeartbeatInDb({
+      userId: 'user-bob',
+      streamSessionId: bobSess.sessionToken,
+      mediaKey: 'DramaBoxV2:d-ongoing:ep1',
+      currentTimeSec: 80,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 3,
+      ipHash: 'ip-b',
+      subnetHash: 'sub-b',
+      uaHash: 'ua-b',
+      deviceHash: 'dev-b',
+    });
+    assert.equal(hbFlaggedReferrer.referralOngoingBonusAwarded, 0);
+
+    // Clear flag and advance past 15h (54,000s) -> capped strictly at 10 total steps (7 remaining steps = 3,500 pts)
+    state.securitySignals.delete('user-alice');
+    state.telemetry.get('user-bob')!.verified_watch_seconds = 60000;
+    state.telemetry.get('user-bob')!.last_heartbeat_at = new Date(Date.now() - 20_000);
+    const hbMaxCap = await recordWatchHeartbeatInDb({
+      userId: 'user-bob',
+      streamSessionId: bobSess.sessionToken,
+      mediaKey: 'DramaBoxV2:d-ongoing:ep1',
+      currentTimeSec: 100,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1,
+      seq: 4,
+      ipHash: 'ip-b',
+      subnetHash: 'sub-b',
+      uaHash: 'ua-b',
+      deviceHash: 'dev-b',
+    });
+    assert.equal(hbMaxCap.referralOngoingBonusAwarded, 3500);
+
+    const aliceFinalRefMe = await fetch(`${baseUrl}/api/referrals/me`, {
+      headers: { Authorization: `Bearer ${aliceToken}` },
+    }).then((r) => r.json());
+    assert.equal(aliceFinalRefMe.referralSummary.referrals[0].ongoingStepsAwarded, 10);
+    assert.equal(aliceFinalRefMe.referralSummary.referrals[0].ongoingBonusEarned, 5000);
+    assert.equal(aliceFinalRefMe.referralSummary.referrals[0].nextOngoingTargetSeconds, null);
+    assert.equal(aliceFinalRefMe.referralSummary.stats.totalBonusEarned, 10000);
   });
 });

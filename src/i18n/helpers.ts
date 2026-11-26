@@ -669,7 +669,7 @@ const SECTION_SEO_COPY: Record<
       path: '/rewards',
       title: 'Earn Points Watching Dramas — Redeem for PayPal, Wise & USDT | KanoDrama',
       description:
-        'Earn +20 pts/min watching dramas, daily check-in, social share (+500), bind (+200) & +5,000 referral bonus. Redeem points for PayPal, Wise, or USDT!',
+        'Earn +40 pts/min watching dramas, daily check-in (+1,000), share (+1,000), bind (+200) & +5,000 referral bonus. Redeem via PayPal, Wise or USDT!',
     },
   },
   id: {
@@ -743,7 +743,7 @@ const SECTION_SEO_COPY: Record<
       path: '/rewards',
       title: 'Kumpulkan Poin & Reward Nonton Drama — Tarik ke DANA & USDT | KanoDrama',
       description:
-        'Nonton drama pendek dapat poin (+20/mnt), check-in WIB (+500, H-7 +2.000), share harian (+500), bind (+200) & referral (+5.000). Tarik ke DANA, Bank & USDT!',
+        'Nonton drama dapat poin (+40/mnt), check-in WIB (+1.000, H-7 +2.000), share (+1.000), bind (+200) & referral (+5.000). Tarik ke DANA, Bank & USDT!',
     },
   },
   cn: {
@@ -812,7 +812,7 @@ const SECTION_SEO_COPY: Record<
     rewards: {
       path: '/rewards',
       title: '看短剧赚积分与现金奖励 — KanoDrama 积分与邀请计划',
-      description: '看短剧每分钟得+20积分，每日签到（+500，第7天+2,000）、每日分享（+500）、绑定（+200）及邀请好友赢+5,000积分，支持兑换USDT、PayPal或Wise。',
+      description: '看短剧每分钟得+40积分，每日签到（+1,000，第7天+2,000）、每日分享（+1,000）、绑定（+200）及邀请好友赢+5,000积分，支持兑换USDT、PayPal或Wise。',
     },
   },
   vi: {
@@ -947,7 +947,7 @@ const SECTION_SEO_COPY: Record<
     rewards: {
       path: '/rewards',
       title: 'Gana Puntos Viendo Dramas Cortos — KanoDrama Puntos y Referidos',
-      description: 'Gana +20 pts/min viendo dramas cortos, racha diaria, compartir (+500), código (+200) y +5,000 por referido. Retira en PayPal, Wise o USDT.',
+      description: 'Gana +40 pts/min viendo dramas cortos, racha diaria, compartir (+1,000), código (+200) y +5,000 por referido. Retira en PayPal, Wise o USDT.',
     },
   },
   ko: {

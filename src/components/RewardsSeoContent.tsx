@@ -25,6 +25,11 @@ interface RewardsSeoContentProps {
     dailyCheckinPoints: number;
   }>;
   referralBonusPoints?: number;
+  referralOngoingStepSeconds?: number;
+  referralOngoingBonusPoints?: number;
+  referralOngoingMaxSteps?: number;
+  episodeBonusPoints?: number;
+  maxDailyEpisodeBonusCount?: number;
   dailySocialSharePoints?: number;
   maxDailyEarnPoints?: number;
   isSignedIn?: boolean;
@@ -69,20 +74,25 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
   minPayoutUsd = 5,
   minPayoutPointsIdr = 274726,
   minPayoutPointsUsd = 500000,
-  firstLoginBonusPoints = 10000,
+  firstLoginBonusPoints = 25000,
   bindReferralBonusPoints = 200,
-  dailyCheckinPoints = 500,
+  dailyCheckinPoints = 1000,
   dailyCheckinDay7Points = 2000,
-  watchMinutePoints = 20,
+  watchMinutePoints = 40,
   dailyMissionMilestones = [
-    { minutes: 15, bonusPoints: 150 },
-    { minutes: 30, bonusPoints: 300 },
-    { minutes: 60, bonusPoints: 600 },
+    { minutes: 15, bonusPoints: 300 },
+    { minutes: 30, bonusPoints: 600 },
+    { minutes: 60, bonusPoints: 1200 },
   ],
   levelTiers = [],
   referralBonusPoints = 5000,
-  dailySocialSharePoints = 500,
-  maxDailyEarnPoints = 10000,
+  referralOngoingStepSeconds = 3600,
+  referralOngoingBonusPoints = 500,
+  referralOngoingMaxSteps = 10,
+  episodeBonusPoints = 500,
+  maxDailyEpisodeBonusCount = 3,
+  dailySocialSharePoints = 1000,
+  maxDailyEarnPoints = 25000,
   isSignedIn = false,
   onActionSignIn,
 }) => {
@@ -93,6 +103,8 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
   const usd5Points = pointsPerUsd * 5;
   const formattedMinIdr = `Rp ${minPayoutIdr.toLocaleString('id-ID')}`;
   const formattedRateIdr = `Rp ${usdToIdrRate.toLocaleString('id-ID')}`;
+  const ongoingStepMinutes = Math.max(1, Math.round(referralOngoingStepSeconds / 60));
+  const ongoingMaxTotalPoints = referralOngoingBonusPoints * referralOngoingMaxSteps;
   const milestoneSummaryText = dailyMissionMilestones
     .map((ms) => `${ms.minutes}m (+${ms.bonusPoints.toLocaleString()})`)
     .join(' · ');
@@ -107,15 +119,15 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
     ? [
         {
           q: 'Bagaimana cara mendapatkan poin dari nonton drama & tugas harian di KanoDrama?',
-          a: `Login ke akun KanoDrama untuk langsung memperoleh bonus login pertama +${firstLoginBonusPoints.toLocaleString()} poin (1x per akun), klaim tugas harian share ke media sosial +${dailySocialSharePoints.toLocaleString()} poin/hari, check-in harian +${dailyCheckinPoints.toLocaleString()} poin (Hari ke-7 +${dailyCheckinDay7Points.toLocaleString()} poin, total ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} poin/minggu), serta tonton drama Asia atau film secara aktif pada kecepatan 1x dengan tab browser tetap terlihat (+${watchMinutePoints} poin/menit otomatis maks 60 menit/hari dan bonus milestone 15m/30m/60m) hingga batas ${maxDailyEarnPoints.toLocaleString()} poin/hari.`,
+          a: `Login ke akun KanoDrama untuk langsung memperoleh bonus login pertama +${firstLoginBonusPoints.toLocaleString()} poin (1x per akun), klaim tugas harian share ke media sosial +${dailySocialSharePoints.toLocaleString()} poin/hari, check-in harian +${dailyCheckinPoints.toLocaleString()} poin (Hari ke-7 +${dailyCheckinDay7Points.toLocaleString()} poin, total ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} poin/minggu), bonus selesai episode +${episodeBonusPoints.toLocaleString()} poin (maks. ${maxDailyEpisodeBonusCount} episode/hari), serta tonton drama Asia atau film secara aktif pada kecepatan 1x dengan tab browser tetap terlihat (+${watchMinutePoints} poin/menit otomatis maks 60 menit/hari dan bonus milestone 15m/30m/60m) hingga batas ${maxDailyEarnPoints.toLocaleString()} poin/hari.`,
         },
         {
           q: 'Berapa nilai tukar poin KanoDrama ke saldo DANA, bank lokal, atau USD?',
           a: `Nilai tukar resmi KanoDrama adalah ${pointsPerUsd.toLocaleString()} poin = 1 USDT ($1.00 USD / ${formattedRateIdr}), atau ${usd5Points.toLocaleString()} poin = $5.00 USD. Untuk penarikan Rupiah (DANA, GoPay, OVO, ShopeePay, LinkAja, atau Transfer Bank lokal), batas minimum adalah ${formattedMinIdr} (${minPayoutPointsIdr.toLocaleString()} poin). Untuk PayPal, Wise, atau USDT, batas minimum adalah $${minPayoutUsd.toFixed(2)} USD (${minPayoutPointsUsd.toLocaleString()} poin).`,
         },
         {
-          q: `Apa beda Bonus Referral (+${referralBonusPoints.toLocaleString()} poin) dengan Bonus Bind Referral (+${bindReferralBonusPoints.toLocaleString()} poin)?`,
-          a: `Bonus Bind Referral (+${bindReferralBonusPoints.toLocaleString()} poin) otomatis masuk saat pengguna mendaftar lewat tautan ?ref= teman, atau melalui bind kode referral 1x jika mendaftar tanpa tautan orang lain. Sementara Bonus Referral utama (+${referralBonusPoints.toLocaleString()} poin) dikreditkan ke pengundang setelah teman menyelesaikan minimal 60 menit (1 jam) menonton aktif terverifikasi dan lolos validasi anti-cheat server.`,
+          q: `Apa beda Bonus Referral (+${referralBonusPoints.toLocaleString()} poin), Bind (+${bindReferralBonusPoints.toLocaleString()} poin) & Reward Lanjutan Referral Valid?`,
+          a: `Bonus Bind Referral (+${bindReferralBonusPoints.toLocaleString()} poin) otomatis masuk saat mendaftar lewat tautan ?ref= teman atau bind kode 1x. Bonus Referral utama (+${referralBonusPoints.toLocaleString()} poin) cair ke pengundang setelah teman menyelesaikan 60 menit (1 jam) tontonan aktif terverifikasi. Selanjutnya, setiap teman valid melanjutkan menonton aktif +${ongoingStepMinutes} menit, pengundang kembali meraih +${referralOngoingBonusPoints.toLocaleString()} poin hingga maks. ${referralOngoingMaxSteps} tahap (+${ongoingMaxTotalPoints.toLocaleString()} poin lanjutan) dengan validasi anti-cheat server.`,
         },
         {
           q: 'Kapan misi menonton harian, tugas share media sosial, dan check-in direset?',
@@ -125,15 +137,15 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
     : [
         {
           q: 'How do I earn watch points and daily task bonuses on KanoDrama?',
-          a: `Sign in to receive a +${firstLoginBonusPoints.toLocaleString()} pts first-login bonus (once per account), claim the daily social media share task (+${dailySocialSharePoints.toLocaleString()} pts/day), check in daily (+${dailyCheckinPoints.toLocaleString()} pts, Day 7 +${dailyCheckinDay7Points.toLocaleString()} pts, ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} pts/week), and stream dramas or movies actively at 1x speed (+${watchMinutePoints} pts/min auto up to 60 min/day and claimable 15m/30m/60m milestones) up to ${maxDailyEarnPoints.toLocaleString()} pts/day.`,
+          a: `Sign in to receive a +${firstLoginBonusPoints.toLocaleString()} pts first-login bonus (once per account), claim the daily social media share task (+${dailySocialSharePoints.toLocaleString()} pts/day), check in daily (+${dailyCheckinPoints.toLocaleString()} pts, Day 7 +${dailyCheckinDay7Points.toLocaleString()} pts, ${(dailyCheckinPoints * 6 + dailyCheckinDay7Points).toLocaleString()} pts/week), finish episodes (+${episodeBonusPoints.toLocaleString()} pts/ep up to ${maxDailyEpisodeBonusCount}/day), and stream dramas or movies actively at 1x speed (+${watchMinutePoints} pts/min auto up to 60 min/day and claimable 15m/30m/60m milestones) up to ${maxDailyEarnPoints.toLocaleString()} pts/day.`,
         },
         {
           q: 'What is the points conversion rate and minimum withdrawal?',
           a: `Official rate: ${pointsPerUsd.toLocaleString()} points = 1 USDT ($1.00 USD), or ${usd5Points.toLocaleString()} points = ${minPayoutUsd.toFixed(2)} USDT. Minimum PayPal, Wise, or USDT payout is ${minPayoutUsd.toFixed(2)} USDT ($${minPayoutUsd.toFixed(2)} USD · ${minPayoutPointsUsd.toLocaleString()} pts).`,
         },
         {
-          q: `What is the difference between Bonus Referral (+${referralBonusPoints.toLocaleString()} pts) and Bind Referral Bonus (+${bindReferralBonusPoints.toLocaleString()} pts)?`,
-          a: `The +${bindReferralBonusPoints.toLocaleString()} pts Bind Referral bonus is credited automatically when registering through a friend's ?ref= link, or once via manual code binding if you signed up without a link. The main +${referralBonusPoints.toLocaleString()} pts Referral bonus is unlocked for the inviter once the friend finishes 1 full hour (60 minutes / 3,600s) of verified active watching and passes server anti-cheat checks.`,
+          q: `How do Main Referral (+${referralBonusPoints.toLocaleString()} pts), Bind (+${bindReferralBonusPoints.toLocaleString()} pts) & Ongoing Watch Rewards work?`,
+          a: `The +${bindReferralBonusPoints.toLocaleString()} pts Bind Referral bonus is credited on ?ref= signup or 1x code binding. The main +${referralBonusPoints.toLocaleString()} pts Referral bonus unlocks once the friend completes 60 minutes (1 hour) of verified active watching. When that qualified referral keeps watching actively, the inviter also earns +${referralOngoingBonusPoints.toLocaleString()} pts per extra ${ongoingStepMinutes} minutes up to ${referralOngoingMaxSteps} steps (+${ongoingMaxTotalPoints.toLocaleString()} extra pts) with anti-cheat verification.`,
         },
         {
           q: 'When do daily watch missions, social shares, and check-ins reset?',
@@ -288,16 +300,28 @@ export const RewardsSeoContent: React.FC<RewardsSeoContentProps> = ({
               </tr>
               <tr>
                 <td className="py-2.5 pr-4 font-medium">
-                  {isId ? 'Bonus Referral & Bind Referral' : 'Referral & Bind Referral Bonus'}
+                  {isId ? 'Bonus Selesai Episode (Misi Ringan)' : 'Episode Completion Bonus'}
                 </td>
-                <td className="py-2.5 pr-4 font-bold text-emerald-300 tabular-nums">
-                  +{bindReferralBonusPoints.toLocaleString()} bind · +{referralBonusPoints.toLocaleString()}{' '}
-                  {isId ? 'poin referral' : 'pts referral'}
+                <td className="py-2.5 pr-4 font-bold text-[#FDE68A] tabular-nums">
+                  +{episodeBonusPoints.toLocaleString()} {isId ? `poin / ep (maks ${maxDailyEpisodeBonusCount}/hr)` : `pts / ep (max ${maxDailyEpisodeBonusCount}/day)`}
                 </td>
                 <td className="py-2.5 text-[#A1A1AA]">
                   {isId
-                    ? `+${bindReferralBonusPoints.toLocaleString()} otomatis via link ?ref= / bind 1x; +${referralBonusPoints.toLocaleString()} setelah 60 mnt tonton`
-                    : `+${bindReferralBonusPoints.toLocaleString()} auto via ?ref= signup or 1x bind; +${referralBonusPoints.toLocaleString()} after 60m watch`}
+                    ? 'Minimal 20 dtk tonton aktif & unik per episode, reset 00.00 WIB'
+                    : 'Min 20s verified watch & unique per episode, resets 17:00 UTC'}
+                </td>
+              </tr>
+              <tr>
+                <td className="py-2.5 pr-4 font-medium">
+                  {isId ? 'Bonus Referral, Bind & Lanjutan' : 'Referral, Bind & Ongoing Watch'}
+                </td>
+                <td className="py-2.5 pr-4 font-bold text-emerald-300 tabular-nums">
+                  +{bindReferralBonusPoints.toLocaleString()} bind · +{referralBonusPoints.toLocaleString()} + +{referralOngoingBonusPoints.toLocaleString()}/{ongoingStepMinutes}m
+                </td>
+                <td className="py-2.5 text-[#A1A1AA]">
+                  {isId
+                    ? `+${referralBonusPoints.toLocaleString()} setelah 60 mnt; +${referralOngoingBonusPoints.toLocaleString()} tiap +${ongoingStepMinutes} mnt lanjutan (maks ${referralOngoingMaxSteps}x)`
+                    : `+${referralBonusPoints.toLocaleString()} after 60m; +${referralOngoingBonusPoints.toLocaleString()} per extra ${ongoingStepMinutes}m (max ${referralOngoingMaxSteps}x)`}
                 </td>
               </tr>
               <tr>

@@ -255,6 +255,7 @@ interface DramaContextValue {
       playbackRate?: number;
     }
   ) => void;
+  claimEpisodeBonus: (drama: DramaItem, episodeNumber: number) => Promise<void>;
   removeHistoryItem: (bookId: string, provider?: MediaProviderName) => void;
   getResumePoint: (
     bookId: string,
@@ -485,13 +486,13 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const [todayWatchSeconds, setTodayWatchSeconds] = useState<number>(0);
   const [todayWatchPointsEarned, setTodayWatchPointsEarned] = useState<number>(0);
   const [dailyMissionMaxWatchSeconds, setDailyMissionMaxWatchSeconds] = useState<number>(3600);
-  const [watchMinutePoints, setWatchMinutePoints] = useState<number>(20);
+  const [watchMinutePoints, setWatchMinutePoints] = useState<number>(40);
   const [dailyMissionMilestones, setDailyMissionMilestones] = useState<
     Array<{ minutes: number; bonusPoints: number }>
   >([
-    { minutes: 15, bonusPoints: 150 },
-    { minutes: 30, bonusPoints: 300 },
-    { minutes: 60, bonusPoints: 600 },
+    { minutes: 15, bonusPoints: 300 },
+    { minutes: 30, bonusPoints: 600 },
+    { minutes: 60, bonusPoints: 1200 },
   ]);
   const [dailyMissionStatuses, setDailyMissionStatuses] = useState<
     Array<{ minutes: number; bonusPoints: number; reached: boolean; claimed: boolean }>
@@ -523,6 +524,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   } | null>(null);
   const lastWatchHeartbeatSentAtRef = useRef<number>(0);
   const lastWatchHeartbeatMediaRef = useRef<string>('');
+  const episodeBonusAttemptedRef = useRef<Set<string>>(new Set());
   const [helpModalOpen, setHelpModalOpen] = useState(false);
 
   const getAuthHeaders = useCallback((extra?: Record<string, string>): Record<string, string> => {
@@ -2858,6 +2860,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
               dailyMissionMaxWatchSeconds?: number;
               pointsBalance?: number | null;
               referralQualified?: boolean;
+              referralOngoingBonusAwarded?: number;
               levelInfo?: {
                 level: number;
                 tierId: 'bronze' | 'silver' | 'gold' | 'platinum';
@@ -2949,7 +2952,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
                     : `+${awardedWatch.toLocaleString()} ${TRANSLATIONS[language].rewards.pointsUnit} (${watchedMins}m)`;
                 pushToast(autoLabel, 'gold');
               }
-              if (awardedWatch > 0 || hb.referralQualified) {
+              if (awardedWatch > 0 || hb.referralQualified || (hb.referralOngoingBonusAwarded ?? 0) > 0) {
                 void refreshPointsBalance();
               }
               if (
@@ -2992,6 +2995,68 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       pushToast,
       language,
     ]
+  );
+
+  const claimEpisodeBonus = useCallback(
+    async (drama: DramaItem, episodeNumber: number) => {
+      if (!user || !drama.bookId) return;
+      const safeEp = Math.max(1, Math.floor(Number(episodeNumber) || 1));
+      const dedupKey = `${user.uid}:${drama.provider}:${drama.bookId}:ep${safeEp}`;
+      if (episodeBonusAttemptedRef.current.has(dedupKey)) return;
+      episodeBonusAttemptedRef.current.add(dedupKey);
+      try {
+        const sessionToken =
+          watchSessionTokenRef.current?.mediaKey === `${drama.provider}:${drama.bookId}:ep${safeEp}`
+            ? watchSessionTokenRef.current.token
+            : await ensureWatchSessionToken(drama.bookId, drama.provider, safeEp);
+        const res = await fetch('/api/points/claim', {
+          method: 'POST',
+          credentials: 'include',
+          headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            action: 'watch_episode',
+            provider: drama.provider,
+            dramaId: drama.bookId,
+            episodeNumber: safeEp,
+            title: drama.title,
+            ...(sessionToken ? { sessionToken } : {}),
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          awardedPoints?: number;
+          reason?: string;
+          summary?: { balance?: number } | null;
+        };
+        if (res.ok && data.ok && typeof data.awardedPoints === 'number' && data.awardedPoints > 0) {
+          if (typeof data.summary?.balance === 'number') {
+            setPointsBalance(Math.max(0, Math.floor(data.summary.balance)));
+          }
+          const label =
+            language === 'id'
+              ? `+${data.awardedPoints.toLocaleString('id-ID')} poin bonus selesai Episode ${safeEp}!`
+              : `+${data.awardedPoints.toLocaleString('en-US')} pts Episode ${safeEp} completion bonus!`;
+          pushToast(label, 'gold');
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('kd:points-updated', {
+                detail: {
+                  source: 'watch_episode',
+                  awardedEpisodePoints: data.awardedPoints,
+                  pointsBalance: data.summary?.balance ?? null,
+                },
+              })
+            );
+          }
+          void refreshPointsBalance();
+        } else if (data.reason === 'watch_duration_insufficient') {
+          episodeBonusAttemptedRef.current.delete(dedupKey);
+        }
+      } catch {
+        episodeBonusAttemptedRef.current.delete(dedupKey);
+      }
+    },
+    [user, ensureWatchSessionToken, getAuthHeaders, language, pushToast, refreshPointsBalance]
   );
 
   const getDramaLiveStats = useCallback(
@@ -3363,6 +3428,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       getDramaFolderId,
       watchHistory,
       recordWatchProgress,
+      claimEpisodeBonus,
       removeHistoryItem,
       getResumePoint,
       getWatchedEpisodes,
@@ -3453,6 +3519,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       getDramaFolderId,
       watchHistory,
       recordWatchProgress,
+      claimEpisodeBonus,
       removeHistoryItem,
       getResumePoint,
       getWatchedEpisodes,

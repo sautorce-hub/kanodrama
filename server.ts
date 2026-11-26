@@ -18,6 +18,7 @@ import {
   buildGmailAccountKey,
   claimDailyCheckinInDb,
   claimDailySocialShareInDb,
+  claimEpisodeBonusInDb,
   claimWatchMilestoneInDb,
   createCommentInDb,
   createPayoutRequestInDb,
@@ -2926,13 +2927,13 @@ function injectPageMetadataIntoHtml(
           {
             '@type': 'FAQPage',
             mainEntity: isIdSsr
-                ? [
+              ? [
                   {
                     '@type': 'Question',
                     name: 'Bagaimana cara nonton drama dapat poin di KanoDrama?',
                     acceptedAnswer: {
                       '@type': 'Answer',
-                      text: 'Daftar atau masuk dengan akun Anda untuk langsung memperoleh bonus login pertama +10.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +20 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), check-in harian +500 poin dan Hari ke-7 +2.000 poin (total 5.000 poin/minggu), serta bonus milestone 15, 30, dan 60 menit (+150 / +300 / +600 poin) hingga batas 2.500 poin nonton harian yang reset otomatis setiap pukul 00.00 WIB.',
+                      text: 'Daftar atau masuk dengan akun Anda untuk langsung memperoleh bonus login pertama +25.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan 1x. Anda memperoleh +40 poin per menit otomatis hingga 60 menit per hari (dikalikan multiplier level akun hingga 1,6x), check-in harian +1.000 poin dan Hari ke-7 +2.000 poin (total 8.000 poin/minggu), +500 poin bonus selesai episode (maks. 3 episode/hari), serta bonus milestone 15, 30, dan 60 menit (+300 / +600 / +1.200 poin) hingga batas 5.500 poin nonton harian yang reset otomatis setiap pukul 00.00 WIB.',
                     },
                   },
                   {
@@ -2945,42 +2946,37 @@ function injectPageMetadataIntoHtml(
                   },
                   {
                     '@type': 'Question',
-                    name: 'Bagaimana cara kerja bonus Bind Referral (+200 poin), Bonus Referral (+5.000 poin), dan Share Harian (+500 poin)?',
+                    name: 'Bagaimana cara kerja bonus Bind Referral (+200 poin), Bonus Referral (+5.000 poin + lanjutan), dan Share Harian (+1.000 poin)?',
                     acceptedAnswer: {
                       '@type': 'Answer',
-                      text: 'KanoDrama memisahkan Bonus Bind Referral (+200 poin) dan Bonus Referral Utama (+5.000 poin). Jika mendaftar langsung lewat tautan ?ref= teman, bonus bind +200 poin otomatis masuk; jika belum lewat tautan, Anda dapat menautkan kode referral teman sekali untuk +200 poin. Setelah teman menyelesaikan minimal 1 jam (3.600 detik) waktu tonton aktif terverifikasi, +5.000 poin masuk ke akun pengundang. Tersedia juga tugas share media sosial harian (+500 poin/hari, reset pukul 00.00 WIB).',
+                      text: 'KanoDrama memisahkan Bonus Bind Referral (+200 poin) dan Bonus Referral Utama (+5.000 poin). Jika mendaftar langsung lewat tautan ?ref= teman, bonus bind +200 poin otomatis masuk; jika belum lewat tautan, Anda dapat menautkan kode referral teman sekali untuk +200 poin. Setelah teman menyelesaikan minimal 1 jam (3.600 detik) waktu tonton aktif terverifikasi, +5.000 poin masuk ke akun pengundang, dan pengundang terus meraih +500 poin setiap tambahan 1 jam nonton aktif lanjutan referral valid (hingga +5.000 poin lanjutan). Tersedia juga tugas share media sosial harian (+1.000 poin/hari, reset pukul 00.00 WIB).',
                     },
                   },
                 ]
               : [
                   {
-                    '@type': 'FAQPage',
-                    mainEntity: [
-                      {
-                        '@type': 'Question',
-                        name: 'How do I earn points watching dramas on KanoDrama?',
-                        acceptedAnswer: {
-                          '@type': 'Answer',
-                          text: 'Sign in to claim a +10,000 points first-login welcome bonus (once per account), then actively watch short dramas or movies at normal 1x speed. You earn +20 points/min automatically up to 60 minutes daily (scaled up to 1.6x by your account level), +500 points daily check-in and +2,000 points on Day 7 (5,000 points/week), +500 points daily social share, plus +150 / +300 / +600 milestone bonuses up to 2,500 daily watch points (all daily missions reset at 17:00 UTC).',
-                        },
-                      },
-                      {
-                        '@type': 'Question',
-                        name: 'What is the points conversion rate and minimum withdrawal?',
-                        acceptedAnswer: {
-                          '@type': 'Answer',
-                          text: 'The official rate is 100,000 points = 1 USDT ($1.00 USD). Global payouts (PayPal, Wise, USDT Polygon/TRC20/BEP20/ERC20) start from 5.00 USDT ($5.00 USD).',
-                        },
-                      },
-                      {
-                        '@type': 'Question',
-                        name: 'How do the +200 bind bonus, +5,000 referral bonus, and +500 daily social share work?',
-                        acceptedAnswer: {
-                          '@type': 'Answer',
-                          text: 'KanoDrama separates the Bind Referral Bonus (+200 pts) from the Main Referral Bonus (+5,000 pts). Users who register directly via a friend referral link automatically receive +200 pts per applicable rules, or users who registered without a link can bind a code once for +200 pts. Once the invited friend completes 1 hour (3,600 seconds) of verified active watch time, +5,000 pts are credited to the referrer. Users can also claim +500 pts once per day for sharing KanoDrama on social media (resets at 17:00 UTC).',
-                        },
-                      },
-                    ],
+                    '@type': 'Question',
+                    name: 'How do I earn points watching dramas on KanoDrama?',
+                    acceptedAnswer: {
+                      '@type': 'Answer',
+                      text: 'Sign in to claim a +25,000 points first-login welcome bonus (once per account), then actively watch short dramas or movies at normal 1x speed. You earn +40 points/min automatically up to 60 minutes daily (scaled up to 1.6x by your account level), +1,000 points daily check-in and +2,000 points on Day 7 (8,000 points/week), +500 points per completed episode (up to 3/day), +1,000 points daily social share, plus +300 / +600 / +1,200 milestone bonuses up to 5,500 daily watch points (all daily missions reset at 17:00 UTC).',
+                    },
+                  },
+                  {
+                    '@type': 'Question',
+                    name: 'What is the points conversion rate and minimum withdrawal?',
+                    acceptedAnswer: {
+                      '@type': 'Answer',
+                      text: 'The official rate is 100,000 points = 1 USDT ($1.00 USD). Global payouts (PayPal, Wise, USDT Polygon/TRC20/BEP20/ERC20) start from 5.00 USDT ($5.00 USD).',
+                    },
+                  },
+                  {
+                    '@type': 'Question',
+                    name: 'How do the +200 bind bonus, +5,000 referral + ongoing watch bonus, and +1,000 daily social share work?',
+                    acceptedAnswer: {
+                      '@type': 'Answer',
+                      text: 'KanoDrama separates the Bind Referral Bonus (+200 pts) from the Main Referral Bonus (+5,000 pts). Users who register directly via a friend referral link automatically receive +200 pts per applicable rules, or users who registered without a link can bind a code once for +200 pts. Once the invited friend completes 1 hour (3,600 seconds) of verified active watch time, +5,000 pts are credited to the referrer, plus an ongoing +500 pts for every extra 1 hour your qualified referral actively watches (up to +5,000 extra pts). Users can also claim +1,000 pts once per day for sharing KanoDrama on social media (resets at 17:00 UTC).',
+                    },
                   },
                 ],
           },
@@ -3109,12 +3105,13 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
       <section>
         <h2>Cara Mengumpulkan Poin KanoDrama</h2>
         <ul>
-          <li>Bonus login pertama akun baru: +10.000 poin otomatis saat pertama kali masuk (1x per akun).</li>
-          <li>Tonton drama pendek &amp; film aktif (kecepatan normal): +20 poin per menit otomatis (maksimal 60 menit/hari) × multiplier level akun (Bronze 1.0x hingga Platinum 1.6x).</li>
-          <li>Check-in harian &amp; streak 7 hari: +500 poin/hari (H-1 s.d. H-6) dan +2.000 poin di H-7 (total 5.000 poin/minggu, reset pukul 00.00 WIB).</li>
-          <li>Bonus milestone harian (klaim manual setelah target tercapai): +150 poin (15 menit), +300 poin (30 menit), dan +600 poin (60 menit), dengan batas poin nonton harian 2.500 poin.</li>
-          <li>Tugas Share Media Sosial Harian: +500 poin sekali per hari (reset serentak pukul 00.00 WIB).</li>
-          <li>Program Referral KanoDrama: +200 poin Bonus Bind Referral (otomatis jika mendaftar lewat tautan referral teman, atau input manual kode referral 1x jika mendaftar tanpa tautan) serta +5.000 poin Bonus Referral Utama setelah teman menyelesaikan 1 jam waktu tonton terverifikasi.</li>
+          <li>Bonus login pertama akun baru: +25.000 poin otomatis saat pertama kali masuk (1x per akun).</li>
+          <li>Tonton drama pendek &amp; film aktif (kecepatan normal): +40 poin per menit otomatis (maksimal 60 menit/hari) × multiplier level akun (Bronze 1.0x hingga Platinum 1.6x).</li>
+          <li>Check-in harian &amp; streak 7 hari: +1.000 poin/hari (H-1 s.d. H-6) dan +2.000 poin di H-7 (total 8.000 poin/minggu, reset pukul 00.00 WIB).</li>
+          <li>Bonus milestone harian (klaim manual setelah target tercapai): +300 poin (15 menit), +600 poin (30 menit), dan +1.200 poin (60 menit), dengan batas poin nonton harian 5.500 poin.</li>
+          <li>Bonus selesai episode / misi ringan: +500 poin per episode terverifikasi (maksimal 3 episode/hari).</li>
+          <li>Tugas Share Media Sosial Harian: +1.000 poin sekali per hari (reset serentak pukul 00.00 WIB).</li>
+          <li>Program Referral KanoDrama: +200 poin Bonus Bind Referral, +5.000 poin Bonus Referral Utama setelah teman menyelesaikan 1 jam waktu tonton terverifikasi, serta reward lanjutan +500 poin per tambahan 1 jam nonton aktif referral valid (maks. +5.000 poin lanjutan).</li>
         </ul>
       </section>
       <section>
@@ -3130,12 +3127,13 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
       <section>
         <h2>How to Earn Points on KanoDrama</h2>
         <ul>
-          <li>First-login welcome bonus: +10,000 points credited automatically on your first sign-in (once per account).</li>
-          <li>Watch short dramas &amp; movies actively (normal 1x speed): +20 points per minute automatically (up to 60 minutes/day) × account level multiplier (Bronze 1.0x up to Platinum 1.6x).</li>
-          <li>Daily check-in &amp; 7-day streak bonus: +500 points/day (Days 1–6) and +2,000 points on Day 7 (5,000 points/week total, resets at 17:00 UTC).</li>
-          <li>Daily milestone bonuses (manual claim once reached): +150 points (15 min), +300 points (30 min), and +600 points (60 min), within a 2,500 daily watch points cap.</li>
-          <li>Daily social share task: +500 points once per daily cycle (resets at 17:00 UTC).</li>
-          <li>KanoDrama Referral Program: +200 points Bind Referral Bonus (credited automatically when registering via a friend link, or via 1-time code bind if you registered without a link) and +5,000 points Main Referral Bonus once your invited friend completes 1 hour of verified active watch time.</li>
+          <li>First-login welcome bonus: +25,000 points credited automatically on your first sign-in (once per account).</li>
+          <li>Watch short dramas &amp; movies actively (normal 1x speed): +40 points per minute automatically (up to 60 minutes/day) × account level multiplier (Bronze 1.0x up to Platinum 1.6x).</li>
+          <li>Daily check-in &amp; 7-day streak bonus: +1,000 points/day (Days 1–6) and +2,000 points on Day 7 (8,000 points/week total, resets at 17:00 UTC).</li>
+          <li>Daily milestone bonuses (manual claim once reached): +300 points (15 min), +600 points (30 min), and +1,200 points (60 min), within a 5,500 daily watch points cap.</li>
+          <li>Episode completion light mission: +500 points per verified completed episode (up to 3 episodes/day).</li>
+          <li>Daily social share task: +1,000 points once per daily cycle (resets at 17:00 UTC).</li>
+          <li>KanoDrama Referral Program: +200 points Bind Referral Bonus, +5,000 points Main Referral Bonus once your friend completes 1 hour of verified watch time, plus ongoing +500 points per extra 1 hour your qualified referral keeps watching (up to +5,000 ongoing points).</li>
         </ul>
       </section>
       <section>
@@ -5936,12 +5934,76 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }
 
       if (action === 'watch_episode') {
-        res.status(400).json({
-          ok: false,
-          reason: 'feature_removed',
-          error: isId
-            ? 'Bonus episode baru sudah dihapus.'
-            : 'New episode bonus has been removed.',
+        const provider = cleanText(req.body?.provider, 'DramaBoxV2').slice(0, 48);
+        const dramaId = cleanText(req.body?.dramaId).slice(0, 120);
+        const episodeNumber = Math.floor(Number(req.body?.episodeNumber) || 0);
+        const title = cleanText(req.body?.title).slice(0, 120);
+        const sessionToken = cleanText(
+          req.body?.sessionToken ?? req.body?.streamSessionId
+        ).slice(0, 128);
+
+        const result = await claimEpisodeBonusInDb({
+          userId: session.uid,
+          provider,
+          dramaId,
+          episodeNumber,
+          title: title || undefined,
+          sessionToken: sessionToken || undefined,
+          displayName: session.displayName,
+          timeZone: extractUserTimeZone(req),
+        });
+
+        if (!result.ok) {
+          const statusCode =
+            result.reason === 'daily_episode_cap_reached' ||
+            result.reason === 'daily_cap_reached'
+              ? 429
+              : result.reason === 'duplicate_claim'
+              ? 409
+              : result.reason === 'anti_cheat_blocked'
+              ? 403
+              : 400;
+          const message =
+            result.reason === 'duplicate_claim'
+              ? isId
+                ? 'Bonus untuk episode ini sudah pernah diklaim.'
+                : 'Bonus for this episode has already been claimed.'
+              : result.reason === 'daily_episode_cap_reached'
+              ? isId
+                ? `Batas misi selesai episode (${cfg.maxDailyEpisodeBonusCount} episode/hari) hari ini sudah tercapai.`
+                : `Daily episode completion bonus limit (${cfg.maxDailyEpisodeBonusCount}/day) reached for today.`
+              : result.reason === 'daily_cap_reached'
+              ? isId
+                ? `Batas poin harian (${cfg.maxDailyEarnPoints.toLocaleString('id-ID')} poin) hari ini sudah tercapai.`
+                : `Daily earn limit (${cfg.maxDailyEarnPoints.toLocaleString('en-US')} pts) reached for today.`
+              : result.reason === 'watch_duration_insufficient'
+              ? isId
+                ? `Durasi menonton aktif belum mencukupi minimal ${cfg.episodeBonusMinWatchSeconds} detik untuk klaim bonus episode.`
+                : `Verified active watch time must reach at least ${cfg.episodeBonusMinWatchSeconds}s to claim episode bonus.`
+              : result.reason === 'anti_cheat_blocked'
+              ? isId
+                ? 'Klaim bonus episode ditolak oleh proteksi anti-curang server.'
+                : 'Episode bonus claim blocked by server anti-cheat protection.'
+              : isId
+              ? 'Parameter episode tidak valid.'
+              : 'Invalid episode parameters.';
+          res.status(statusCode).json({
+            ok: false,
+            reason: result.reason,
+            error: message,
+            summary: result.summary,
+            config: cfg,
+          });
+          return;
+        }
+
+        res.json({
+          ok: true,
+          episodeNumber: result.episodeNumber,
+          awardedPoints: result.awardedPoints ?? result.entry?.points ?? cfg.episodeBonusPoints,
+          entry: result.entry,
+          summary: result.summary,
+          config: cfg,
         });
         return;
       }

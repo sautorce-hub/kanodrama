@@ -277,8 +277,14 @@ interface PayoutConfig {
   watchMinutePoints: number;
   dailyMissionMaxWatchSeconds: number;
   dailyMissionMilestones: DailyMissionMilestoneConfig[];
+  episodeBonusPoints?: number;
+  episodeBonusMinWatchSeconds?: number;
+  maxDailyEpisodeBonusCount?: number;
   referralQualifySeconds: number;
   referralBonusPoints: number;
+  referralOngoingStepSeconds?: number;
+  referralOngoingBonusPoints?: number;
+  referralOngoingMaxSteps?: number;
   maxDailyReferrals: number;
   maxWeeklyReferrals: number;
   maxDailyVerifiedWatchSeconds: number;
@@ -295,6 +301,10 @@ interface UserReferralItemView {
   maskedReferee: string;
   status: ReferralStatus;
   bonusPoints: number;
+  ongoingBonusEarned?: number;
+  ongoingStepsAwarded?: number;
+  ongoingMaxSteps?: number;
+  nextOngoingTargetSeconds?: number | null;
   verifiedWatchSeconds: number;
   requiredWatchSeconds: number;
   riskFlag?: string;
@@ -307,6 +317,9 @@ interface UserReferralSummary {
   referralQualifySeconds: number;
   referralBonusPoints: number;
   bindReferralBonusPoints?: number;
+  referralOngoingStepSeconds?: number;
+  referralOngoingBonusPoints?: number;
+  referralOngoingMaxSteps?: number;
   hasReferrer?: boolean;
   referredBy?: {
     status: ReferralStatus;
@@ -324,6 +337,7 @@ interface UserReferralSummary {
     qualifiedCount: number;
     rejectedCount: number;
     totalBonusEarned: number;
+    ongoingBonusEarned?: number;
   };
   referrals: UserReferralItemView[];
 }
@@ -376,6 +390,9 @@ interface UserPointsSummary {
   todayWatchPointsEarned?: number;
   dailyMissionMaxWatchSeconds?: number;
   verifiedWatchSeconds?: number;
+  todayEpisodeBonusCount?: number;
+  maxDailyEpisodeBonusCount?: number;
+  episodeBonusPoints?: number;
   levelInfo?: AccountLevelStatus;
   estimatedUsd: number;
   estimatedIdr: number;
@@ -435,23 +452,29 @@ const DEFAULT_CONFIG: PayoutConfig = {
   minPayoutUsd: 5,
   minPayoutPointsIdr: 274726,
   minPayoutPointsUsd: 500000,
-  maxDailyEarnPoints: 10000,
-  maxDailyWatchPoints: 2500,
+  maxDailyEarnPoints: 25000,
+  maxDailyWatchPoints: 5500,
   claimCooldownSeconds: 45,
-  firstLoginBonusPoints: 10000,
+  firstLoginBonusPoints: 25000,
   bindReferralBonusPoints: 200,
-  dailySocialSharePoints: 500,
-  dailyCheckinPoints: 500,
+  dailySocialSharePoints: 1000,
+  dailyCheckinPoints: 1000,
   dailyCheckinDay7Points: 2000,
-  watchMinutePoints: 20,
+  watchMinutePoints: 40,
   dailyMissionMaxWatchSeconds: 3600,
   dailyMissionMilestones: [
-    { minutes: 15, bonusPoints: 150 },
-    { minutes: 30, bonusPoints: 300 },
-    { minutes: 60, bonusPoints: 600 },
+    { minutes: 15, bonusPoints: 300 },
+    { minutes: 30, bonusPoints: 600 },
+    { minutes: 60, bonusPoints: 1200 },
   ],
+  episodeBonusPoints: 500,
+  episodeBonusMinWatchSeconds: 20,
+  maxDailyEpisodeBonusCount: 3,
   referralQualifySeconds: 3600,
   referralBonusPoints: 5000,
+  referralOngoingStepSeconds: 3600,
+  referralOngoingBonusPoints: 500,
+  referralOngoingMaxSteps: 10,
   maxDailyReferrals: 5,
   maxWeeklyReferrals: 15,
   maxDailyVerifiedWatchSeconds: 28800,
@@ -464,64 +487,64 @@ const DEFAULT_CONFIG: PayoutConfig = {
       minVerifiedWatchSeconds: 0,
       multiplier: 1.0,
       bonusPercent: 0,
-      watchMinutePoints: 20,
-      dailyCheckinPoints: 500,
+      watchMinutePoints: 40,
+      dailyCheckinPoints: 1000,
       dailyCheckinDay7Points: 2000,
       dailyMissionMilestones: [
-        { minutes: 15, bonusPoints: 150 },
-        { minutes: 30, bonusPoints: 300 },
-        { minutes: 60, bonusPoints: 600 },
+        { minutes: 15, bonusPoints: 300 },
+        { minutes: 30, bonusPoints: 600 },
+        { minutes: 60, bonusPoints: 1200 },
       ],
     },
     {
       level: 2,
       tierId: 'silver',
       tierName: 'Silver',
-      minTotalEarned: 15000,
+      minTotalEarned: 35000,
       minVerifiedWatchSeconds: 7200,
       multiplier: 1.2,
       bonusPercent: 20,
-      watchMinutePoints: 24,
-      dailyCheckinPoints: 600,
+      watchMinutePoints: 48,
+      dailyCheckinPoints: 1200,
       dailyCheckinDay7Points: 2400,
       dailyMissionMilestones: [
-        { minutes: 15, bonusPoints: 180 },
-        { minutes: 30, bonusPoints: 360 },
-        { minutes: 60, bonusPoints: 720 },
+        { minutes: 15, bonusPoints: 360 },
+        { minutes: 30, bonusPoints: 720 },
+        { minutes: 60, bonusPoints: 1440 },
       ],
     },
     {
       level: 3,
       tierId: 'gold',
       tierName: 'Gold',
-      minTotalEarned: 40000,
+      minTotalEarned: 80000,
       minVerifiedWatchSeconds: 36000,
       multiplier: 1.4,
       bonusPercent: 40,
-      watchMinutePoints: 28,
-      dailyCheckinPoints: 700,
+      watchMinutePoints: 56,
+      dailyCheckinPoints: 1400,
       dailyCheckinDay7Points: 2800,
       dailyMissionMilestones: [
-        { minutes: 15, bonusPoints: 210 },
-        { minutes: 30, bonusPoints: 420 },
-        { minutes: 60, bonusPoints: 840 },
+        { minutes: 15, bonusPoints: 420 },
+        { minutes: 30, bonusPoints: 840 },
+        { minutes: 60, bonusPoints: 1680 },
       ],
     },
     {
       level: 4,
       tierId: 'platinum',
       tierName: 'Platinum',
-      minTotalEarned: 100000,
+      minTotalEarned: 160000,
       minVerifiedWatchSeconds: 108000,
       multiplier: 1.6,
       bonusPercent: 60,
-      watchMinutePoints: 32,
-      dailyCheckinPoints: 800,
+      watchMinutePoints: 64,
+      dailyCheckinPoints: 1600,
       dailyCheckinDay7Points: 3200,
       dailyMissionMilestones: [
-        { minutes: 15, bonusPoints: 240 },
-        { minutes: 30, bonusPoints: 480 },
-        { minutes: 60, bonusPoints: 960 },
+        { minutes: 15, bonusPoints: 480 },
+        { minutes: 30, bonusPoints: 960 },
+        { minutes: 60, bonusPoints: 1920 },
       ],
     },
   ],
@@ -601,6 +624,7 @@ function formatLedgerDescription(
     ledgerWatchEpisode: string;
     ledgerReferralBind: string;
     ledgerReferralQualify: string;
+    ledgerReferralOngoing?: string;
     ledgerDailySocialShare: string;
     ledgerPayoutRequest: string;
     ledgerPayoutRefund: string;
@@ -630,6 +654,8 @@ function formatLedgerDescription(
       code = 'watch_episode';
     } else if (ref.startsWith('referral:bind:')) {
       code = 'referral_bind';
+    } else if (ref.startsWith('referral:ongoing:')) {
+      code = 'referral_ongoing';
     } else if (ref.startsWith('referral:')) {
       code = 'referral_qualify';
     } else if (ref.startsWith('payout:')) {
@@ -690,6 +716,15 @@ function formatLedgerDescription(
     }
     case 'referral_qualify':
       return rewardsDict.ledgerReferralQualify;
+    case 'referral_ongoing': {
+      const stepMatch = /:s(\d+)$/.exec(ref) || /Tahap\s*(\d+)/i.exec(desc);
+      const step = Number(meta.ongoingStep) || Number(stepMatch?.[1]) || 1;
+      const maxSteps = Number(meta.totalStepsMax) || 10;
+      const tpl =
+        rewardsDict.ledgerReferralOngoing ||
+        'Ongoing Referral Watch Bonus (Step {step}/{max})';
+      return tpl.replace('{step}', String(step)).replace('{max}', String(maxSteps));
+    }
     case 'daily_social_share': {
       const channelRaw =
         (typeof meta.shareChannel === 'string' && meta.shareChannel.toLowerCase()) || '';
@@ -1258,6 +1293,8 @@ export const RewardsPayoutSection: React.FC = () => {
           verifiedWatchSeconds?: number;
           todayWatchSeconds?: number;
           awardedWatchPoints?: number;
+          awardedEpisodePoints?: number;
+          referralOngoingBonusAwarded?: number;
           todayWatchPointsEarned?: number;
           pointsBalance?: number | null;
           referralQualified?: boolean;
@@ -1308,7 +1345,11 @@ export const RewardsPayoutSection: React.FC = () => {
         detail?.referralQualified ||
         detail?.referralBound ||
         (typeof detail?.awardedWatchPoints === 'number' &&
-          detail.awardedWatchPoints > 0)
+          detail.awardedWatchPoints > 0) ||
+        (typeof detail?.awardedEpisodePoints === 'number' &&
+          detail.awardedEpisodePoints > 0) ||
+        (typeof detail?.referralOngoingBonusAwarded === 'number' &&
+          detail.referralOngoingBonusAwarded > 0)
       ) {
         void loadPointsData();
       }
@@ -1614,7 +1655,7 @@ export const RewardsPayoutSection: React.FC = () => {
         setLedgerTotal(Number(data.summary.ledgerTotal ?? (data.summary.ledger || []).length));
       }
       if (res.ok && data.ok) {
-        const awarded = Number(data.awardedPoints) || config.dailySocialSharePoints || 500;
+        const awarded = Number(data.awardedPoints) || config.dailySocialSharePoints || 1000;
         const channelLabelMap: Record<string, string> = {
           whatsapp: 'WhatsApp',
           telegram: 'Telegram',
@@ -2045,8 +2086,8 @@ export const RewardsPayoutSection: React.FC = () => {
       minVerifiedWatchSeconds: 0,
       multiplier: 1.0,
       bonusPercent: 0,
-      watchMinutePoints: config.watchMinutePoints || 20,
-      dailyCheckinPoints: config.dailyCheckinPoints || 500,
+      watchMinutePoints: config.watchMinutePoints || 40,
+      dailyCheckinPoints: config.dailyCheckinPoints || 1000,
       dailyCheckinDay7Points: config.dailyCheckinDay7Points || 2000,
       dailyMissionMilestones: config.dailyMissionMilestones || [],
     };
@@ -2080,13 +2121,39 @@ export const RewardsPayoutSection: React.FC = () => {
     };
   }, [summary?.levelInfo, levelTiers, config]);
 
-  const effectiveFirstLoginBonusPoints = Math.max(0, config.firstLoginBonusPoints ?? 10000);
-  const effectiveWatchMinutePoints = activeLevelInfo.watchMinutePoints || config.watchMinutePoints || 20;
-  const effectiveDailyCheckinPoints = activeLevelInfo.dailyCheckinPoints || config.dailyCheckinPoints || 500;
+  const effectiveFirstLoginBonusPoints = Math.max(0, config.firstLoginBonusPoints ?? 25000);
+  const effectiveWatchMinutePoints = activeLevelInfo.watchMinutePoints || config.watchMinutePoints || 40;
+  const effectiveDailyCheckinPoints = activeLevelInfo.dailyCheckinPoints || config.dailyCheckinPoints || 1000;
   const effectiveDailyCheckinDay7Points =
     activeLevelInfo.dailyCheckinDay7Points ||
     config.dailyCheckinDay7Points ||
-    Math.round(effectiveDailyCheckinPoints * 4);
+    Math.round(effectiveDailyCheckinPoints * 2);
+  const effectiveEpisodeBonusPoints = Math.max(
+    0,
+    summary?.episodeBonusPoints ?? config.episodeBonusPoints ?? 500
+  );
+  const effectiveMaxDailyEpisodes = Math.max(
+    1,
+    summary?.maxDailyEpisodeBonusCount ?? config.maxDailyEpisodeBonusCount ?? 3
+  );
+  const todayEpisodeBonusCount = Math.max(0, summary?.todayEpisodeBonusCount ?? 0);
+  const ongoingStepMinutes = Math.max(
+    1,
+    Math.round(
+      (referralSummary?.referralOngoingStepSeconds ??
+        config.referralOngoingStepSeconds ??
+        3600) / 60
+    )
+  );
+  const ongoingBonusPerStep = Math.max(
+    0,
+    referralSummary?.referralOngoingBonusPoints ?? config.referralOngoingBonusPoints ?? 500
+  );
+  const ongoingMaxSteps = Math.max(
+    1,
+    referralSummary?.referralOngoingMaxSteps ?? config.referralOngoingMaxSteps ?? 10
+  );
+  const ongoingMaxTotalPoints = ongoingBonusPerStep * ongoingMaxSteps;
 
   const todayWatchPointsEarned = Math.max(0, summary?.todayWatchPointsEarned ?? 0);
   const effectiveMilestoneConfigs =
@@ -2098,7 +2165,7 @@ export const RewardsPayoutSection: React.FC = () => {
     effectiveMilestoneConfigs.reduce((acc, m) => acc + m.bonusPoints, 0);
   const dailyWatchCap = Math.max(
     effectiveWatchMinutePoints,
-    config.maxDailyWatchPoints || 2500
+    config.maxDailyWatchPoints || 5500
   );
   const maxWatchMissionPoints = Math.min(dailyWatchCap, rawLevelWatchMax);
   const oneUsdtPoints = Math.max(1000, config.pointsPerUsd || 100000);
@@ -2920,7 +2987,7 @@ export const RewardsPayoutSection: React.FC = () => {
             </div>
           </div>
 
-          <div className="pt-1 flex items-center justify-between gap-2 text-xs text-[#A1A1AA]">
+          <div className="pt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-[#A1A1AA]">
             <span className="inline-flex items-center gap-2">
               <Calendar className="w-4 h-4 text-[#FBBF24] shrink-0" />
               <span>
@@ -2932,10 +2999,25 @@ export const RewardsPayoutSection: React.FC = () => {
             </span>
             <span className="text-[11px] tabular-nums">{missionWatchPct}%</span>
           </div>
+
+          <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="inline-flex items-center gap-2 text-[#D4D4D8]">
+              <Sparkles className="w-4 h-4 text-[#FBBF24] shrink-0" />
+              <span>
+                {isId
+                  ? `Misi ringan selesai episode (+${effectiveEpisodeBonusPoints.toLocaleString()} poin/episode)`
+                  : `Episode completion mission (+${effectiveEpisodeBonusPoints.toLocaleString()} pts/episode)`}
+              </span>
+            </span>
+            <span className="font-bold text-[#FDE68A] tabular-nums">
+              {todayEpisodeBonusCount} / {effectiveMaxDailyEpisodes}{' '}
+              {isId ? 'hari ini' : 'today'}
+            </span>
+          </div>
         </div>
       </section>
 
-      {/* 3B. Daily Social Media Share Task (+500 pts/day, synced to canonical server WIB/UTC reset) */}
+      {/* 3B. Daily Social Media Share Task (+1,000 pts/day, synced to canonical server WIB/UTC reset) */}
       <section className="rounded-3xl bg-[#121117] border border-white/10 p-4 sm:p-6 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -2948,7 +3030,7 @@ export const RewardsPayoutSection: React.FC = () => {
                   {t.rewards.dailyShareTitle}
                 </h2>
                 <span className="px-2.5 py-0.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/35 text-[11px] font-extrabold text-[#D4AF37] tabular-nums">
-                  +{(config.dailySocialSharePoints ?? 500).toLocaleString()} {t.rewards.pointsUnit} /{' '}
+                  +{(config.dailySocialSharePoints ?? 1000).toLocaleString()} {t.rewards.pointsUnit} /{' '}
                   {isId ? 'hari' : 'day'}
                 </span>
               </div>
@@ -3000,8 +3082,8 @@ export const RewardsPayoutSection: React.FC = () => {
               className="px-4 py-2.5 min-h-[42px] rounded-xl bg-[#D4AF37] text-[#09090B] text-xs font-extrabold hover:brightness-110 transition-all whitespace-nowrap shrink-0"
             >
               {isId
-                ? `Masuk & Klaim +${(config.dailySocialSharePoints ?? 500).toLocaleString()} Poin`
-                : `Sign In & Claim +${(config.dailySocialSharePoints ?? 500).toLocaleString()} pts`}
+                ? `Masuk & Klaim +${(config.dailySocialSharePoints ?? 1000).toLocaleString()} Poin`
+                : `Sign In & Claim +${(config.dailySocialSharePoints ?? 1000).toLocaleString()} pts`}
             </button>
           </div>
         ) : (() => {
@@ -3158,11 +3240,15 @@ export const RewardsPayoutSection: React.FC = () => {
               ).toLocaleString()}{' '}
               {t.rewards.pointsUnit}
             </span>
+            <span className="px-3 py-1.5 rounded-lg bg-sky-500/15 border border-sky-500/30 text-xs font-extrabold text-sky-300 tabular-nums whitespace-nowrap">
+              {isId ? 'Lanjutan Valid' : 'Ongoing Watch'}: +{ongoingBonusPerStep.toLocaleString()}{' '}
+              {t.rewards.pointsUnit} / {ongoingStepMinutes} {t.rewards.milestoneMinSuffix}
+            </span>
           </div>
         </div>
 
-        {/* Clear 2-Tier Referral vs Bind Referral Breakdown */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Clear 3-Tier Referral, Bind & Ongoing Qualified Watch Breakdown */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="p-3.5 rounded-xl bg-[#0B0B0F] border border-[#D4AF37]/25 space-y-1">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-extrabold text-[#D4AF37]">
@@ -3175,7 +3261,7 @@ export const RewardsPayoutSection: React.FC = () => {
             </div>
             <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
               {isId
-                ? `Masuk ke akun pengundang setelah teman yang diundang menyelesaikan minimal ${qualifyMinutes} menit (1 jam) tonton aktif terverifikasi dan lolos validasi anti-cheat.`
+                ? `Masuk ke akun pengundang setelah teman menyelesaikan minimal ${qualifyMinutes} menit (1 jam) tonton aktif terverifikasi dan lolos validasi anti-cheat.`
                 : `Credited to the inviter once the invited friend completes at least ${qualifyMinutes} minutes (1 hour) of verified active watching and passes anti-cheat checks.`}
             </p>
           </div>
@@ -3197,8 +3283,25 @@ export const RewardsPayoutSection: React.FC = () => {
             </div>
             <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
               {isId
-                ? `Daftar langsung lewat tautan ?ref= teman → +${(referralSummary?.bindReferralBonusPoints ?? config.bindReferralBonusPoints ?? 200).toLocaleString()} poin masuk otomatis. Jika mendaftar tanpa tautan teman, masukkan kode referral sekali di bawah untuk klaim +${(referralSummary?.bindReferralBonusPoints ?? config.bindReferralBonusPoints ?? 200).toLocaleString()} poin.`
-                : `Sign up via a friend's ?ref= link → +${(referralSummary?.bindReferralBonusPoints ?? config.bindReferralBonusPoints ?? 200).toLocaleString()} pts auto-credited. If you registered without a link, bind a code once below to claim +${(referralSummary?.bindReferralBonusPoints ?? config.bindReferralBonusPoints ?? 200).toLocaleString()} pts.`}
+                ? `Daftar lewat tautan ?ref= teman atau bind kode referral sekali di bawah untuk klaim +${(referralSummary?.bindReferralBonusPoints ?? config.bindReferralBonusPoints ?? 200).toLocaleString()} poin.`
+                : `Sign up via a friend's ?ref= link or bind a referral code once below to claim +${(referralSummary?.bindReferralBonusPoints ?? config.bindReferralBonusPoints ?? 200).toLocaleString()} pts.`}
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#0B0B0F] border border-sky-500/25 space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-extrabold text-sky-300">
+                {isId ? '3. Reward Lanjutan Valid' : '3. Ongoing Watch Bonus'}
+              </span>
+              <span className="text-xs font-extrabold text-white tabular-nums">
+                +{ongoingBonusPerStep.toLocaleString()} / {ongoingStepMinutes}{' '}
+                {t.rewards.milestoneMinSuffix}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+              {isId
+                ? `Setelah teman valid (≥1 jam), setiap tambahan ${ongoingStepMinutes} menit nonton aktif lanjutan memberi +${ongoingBonusPerStep.toLocaleString()} poin lagi (maks. ${ongoingMaxSteps} tahap / +${ongoingMaxTotalPoints.toLocaleString()} poin) dengan proteksi anti-cheat.`
+                : `Once qualified (≥1h), every extra ${ongoingStepMinutes} min your friend actively watches awards +${ongoingBonusPerStep.toLocaleString()} more pts (up to ${ongoingMaxSteps} steps / +${ongoingMaxTotalPoints.toLocaleString()} pts) with anti-cheat verification.`}
             </p>
           </div>
         </div>
@@ -3401,6 +3504,13 @@ export const RewardsPayoutSection: React.FC = () => {
                   <p className="text-xl font-extrabold text-[#D4AF37] tabular-nums mt-1">
                     +{referralSummary.stats.totalBonusEarned.toLocaleString()}
                   </p>
+                  {(referralSummary.stats.ongoingBonusEarned ?? 0) > 0 && (
+                    <p className="text-[10px] text-sky-300 tabular-nums mt-0.5">
+                      {isId
+                        ? `Termasuk +${(referralSummary.stats.ongoingBonusEarned ?? 0).toLocaleString()} lanjutan`
+                        : `Incl. +${(referralSummary.stats.ongoingBonusEarned ?? 0).toLocaleString()} ongoing`}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -3411,16 +3521,19 @@ export const RewardsPayoutSection: React.FC = () => {
                 <span>{t.rewards.referralEmpty}</span>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[300px] overflow-y-auto pr-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[340px] overflow-y-auto pr-1">
                 {referralSummary.referrals.map((ref) => {
-                  const watchedMin = Math.min(
-                    qualifyMinutes,
-                    Math.floor(ref.verifiedWatchSeconds / 60)
-                  );
-                  const reqMin = Math.max(
-                    1,
-                    Math.round(ref.requiredWatchSeconds / 60)
-                  );
+                  const totalWatchedMin = Math.floor(ref.verifiedWatchSeconds / 60);
+                  const watchedMin = Math.min(qualifyMinutes, totalWatchedMin);
+                  const reqMin = Math.max(1, Math.round(ref.requiredWatchSeconds / 60));
+                  const ongoingSteps = Math.max(0, ref.ongoingStepsAwarded ?? 0);
+                  const ongoingMax = Math.max(1, ref.ongoingMaxSteps ?? ongoingMaxSteps);
+                  const ongoingEarned = Math.max(0, ref.ongoingBonusEarned ?? 0);
+                  const nextOngoingMin = ref.nextOngoingTargetSeconds
+                    ? Math.round(ref.nextOngoingTargetSeconds / 60)
+                    : null;
+                  const totalItemBonus =
+                    (ref.status === 'qualified' ? ref.bonusPoints : 0) + ongoingEarned;
                   const pct =
                     ref.status === 'qualified'
                       ? 100
@@ -3444,10 +3557,13 @@ export const RewardsPayoutSection: React.FC = () => {
                       </div>
                       <div className="flex items-center justify-between text-[11px] text-[#A1A1AA] tabular-nums">
                         <span>
-                          {watchedMin} / {reqMin} {t.rewards.minutesUnit}
+                          {ref.status === 'qualified'
+                            ? `${totalWatchedMin} ${t.rewards.minutesUnit}`
+                            : `${watchedMin} / ${reqMin} ${t.rewards.minutesUnit}`}
                         </span>
                         <span className="text-[#D4AF37] font-bold">
-                          +{ref.bonusPoints.toLocaleString()} {t.rewards.pointsUnit}
+                          +{(ref.status === 'qualified' ? totalItemBonus : ref.bonusPoints).toLocaleString()}{' '}
+                          {t.rewards.pointsUnit}
                         </span>
                       </div>
                       <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
@@ -3462,6 +3578,24 @@ export const RewardsPayoutSection: React.FC = () => {
                           style={{ width: `${Math.max(4, pct)}%` }}
                         />
                       </div>
+                      {ref.status === 'qualified' && (
+                        <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-sky-300/90 tabular-nums pt-0.5">
+                          <span>
+                            {isId
+                              ? `Lanjutan: Tahap ${ongoingSteps}/${ongoingMax} (+${ongoingEarned.toLocaleString()} ${t.rewards.pointsUnit})`
+                              : `Ongoing: Step ${ongoingSteps}/${ongoingMax} (+${ongoingEarned.toLocaleString()} ${t.rewards.pointsUnit})`}
+                          </span>
+                          {nextOngoingMin ? (
+                            <span className="text-[#A1A1AA]">
+                              {isId ? `Berikutnya ${nextOngoingMin} mnt` : `Next at ${nextOngoingMin}m`}
+                            </span>
+                          ) : (
+                            <span className="text-emerald-300">
+                              {isId ? 'Maks. tercapai' : 'Max reached'}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -4302,7 +4436,12 @@ export const RewardsPayoutSection: React.FC = () => {
         dailyMissionMilestones={effectiveMilestoneConfigs}
         levelTiers={levelTiers}
         referralBonusPoints={config.referralBonusPoints}
-        dailySocialSharePoints={config.dailySocialSharePoints ?? 500}
+        referralOngoingStepSeconds={config.referralOngoingStepSeconds ?? 3600}
+        referralOngoingBonusPoints={config.referralOngoingBonusPoints ?? 500}
+        referralOngoingMaxSteps={config.referralOngoingMaxSteps ?? 10}
+        episodeBonusPoints={effectiveEpisodeBonusPoints}
+        maxDailyEpisodeBonusCount={effectiveMaxDailyEpisodes}
+        dailySocialSharePoints={config.dailySocialSharePoints ?? 1000}
         maxDailyEarnPoints={config.maxDailyEarnPoints}
         isSignedIn={Boolean(user)}
         onActionSignIn={() => openAuthModal()}

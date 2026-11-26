@@ -12,21 +12,27 @@ export const REWARDS_DEFAULTS = {
   pointsPerUsd: 100_000, // 100.000 poin = 1 USDT ($1.00 USD)
   minPayoutIdr: 50_000,
   minPayoutUsd: 5.0,
-  maxDailyEarnPoints: 10_000,
-  maxDailyWatchPoints: 2_500, // Batas poin nonton harian (per-menit + milestone)
+  maxDailyEarnPoints: 25_000,
+  maxDailyWatchPoints: 5_500, // Batas poin nonton harian (per-menit + milestone)
   claimCooldownSeconds: 45,
-  firstLoginBonusPoints: 10_000,
+  firstLoginBonusPoints: 25_000,
   bindReferralBonusPoints: 200,
-  dailyCheckinPoints: 500,
+  dailyCheckinPoints: 1_000,
   dailyCheckinDay7Points: 2_000,
-  watchMinutePoints: 20, // WATCH_POINTS_PER_MINUTE default +20 poin / menit nonton aktif
+  watchMinutePoints: 40, // WATCH_POINTS_PER_MINUTE default +40 poin / menit nonton aktif
   dailyMissionMaxWatchSeconds: 3_600, // Maksimal 1 jam (60 menit) misi nonton harian
-  dailyMission15mPoints: 150,
-  dailyMission30mPoints: 300,
-  dailyMission60mPoints: 600,
-  dailySocialSharePoints: 500,
+  dailyMission15mPoints: 300,
+  dailyMission30mPoints: 600,
+  dailyMission60mPoints: 1_200,
+  dailySocialSharePoints: 1_000,
+  episodeBonusPoints: 500, // Bonus selesai episode / misi ringan per episode terverifikasi
+  episodeBonusMinWatchSeconds: 20,
+  maxDailyEpisodeBonusCount: 3, // Maksimal 3 episode/hari = 1.500 poin/hari
   referralQualifySeconds: 3_600, // 1 hour active verified watch
   referralBonusPoints: 5_000,
+  referralOngoingStepSeconds: 3_600, // Tiap +1 jam tambahan tontonan aktif referral yang sudah valid
+  referralOngoingBonusPoints: 500, // +500 poin per blok 1 jam lanjutan
+  referralOngoingMaxSteps: 10, // Maksimal 10 tahap (+5.000 poin lanjutan per referral valid)
   maxDailyReferrals: 5,
   maxWeeklyReferrals: 15,
   maxDailyVerifiedWatchSeconds: 28_800, // 8 hours/day telemetry cap
@@ -251,7 +257,7 @@ export const ACCOUNT_LEVEL_TIERS: readonly AccountLevelTierConfig[] = [
     level: 2,
     tierId: 'silver',
     tierName: 'Silver',
-    minTotalEarned: 15_000,
+    minTotalEarned: 35_000,
     minVerifiedWatchSeconds: 7_200, // 2 hours verified active watch
     multiplier: 1.2,
     bonusPercent: 20,
@@ -260,7 +266,7 @@ export const ACCOUNT_LEVEL_TIERS: readonly AccountLevelTierConfig[] = [
     level: 3,
     tierId: 'gold',
     tierName: 'Gold',
-    minTotalEarned: 40_000,
+    minTotalEarned: 80_000,
     minVerifiedWatchSeconds: 36_000, // 10 hours verified active watch
     multiplier: 1.4,
     bonusPercent: 40,
@@ -269,7 +275,7 @@ export const ACCOUNT_LEVEL_TIERS: readonly AccountLevelTierConfig[] = [
     level: 4,
     tierId: 'platinum',
     tierName: 'Platinum',
-    minTotalEarned: 100_000,
+    minTotalEarned: 160_000,
     minVerifiedWatchSeconds: 108_000, // 30 hours verified active watch
     multiplier: 1.6,
     bonusPercent: 60,
@@ -294,8 +300,14 @@ export interface RewardsRuntimeValues {
   dailyMissionMaxWatchSeconds: number;
   dailyMissionMilestones: DailyMissionMilestoneConfig[];
   dailySocialSharePoints: number;
+  episodeBonusPoints: number;
+  episodeBonusMinWatchSeconds: number;
+  maxDailyEpisodeBonusCount: number;
   referralQualifySeconds: number;
   referralBonusPoints: number;
+  referralOngoingStepSeconds: number;
+  referralOngoingBonusPoints: number;
+  referralOngoingMaxSteps: number;
   maxDailyReferrals: number;
   maxWeeklyReferrals: number;
   maxDailyVerifiedWatchSeconds: number;
@@ -320,8 +332,14 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
     dailyMission30mPoints,
     dailyMission60mPoints,
     dailySocialSharePoints,
+    episodeBonusPoints,
+    episodeBonusMinWatchSeconds,
+    maxDailyEpisodeBonusCount,
     referralQualifySeconds,
     referralBonusPoints,
+    referralOngoingStepSeconds,
+    referralOngoingBonusPoints,
+    referralOngoingMaxSteps,
     maxDailyReferrals,
     maxWeeklyReferrals,
     maxDailyVerifiedWatchSeconds,
@@ -352,8 +370,14 @@ export function getRewardsRuntimeValues(): RewardsRuntimeValues {
       { minutes: 60, bonusPoints: dailyMission60mPoints },
     ],
     dailySocialSharePoints,
+    episodeBonusPoints,
+    episodeBonusMinWatchSeconds,
+    maxDailyEpisodeBonusCount,
     referralQualifySeconds,
     referralBonusPoints,
+    referralOngoingStepSeconds,
+    referralOngoingBonusPoints,
+    referralOngoingMaxSteps,
     maxDailyReferrals,
     maxWeeklyReferrals,
     maxDailyVerifiedWatchSeconds,

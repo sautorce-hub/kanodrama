@@ -256,6 +256,7 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     getEpisodeComments,
     addEpisodeComment,
     isEpisodeUnlocked,
+    claimEpisodeBonus,
   } = useDramaContext();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -2928,6 +2929,9 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
               setIsPlaying(false);
               setIsBuffering(false);
               flushProgress(duration, true);
+              if (drama) {
+                void claimEpisodeBonus(drama, episodeNumber);
+              }
               if (autoPlayNext && hasNext) {
                 setNextEpCountdown(3);
               } else if (autoPlayNext && !hasNext && upNextDrama && onSwitchDrama) {

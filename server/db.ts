@@ -647,6 +647,8 @@ const SCHEMA_STATEMENTS: string[] = [
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
   `ALTER TABLE referrals ALTER COLUMN bonus_points SET DEFAULT 5000`,
+  `ALTER TABLE referrals ADD COLUMN IF NOT EXISTS ongoing_bonus_points INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE referrals ADD COLUMN IF NOT EXISTS ongoing_steps_awarded INTEGER NOT NULL DEFAULT 0`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_referrer_created ON referrals (referrer_uid, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_referrer_status ON referrals (referrer_uid, status, qualified_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_referrals_code ON referrals (referral_code)`,
@@ -671,7 +673,7 @@ const SCHEMA_STATEMENTS: string[] = [
     user_id TEXT NOT NULL,
     checkin_date DATE NOT NULL,
     streak_day INTEGER NOT NULL DEFAULT 1,
-    points_awarded INTEGER NOT NULL DEFAULT 500,
+    points_awarded INTEGER NOT NULL DEFAULT 1000,
     ledger_id TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (user_id, checkin_date)
@@ -683,7 +685,7 @@ const SCHEMA_STATEMENTS: string[] = [
     provider TEXT NOT NULL,
     drama_id TEXT NOT NULL,
     episode_number INTEGER NOT NULL,
-    points_awarded INTEGER NOT NULL DEFAULT 50,
+    points_awarded INTEGER NOT NULL DEFAULT 500,
     session_token TEXT NOT NULL DEFAULT '',
     ledger_id TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -3895,8 +3897,14 @@ export interface PayoutRuntimeConfig {
   dailyMissionMaxWatchSeconds: number;
   dailyMissionMilestones: DailyMissionMilestoneConfig[];
   dailySocialSharePoints: number;
+  episodeBonusPoints: number;
+  episodeBonusMinWatchSeconds: number;
+  maxDailyEpisodeBonusCount: number;
   referralQualifySeconds: number;
   referralBonusPoints: number;
+  referralOngoingStepSeconds: number;
+  referralOngoingBonusPoints: number;
+  referralOngoingMaxSteps: number;
   maxDailyReferrals: number;
   maxWeeklyReferrals: number;
   maxDailyVerifiedWatchSeconds: number;
@@ -3915,6 +3923,7 @@ export type PointsLedgerEventCode =
   | 'watch_episode'
   | 'referral_bind'
   | 'referral_qualify'
+  | 'referral_ongoing'
   | 'payout_request'
   | 'payout_refund'
   | 'legacy';
@@ -3933,6 +3942,9 @@ export interface PointsLedgerEventMeta {
   multiplier?: number;
   level?: number;
   referralCode?: string;
+  ongoingStep?: number;
+  stepMinutes?: number;
+  totalStepsMax?: number;
   methodLabel?: string;
   currency?: PayoutCurrency;
   payoutId?: string;
@@ -4007,6 +4019,9 @@ export interface UserPointsSummary {
   dailySocialShareClaimedToday: boolean;
   dailySocialShareClaimedAt: string | null;
   dailySocialShareChannel: string | null;
+  todayEpisodeBonusCount?: number;
+  maxDailyEpisodeBonusCount?: number;
+  episodeBonusPoints?: number;
   checkinStreak: number;
   recentCheckins: string[];
   milestones: DailyMissionMilestoneStatus[];
@@ -4311,6 +4326,10 @@ export interface UserReferralItemView {
   maskedReferee: string;
   status: ReferralStatus;
   bonusPoints: number;
+  ongoingBonusEarned: number;
+  ongoingStepsAwarded: number;
+  ongoingMaxSteps: number;
+  nextOngoingTargetSeconds: number | null;
   verifiedWatchSeconds: number;
   requiredWatchSeconds: number;
   riskFlag?: string;
@@ -4323,6 +4342,9 @@ export interface UserReferralSummary {
   referralQualifySeconds: number;
   referralBonusPoints: number;
   bindReferralBonusPoints: number;
+  referralOngoingStepSeconds: number;
+  referralOngoingBonusPoints: number;
+  referralOngoingMaxSteps: number;
   hasReferrer: boolean;
   referredBy: {
     status: ReferralStatus;
@@ -4339,6 +4361,8 @@ export interface UserReferralSummary {
     pendingCount: number;
     qualifiedCount: number;
     rejectedCount: number;
+    mainBonusEarned: number;
+    ongoingBonusEarned: number;
     totalBonusEarned: number;
   };
   referrals: UserReferralItemView[];
@@ -4362,6 +4386,7 @@ const VALID_LEDGER_EVENT_CODES: ReadonlySet<PointsLedgerEventCode> = new Set([
   'watch_episode',
   'referral_bind',
   'referral_qualify',
+  'referral_ongoing',
   'payout_request',
   'payout_refund',
   'legacy',
@@ -4490,6 +4515,17 @@ function inferLedgerEventFromLegacyRow(r: {
 
   if (ref.startsWith('referral:qualify:') || /Bonus Referral Valid/i.test(desc)) {
     return { eventCode: 'referral_qualify', eventMeta: { ...parsedMeta } };
+  }
+
+  if (ref.startsWith('referral:ongoing:') || /Bonus Lanjutan Referral/i.test(desc)) {
+    const stepMatch = /:s(\d+)$/.exec(ref);
+    return {
+      eventCode: 'referral_ongoing',
+      eventMeta: {
+        ongoingStep: parsedMeta.ongoingStep ?? (stepMatch ? Number(stepMatch[1]) : undefined),
+        ...parsedMeta,
+      },
+    };
   }
 
   if (ref.startsWith('refund:payout:') || /Pengembalian Poin/i.test(desc)) {
@@ -4706,7 +4742,7 @@ async function queryUserPointsSummaryOnClient(
        MAX(
          CASE
            WHEN type = 'earn'
-            AND (reference_id LIKE 'checkin:%' OR reference_id LIKE 'watch:%')
+            AND reference_id LIKE 'checkin:%'
            THEN created_at
            ELSE NULL
          END
@@ -4954,6 +4990,14 @@ async function queryUserPointsSummaryOnClient(
     [userId]
   );
 
+  const epDailyRes = await client.query<{ cnt: string }>(
+    `SELECT COUNT(*)::text AS cnt
+     FROM rewarded_episodes
+     WHERE user_id = $1 AND created_at >= $2 AND created_at < $3`,
+    [userId, periodStartAt, nextResetAt]
+  );
+  const todayEpisodeBonusCount = Math.max(0, Number(epDailyRes.rows[0]?.cnt) || 0);
+
   const { usdAmount, idrAmount } = computePointsConversion(balance, cfg);
   return {
     timeZone,
@@ -4979,6 +5023,9 @@ async function queryUserPointsSummaryOnClient(
     dailySocialShareClaimedToday,
     dailySocialShareClaimedAt,
     dailySocialShareChannel,
+    todayEpisodeBonusCount,
+    maxDailyEpisodeBonusCount: cfg.maxDailyEpisodeBonusCount,
+    episodeBonusPoints: cfg.episodeBonusPoints,
     checkinStreak,
     recentCheckins,
     milestones,
@@ -5212,7 +5259,7 @@ export async function claimDailyCheckinInDb(input: {
          MAX(
            CASE
              WHEN type = 'earn'
-              AND (reference_id LIKE 'checkin:%' OR reference_id LIKE 'watch:%')
+              AND reference_id LIKE 'checkin:%'
              THEN created_at
              ELSE NULL
            END
@@ -5496,7 +5543,7 @@ export async function claimDailySocialShareInDb(input: {
 
     const currentBalance = Math.max(0, Number(statsRes.rows[0]?.balance) || 0);
     const todayEarned = Math.max(0, Number(statsRes.rows[0]?.today_earned) || 0);
-    const sharePoints = Math.max(1, Math.floor(cfg.dailySocialSharePoints || 500));
+    const sharePoints = Math.max(1, Math.floor(cfg.dailySocialSharePoints || 1_000));
 
     if (todayEarned + sharePoints > cfg.maxDailyEarnPoints) {
       const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
@@ -5750,6 +5797,238 @@ export async function claimWatchMilestoneInDb(input: {
     if (err instanceof DatabaseUnavailableError) throw err;
     console.warn(
       '[PostgreSQL] claimWatchMilestoneInDb failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+    throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
+  } finally {
+    client?.release();
+  }
+}
+
+export async function claimEpisodeBonusInDb(input: {
+  userId: string;
+  provider: string;
+  dramaId: string;
+  episodeNumber: number;
+  title?: string;
+  sessionToken?: string;
+  displayName?: string;
+  timeZone?: string | null;
+}): Promise<{
+  ok: boolean;
+  reason?:
+    | 'invalid_episode'
+    | 'duplicate_claim'
+    | 'daily_episode_cap_reached'
+    | 'daily_cap_reached'
+    | 'watch_duration_insufficient'
+    | 'anti_cheat_blocked';
+  episodeNumber?: number;
+  awardedPoints?: number;
+  entry?: PointsLedgerRecord;
+  summary: UserPointsSummary;
+}> {
+  const cfg = getPayoutRuntimeConfig();
+  const cleanProvider =
+    String(input.provider || 'DramaBoxV2')
+      .trim()
+      .replace(/[^a-zA-Z0-9_-]/g, '')
+      .slice(0, 48) || 'DramaBoxV2';
+  const cleanDramaId = String(input.dramaId || '')
+    .trim()
+    .replace(/:/g, '_')
+    .slice(0, 120);
+  const epNum = Math.floor(Number(input.episodeNumber) || 0);
+  const cleanTitle = String(input.title || '').trim().slice(0, 120);
+  const cleanSessionToken = String(input.sessionToken || '').trim().slice(0, 80);
+
+  if (!cleanDramaId || !Number.isFinite(epNum) || epNum < 1) {
+    const summary = await getUserPointsSummaryFromDb(input.userId, input.timeZone);
+    return { ok: false, reason: 'invalid_episode', summary };
+  }
+
+  const activePool = await requirePointsDbPool();
+  let client: PoolClient | null = null;
+  try {
+    client = await activePool.connect();
+    await client.query('BEGIN');
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `points:${input.userId}`,
+    ]);
+
+    const { timeZone, periodStartAt, nextResetAt } = await resolveUserTimeZonePg(
+      client,
+      input.userId,
+      input.timeZone,
+      true
+    );
+
+    const secSigRes = await client.query<{ risk_flag: string }>(
+      `SELECT risk_flag FROM user_security_signals WHERE user_id = $1`,
+      [input.userId]
+    );
+    const telRiskRes = await client.query<{ risk_flag: string }>(
+      `SELECT risk_flag FROM watch_telemetry WHERE user_id = $1 LIMIT 1`,
+      [input.userId]
+    );
+    if (secSigRes.rows[0]?.risk_flag || telRiskRes.rows[0]?.risk_flag) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'anti_cheat_blocked', summary };
+    }
+
+    const dupEp = await client.query<{ user_id: string }>(
+      `SELECT user_id
+       FROM rewarded_episodes
+       WHERE user_id = $1 AND LOWER(provider) = LOWER($2) AND drama_id = $3 AND episode_number = $4
+       LIMIT 1`,
+      [input.userId, cleanProvider, cleanDramaId, epNum]
+    );
+    const referenceId = `watch:${input.userId}:${cleanProvider}:${cleanDramaId}:${epNum}`;
+    const dupLedger = await client.query<{ id: string }>(
+      `SELECT id FROM points_ledger WHERE reference_id = $1 LIMIT 1`,
+      [referenceId]
+    );
+    if (dupEp.rows.length > 0 || dupLedger.rows.length > 0) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'duplicate_claim', episodeNumber: epNum, summary };
+    }
+
+    const dailyEpRes = await client.query<{ cnt: string }>(
+      `SELECT COUNT(*)::text AS cnt
+       FROM rewarded_episodes
+       WHERE user_id = $1 AND created_at >= $2 AND created_at < $3`,
+      [input.userId, periodStartAt, nextResetAt]
+    );
+    const dailyEpCount = Math.max(0, Number(dailyEpRes.rows[0]?.cnt) || 0);
+    if (dailyEpCount >= cfg.maxDailyEpisodeBonusCount) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'daily_episode_cap_reached', episodeNumber: epNum, summary };
+    }
+
+    const mediaKey = `${cleanProvider}:${cleanDramaId}:ep${epNum}`;
+    const sessMatchRes = await client.query<{
+      session_token: string;
+      accumulated_sec: number;
+    }>(
+      `SELECT session_token, accumulated_sec
+       FROM watch_sessions
+       WHERE user_id = $1
+         AND (
+           ($2 <> '' AND session_token = $2)
+           OR (LOWER(provider) = LOWER($3) AND drama_id = $4 AND episode_number = $5)
+           OR LOWER(media_key) = LOWER($6)
+         )
+       ORDER BY accumulated_sec DESC
+       LIMIT 1`,
+      [input.userId, cleanSessionToken, cleanProvider, cleanDramaId, epNum, mediaKey]
+    );
+    const sessionRow = sessMatchRes.rows[0];
+    const verifiedSessionSec = Math.max(0, Number(sessionRow?.accumulated_sec) || 0);
+    if (verifiedSessionSec < cfg.episodeBonusMinWatchSeconds) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return {
+        ok: false,
+        reason: 'watch_duration_insufficient',
+        episodeNumber: epNum,
+        summary,
+      };
+    }
+
+    const stats = await getQuickPointsStatePg(
+      client,
+      input.userId,
+      periodStartAt,
+      nextResetAt
+    );
+    const bonusAmount = Math.max(1, Math.floor(cfg.episodeBonusPoints || 500));
+    if (stats.todayEarned + bonusAmount > cfg.maxDailyEarnPoints) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'daily_cap_reached', episodeNumber: epNum, summary };
+    }
+
+    const ledgerId = crypto.randomUUID();
+    const balanceAfter = stats.balance + bonusAmount;
+    const desc = cleanTitle
+      ? `Bonus Episode Baru: ${cleanTitle} Ep ${epNum}`
+      : `Bonus Episode Baru (${cleanProvider} Ep ${epNum})`;
+    const epMeta: PointsLedgerEventMeta = {
+      provider: cleanProvider,
+      dramaId: cleanDramaId,
+      episodeNumber: epNum,
+      ...(cleanTitle ? { title: cleanTitle } : {}),
+    };
+
+    const inserted = await client.query<{
+      id: string;
+      user_id: string;
+      type: string;
+      points: number;
+      description: string;
+      event_code: string;
+      event_meta: unknown;
+      reference_id: string;
+      balance_after: number | null;
+      created_at: Date;
+    }>(
+      `INSERT INTO points_ledger (id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at)
+       VALUES ($1, $2, 'earn', $3, $4, 'watch_episode', $5::jsonb, $6, $7, NOW())
+       ON CONFLICT (reference_id) DO NOTHING
+       RETURNING id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at`,
+      [
+        ledgerId,
+        input.userId,
+        bonusAmount,
+        desc.slice(0, 240),
+        JSON.stringify(epMeta),
+        referenceId,
+        balanceAfter,
+      ]
+    );
+
+    if (inserted.rows.length === 0) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'duplicate_claim', episodeNumber: epNum, summary };
+    }
+
+    await client.query(
+      `INSERT INTO rewarded_episodes (user_id, provider, drama_id, episode_number, points_awarded, session_token, ledger_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (user_id, provider, drama_id, episode_number) DO NOTHING`,
+      [
+        input.userId,
+        cleanProvider,
+        cleanDramaId,
+        epNum,
+        bonusAmount,
+        sessionRow?.session_token || cleanSessionToken,
+        ledgerId,
+      ]
+    );
+
+    const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      episodeNumber: epNum,
+      awardedPoints: bonusAmount,
+      entry: mapLedgerRow(inserted.rows[0]),
+      summary,
+    };
+  } catch (err) {
+    try {
+      await client?.query('ROLLBACK');
+    } catch {
+      // Ignore rollback failure
+    }
+    if (err instanceof DatabaseUnavailableError) throw err;
+    console.warn(
+      '[PostgreSQL] claimEpisodeBonusInDb failed:',
       err instanceof Error ? err.message : String(err)
     );
     throw new DatabaseUnavailableError('DATABASE_UNAVAILABLE');
@@ -7369,6 +7648,7 @@ export async function recordWatchHeartbeatInDb(input: {
   pointsBalance: number | null;
   levelInfo?: AccountLevelStatus;
   referralQualified: boolean;
+  referralOngoingBonusAwarded?: number;
   riskFlag: string;
   reason?:
     | 'session_started'
@@ -7923,6 +8203,7 @@ export async function recordWatchHeartbeatInDb(input: {
 
     // 8. Auto-qualify referral if verifiedWatchSeconds >= 3600 (1 hour)
     let referralQualified = false;
+    let referralOngoingBonusAwarded = 0;
     if (verifiedWatchSeconds >= cfg.referralQualifySeconds) {
       const refRes = await client.query<{
         id: string;
@@ -8003,6 +8284,113 @@ export async function recordWatchHeartbeatInDb(input: {
           referralQualified = (insertBonus.rowCount ?? 0) > 0;
         }
       }
+
+      // 8b. Ongoing qualified referral watch reward: +500 pts per extra 1 hour verified watch (up to 10 steps)
+      const stepSeconds = Math.max(60, Math.floor(cfg.referralOngoingStepSeconds || 3_600));
+      const stepBonus = Math.max(1, Math.floor(cfg.referralOngoingBonusPoints || 500));
+      const maxSteps = Math.max(0, Math.floor(cfg.referralOngoingMaxSteps || 0));
+      if (
+        addedSeconds > 0 &&
+        !hasRiskFlag &&
+        maxSteps > 0 &&
+        verifiedWatchSeconds >= cfg.referralQualifySeconds + stepSeconds
+      ) {
+        const qualRefRes = await client.query<{
+          id: string;
+          referrer_uid: string;
+          ongoing_bonus_points: number;
+          ongoing_steps_awarded: number;
+        }>(
+          `SELECT id, referrer_uid, ongoing_bonus_points, ongoing_steps_awarded
+           FROM referrals
+           WHERE referee_uid = $1 AND status = 'qualified'
+           FOR UPDATE`,
+          [input.userId]
+        );
+        const qualRef = qualRefRes.rows[0];
+        if (qualRef) {
+          const prevSteps = Math.max(0, Number(qualRef.ongoing_steps_awarded) || 0);
+          const targetSteps = Math.min(
+            maxSteps,
+            Math.floor((verifiedWatchSeconds - cfg.referralQualifySeconds) / stepSeconds)
+          );
+          if (targetSteps > prevSteps) {
+            const referrerRiskRes = await client.query<{
+              sec_risk: string | null;
+              tel_risk: string | null;
+            }>(
+              `SELECT s.risk_flag AS sec_risk, t.risk_flag AS tel_risk
+               FROM (SELECT $1::text AS uid) base
+               LEFT JOIN user_security_signals s ON s.user_id = base.uid
+               LEFT JOIN watch_telemetry t ON t.user_id = base.uid`,
+              [qualRef.referrer_uid]
+            );
+            const referrerRisk = Boolean(
+              referrerRiskRes.rows[0]?.sec_risk || referrerRiskRes.rows[0]?.tel_risk
+            );
+            if (!referrerRisk) {
+              await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+                `points:${qualRef.referrer_uid}`,
+              ]);
+              const refBalRes = await client.query<{ balance: string }>(
+                `SELECT (
+                   COALESCE(SUM(CASE WHEN type = 'earn' THEN points ELSE 0 END), 0) -
+                   COALESCE(SUM(CASE WHEN type = 'redeem' THEN points ELSE 0 END), 0)
+                 )::text AS balance
+                 FROM points_ledger
+                 WHERE user_id = $1`,
+                [qualRef.referrer_uid]
+              );
+              let refBal = Math.max(0, Number(refBalRes.rows[0]?.balance) || 0);
+              let totalOngoingPts = Math.max(0, Number(qualRef.ongoing_bonus_points) || 0);
+              let highestStep = prevSteps;
+              const stepMinutes = Math.max(1, Math.round(stepSeconds / 60));
+
+              for (let step = prevSteps + 1; step <= targetSteps; step += 1) {
+                const ongoingMeta: PointsLedgerEventMeta = {
+                  ongoingStep: step,
+                  stepMinutes,
+                  totalStepsMax: maxSteps,
+                };
+                const totalWatchMin = Math.round(
+                  (cfg.referralQualifySeconds + step * stepSeconds) / 60
+                );
+                const insOngoing = await client.query(
+                  `INSERT INTO points_ledger (id, user_id, type, points, description, event_code, event_meta, reference_id, balance_after, created_at)
+                   VALUES ($1, $2, 'earn', $3, $4, 'referral_ongoing', $5::jsonb, $6, $7, NOW())
+                   ON CONFLICT (reference_id) DO NOTHING`,
+                  [
+                    crypto.randomUUID(),
+                    qualRef.referrer_uid,
+                    stepBonus,
+                    `Bonus Lanjutan Referral Valid (Tahap ${step}/${maxSteps} · ${totalWatchMin} Mnt)`,
+                    JSON.stringify(ongoingMeta),
+                    `referral:ongoing:${input.userId}:s${step}`,
+                    refBal + stepBonus,
+                  ]
+                );
+                if ((insOngoing.rowCount ?? 0) > 0) {
+                  refBal += stepBonus;
+                  referralOngoingBonusAwarded += stepBonus;
+                  totalOngoingPts += stepBonus;
+                  highestStep = step;
+                }
+              }
+
+              if (highestStep > prevSteps) {
+                await client.query(
+                  `UPDATE referrals
+                   SET ongoing_steps_awarded = $2,
+                       ongoing_bonus_points = $3,
+                       updated_at = NOW()
+                   WHERE id = $1`,
+                  [qualRef.id, highestStep, totalOngoingPts]
+                );
+              }
+            }
+          }
+        }
+      }
     }
 
     await client.query('COMMIT');
@@ -8018,6 +8406,7 @@ export async function recordWatchHeartbeatInDb(input: {
       pointsBalance: missionGrant.pointsBalance,
       levelInfo: missionGrant.levelInfo,
       referralQualified,
+      referralOngoingBonusAwarded,
       riskFlag,
       reason: 'counted',
     };
@@ -8080,14 +8469,18 @@ export async function getUserReferralSummaryFromDb(
       referee_uid: string;
       status: string;
       bonus_points: number;
+      ongoing_bonus_points: number | null;
+      ongoing_steps_awarded: number | null;
       risk_flag: string;
       qualified_at: Date | null;
       created_at: Date;
       referee_name: string | null;
       verified_watch_seconds: number | null;
     }>(
-      `SELECT r.id, r.referee_uid, r.status, r.bonus_points, r.risk_flag,
-              r.qualified_at, r.created_at,
+      `SELECT r.id, r.referee_uid, r.status, r.bonus_points,
+              COALESCE(r.ongoing_bonus_points, 0) AS ongoing_bonus_points,
+              COALESCE(r.ongoing_steps_awarded, 0) AS ongoing_steps_awarded,
+              r.risk_flag, r.qualified_at, r.created_at,
               u.display_name AS referee_name,
               COALESCE(t.verified_watch_seconds, 0) AS verified_watch_seconds
        FROM referrals r
@@ -8099,23 +8492,37 @@ export async function getUserReferralSummaryFromDb(
       [userId]
     );
 
-    const items: UserReferralItemView[] = refsRes.rows.map((r) => ({
-      id: r.id,
-      maskedReferee: maskDisplayNameForFeed(r.referee_name || r.referee_uid),
-      status: (['pending_watch', 'qualified', 'rejected_fraud'].includes(r.status)
+    const items: UserReferralItemView[] = refsRes.rows.map((r) => {
+      const status = (['pending_watch', 'qualified', 'rejected_fraud'].includes(r.status)
         ? r.status
-        : 'pending_watch') as ReferralStatus,
-      bonusPoints: Math.max(0, Number(r.bonus_points) || cfg.referralBonusPoints),
-      verifiedWatchSeconds: Math.max(0, Number(r.verified_watch_seconds) || 0),
-      requiredWatchSeconds: cfg.referralQualifySeconds,
-      riskFlag: r.risk_flag || undefined,
-      qualifiedAt:
-        r.qualified_at instanceof Date ? r.qualified_at.toISOString() : null,
-      createdAt:
-        r.created_at instanceof Date
-          ? r.created_at.toISOString()
-          : new Date().toISOString(),
-    }));
+        : 'pending_watch') as ReferralStatus;
+      const ongoingStepsAwarded = Math.max(0, Number(r.ongoing_steps_awarded) || 0);
+      const ongoingBonusEarned = Math.max(0, Number(r.ongoing_bonus_points) || 0);
+      const nextOngoingTargetSeconds =
+        status === 'qualified' && ongoingStepsAwarded < cfg.referralOngoingMaxSteps
+          ? cfg.referralQualifySeconds +
+            (ongoingStepsAwarded + 1) * cfg.referralOngoingStepSeconds
+          : null;
+      return {
+        id: r.id,
+        maskedReferee: maskDisplayNameForFeed(r.referee_name || r.referee_uid),
+        status,
+        bonusPoints: Math.max(0, Number(r.bonus_points) || cfg.referralBonusPoints),
+        ongoingBonusEarned,
+        ongoingStepsAwarded,
+        ongoingMaxSteps: cfg.referralOngoingMaxSteps,
+        nextOngoingTargetSeconds,
+        verifiedWatchSeconds: Math.max(0, Number(r.verified_watch_seconds) || 0),
+        requiredWatchSeconds: cfg.referralQualifySeconds,
+        riskFlag: r.risk_flag || undefined,
+        qualifiedAt:
+          r.qualified_at instanceof Date ? r.qualified_at.toISOString() : null,
+        createdAt:
+          r.created_at instanceof Date
+            ? r.created_at.toISOString()
+            : new Date().toISOString(),
+      };
+    });
 
     const selfReferredRes = await client.query<{
       status: string;
@@ -8137,11 +8544,20 @@ export async function getUserReferralSummaryFromDb(
       : { rows: [] };
 
     const tRow = selfTel.rows[0];
+    const qualifiedItems = items.filter((i) => i.status === 'qualified');
+    const mainBonusEarned = qualifiedItems.reduce((acc, i) => acc + i.bonusPoints, 0);
+    const ongoingBonusEarned = qualifiedItems.reduce(
+      (acc, i) => acc + i.ongoingBonusEarned,
+      0
+    );
     return {
       referralCode,
       referralQualifySeconds: cfg.referralQualifySeconds,
       referralBonusPoints: cfg.referralBonusPoints,
       bindReferralBonusPoints: cfg.bindReferralBonusPoints,
+      referralOngoingStepSeconds: cfg.referralOngoingStepSeconds,
+      referralOngoingBonusPoints: cfg.referralOngoingBonusPoints,
+      referralOngoingMaxSteps: cfg.referralOngoingMaxSteps,
       hasReferrer: Boolean(selfRefRow),
       referredBy: selfRefRow
         ? {
@@ -8166,11 +8582,11 @@ export async function getUserReferralSummaryFromDb(
       stats: {
         totalInvited: items.length,
         pendingCount: items.filter((i) => i.status === 'pending_watch').length,
-        qualifiedCount: items.filter((i) => i.status === 'qualified').length,
+        qualifiedCount: qualifiedItems.length,
         rejectedCount: items.filter((i) => i.status === 'rejected_fraud').length,
-        totalBonusEarned: items
-          .filter((i) => i.status === 'qualified')
-          .reduce((acc, i) => acc + i.bonusPoints, 0),
+        mainBonusEarned,
+        ongoingBonusEarned,
+        totalBonusEarned: mainBonusEarned + ongoingBonusEarned,
       },
       referrals: items,
     };

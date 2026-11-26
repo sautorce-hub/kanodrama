@@ -765,8 +765,8 @@ export function syncSectionDocumentSeo(
             '@type': 'Answer',
             text:
               lang === 'id'
-                ? 'Masuk ke akun KanoDrama untuk langsung mendapatkan bonus login pertama +10.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan normal (1x). Anda mendapatkan +20 poin/menit otomatis hingga 60 menit/hari (dikalikan multiplier level akun hingga 1,6x), check-in harian +500 poin dan Hari ke-7 +2.000 poin (total 5.000 poin/minggu, reset pukul 00.00 WIB), serta bonus milestone 15, 30, dan 60 menit (+150 / +300 / +600 poin) hingga batas 2.500 poin nonton harian.'
-                : 'Sign in to claim a +10,000 pts first-login bonus (once per account) and actively watch short dramas or movies at normal playback speed. You earn +20 pts/min automatically up to 60 min/day (scaled by account level multiplier up to 1.6x), daily check-in +500 pts and Day 7 +2,000 pts (5,000 pts/week, resets at 17:00 UTC), and claimable 15/30/60 minute milestone bonuses (+150 / +300 / +600 pts) within a 2,500 daily watch points cap.',
+                ? 'Masuk ke akun KanoDrama untuk langsung mendapatkan bonus login pertama +25.000 poin (1x per akun), lalu tonton drama pendek atau film secara aktif pada kecepatan normal (1x). Anda mendapatkan +40 poin/menit otomatis hingga 60 menit/hari (dikalikan multiplier level akun hingga 1,6x), check-in harian +1.000 poin dan Hari ke-7 +2.000 poin (total 8.000 poin/minggu, reset pukul 00.00 WIB), +500 poin bonus selesai episode (maks. 3 episode/hari), serta bonus milestone 15, 30, dan 60 menit (+300 / +600 / +1.200 poin) hingga batas 5.500 poin nonton harian.'
+                : 'Sign in to claim a +25,000 pts first-login bonus (once per account) and actively watch short dramas or movies at normal playback speed. You earn +40 pts/min automatically up to 60 min/day (scaled by account level multiplier up to 1.6x), daily check-in +1,000 pts and Day 7 +2,000 pts (8,000 pts/week, resets at 17:00 UTC), +500 pts per completed episode (up to 3/day), and claimable 15/30/60 minute milestone bonuses (+300 / +600 / +1,200 pts) within a 5,500 daily watch points cap.',
           },
         },
         {
@@ -793,8 +793,8 @@ export function syncSectionDocumentSeo(
             '@type': 'Answer',
             text:
               lang === 'id'
-                ? 'KanoDrama memisahkan Bonus Bind Referral (+200 poin) dan Bonus Referral Utama (+5.000 poin). Jika mendaftar langsung lewat tautan ?ref= teman, bonus bind +200 poin otomatis masuk; jika belum lewat tautan, Anda dapat menautkan kode referral teman sekali untuk +200 poin. Setelah teman menyelesaikan minimal 1 jam (3.600 detik) tontonan aktif terverifikasi, pengundang menerima +5.000 poin. Tersedia juga misi share media sosial harian (+500 poin/hari, reset 00.00 WIB).'
-                : 'KanoDrama separates the Bind Referral Bonus (+200 pts) from the Main Referral Bonus (+5,000 pts). Signing up directly via a friend referral link grants +200 pts automatically (or bind a code once later if not registered via link). Once the invited friend completes 1 hour (3,600s) of verified active watching, the referrer earns +5,000 pts. A daily social share task (+500 pts/day, resets 17:00 UTC) is also available.',
+              ? 'KanoDrama memisahkan Bonus Bind Referral (+200 poin), Bonus Referral Utama (+5.000 poin), dan Reward Lanjutan Referral Valid (+500 poin/jam tambahan hingga +5.000 poin). Daftar lewat tautan ?ref= atau bind kode 1x untuk +200 poin. Setelah teman menyelesaikan 1 jam (3.600 detik) tontonan aktif terverifikasi, pengundang menerima +5.000 poin dan terus meraih +500 poin setiap tambahan 1 jam tontonan aktif teman. Tersedia juga tugas share media sosial harian (+1.000 poin/hari, reset 00.00 WIB).'
+              : 'KanoDrama separates the Bind Referral Bonus (+200 pts), Main Referral Bonus (+5,000 pts), and Ongoing Qualified Referral Bonus (+500 pts per extra hour up to +5,000 extra pts). Sign up via a referral link or bind a code once for +200 pts. Once the invited friend completes 1 hour (3,600s) of verified active watching, the referrer earns +5,000 pts, plus +500 pts for every extra hour the qualified referral actively watches. A daily social share task (+1,000 pts/day, resets 17:00 UTC) is also available.',
           },
         },
       ],
