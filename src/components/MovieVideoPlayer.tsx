@@ -52,7 +52,10 @@ import { getWatchPath, syncEpisodePlayerSeo } from '../utils/seo';
 import { ProviderBadge } from './ProviderBadge';
 import { ShareDramaModal } from './ShareDramaModal';
 import { VideoPointsCounter } from './VideoPointsCounter';
-import { resolveEpisodeTransitionWithAd } from '../utils/adRedirect';
+import {
+  confirmEpisodeRedirectAdTriggered,
+  resolveEpisodeTransitionWithAd,
+} from '../utils/adRedirect';
 import type {
   DramaItem,
   EpisodeItem,
@@ -4693,6 +4696,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
                 referrerPolicy="no-referrer-when-downgrade"
                 onClick={() => {
                   const ep = pendingRedirectAd.targetEpisode;
+                  confirmEpisodeRedirectAdTriggered(drama.bookId, drama.provider, ep);
                   setPendingRedirectAd(null);
                   commitEpisodeChange(ep);
                 }}
