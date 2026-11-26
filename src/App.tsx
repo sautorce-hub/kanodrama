@@ -61,8 +61,10 @@ import {
   viglooProvider,
 } from './services/dramaProviders';
 import {
+  clearClientHomeCache,
   fetchHomeCatalog,
   getPeekCachedHomeCatalog,
+  getPeekCachedHomeEntry,
 } from './services/homeService';
 import {
   fetchLk21Detail,
@@ -1497,21 +1499,47 @@ export default function App() {
     [loadExtraFeedSlot]
   );
 
+  const homeRequestSeqRef = useRef(0);
+
   const loadHomeFromCache = useCallback(
     async (
       langToLoad: LanguageCode,
       providerToLoad: ProviderId,
       forceBypassClient = false
     ) => {
-      const peek = forceBypassClient
-        ? null
-        : getPeekCachedHomeCatalog(langToLoad, providerToLoad);
-      if (peek) {
-        setHomeCatalog(peek);
-        setHomeLoading(false);
-        setHomeError(null);
-        return;
+      const requestId = ++homeRequestSeqRef.current;
+
+      if (forceBypassClient) {
+        clearClientHomeCache(langToLoad, providerToLoad);
+      } else {
+        const peek = getPeekCachedHomeEntry(langToLoad, providerToLoad);
+        if (peek) {
+          setHomeCatalog(peek.data);
+          setHomeLoading(false);
+          setHomeError(null);
+
+          if (peek.isStale) {
+            void fetchHomeCatalog(langToLoad, providerToLoad, false)
+              .then((fresh) => {
+                if (homeRequestSeqRef.current !== requestId) return;
+                if (
+                  fresh &&
+                  (fresh.heroSpotlights.length > 0 ||
+                    fresh.trendingTop.length > 0 ||
+                    fresh.hotReleases.length > 0 ||
+                    fresh.catalogGrid.length > 0)
+                ) {
+                  setHomeCatalog(fresh);
+                }
+              })
+              .catch(() => {
+                // Keep cached Home data intact if background revalidation fails
+              });
+          }
+          return;
+        }
       }
+
       setHomeLoading(true);
       setHomeError(null);
       try {
@@ -1520,13 +1548,23 @@ export default function App() {
           providerToLoad,
           forceBypassClient
         );
+        if (homeRequestSeqRef.current !== requestId) return;
         setHomeCatalog(res);
       } catch (err) {
-        setHomeError(
-          err instanceof Error ? err.message : 'Failed to load cached catalog'
-        );
+        if (homeRequestSeqRef.current !== requestId) return;
+        const staleFallback = getPeekCachedHomeEntry(langToLoad, providerToLoad);
+        if (staleFallback) {
+          setHomeCatalog(staleFallback.data);
+          setHomeError(null);
+        } else {
+          setHomeError(
+            err instanceof Error ? err.message : 'Failed to load cached catalog'
+          );
+        }
       } finally {
-        setHomeLoading(false);
+        if (homeRequestSeqRef.current === requestId) {
+          setHomeLoading(false);
+        }
       }
     },
     []
@@ -2234,7 +2272,7 @@ export default function App() {
       setLanguageState(nextLang);
       setLanguageLoading(true);
       try {
-        await loadHomeFromCache(nextLang, selectedProvider, true);
+        await loadHomeFromCache(nextLang, selectedProvider, false);
         if (activeTab !== 'home') {
           await fetchAllFeeds(nextLang);
         }

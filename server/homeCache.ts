@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   type CatalogUpsertItem,
   type LiveDramaBadgeStat,
@@ -9,6 +11,11 @@ import {
   upsertDramaCatalogBatchInDb,
 } from './db.ts';
 import { notifyCatalogAdditionsToGoogle } from './googleIndexing.ts';
+import {
+  buildLookSeriesSlug,
+  getLookSeriesFeed,
+  type LookSeriesCard,
+} from './lookseriesService.ts';
 import { normalizeMediaProviderName } from '../src/constants/providerLogos.ts';
 
 export type HomeLangCode = 'en' | 'id' | 'cn' | 'vi';
@@ -55,8 +62,18 @@ export interface HomeCatalogPayload {
 }
 
 const MOLATV_API_BASE = 'https://api.molatv.id/api';
-export const HOME_CACHE_TTL_MS = 90 * 60 * 1000; // 1.5 hours
-export const API_FEED_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+export const HOME_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes fresh TTL (+ stale-while-revalidate)
+export const API_FEED_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes fresh TTL (+ stale-while-revalidate)
+const HOME_DISK_CACHE_PATH = path.resolve(process.cwd(), '.cache', 'home-cache.json');
+let diskHomeCacheLoaded = false;
+
+function isTestRuntime(): boolean {
+  return (
+    process.env.KD_DISABLE_AUTO_LISTEN === '1' ||
+    Boolean(process.env.NODE_TEST_CONTEXT) ||
+    process.argv.some((arg) => arg.includes('.test.'))
+  );
+}
 
 type StoredHomePayload = Omit<HomeCatalogPayload, 'cached' | 'stale' | 'source' | 'storage'>;
 
@@ -1005,26 +1022,29 @@ async function fetchUpstreamFeed(
   endpointPath: string,
   lang: HomeLangCode,
   withRank: boolean,
-  extraQuery?: Record<string, string | number>
+  extraQuery?: Record<string, string | number>,
+  strictCandidatesOnly = false
 ): Promise<CachedDramaItem[]> {
-  const candidates = Array.from(
-    new Set([
-      endpointPath,
-      '/foryou',
-      '/hot',
-      '/popular',
-      '/trending',
-      '/ranking',
-      '/rank',
-      '/terbaru',
-      '/new',
-      '/latest',
-      '/alldrama',
-      '/all',
-      '/anime',
-      '/donghua',
-    ])
-  );
+  const candidates = strictCandidatesOnly
+    ? Array.from(new Set([endpointPath, '/foryou']))
+    : Array.from(
+        new Set([
+          endpointPath,
+          '/foryou',
+          '/hot',
+          '/popular',
+          '/trending',
+          '/ranking',
+          '/rank',
+          '/terbaru',
+          '/new',
+          '/latest',
+          '/alldrama',
+          '/all',
+          '/anime',
+          '/donghua',
+        ])
+      );
 
   for (const pathCandidate of candidates) {
     const url = new URL(`${MOLATV_API_BASE}/${apiSegment}${pathCandidate}`);
@@ -1045,7 +1065,12 @@ async function fetchUpstreamFeed(
         signal: AbortSignal.timeout(7500),
       });
       if (!res.ok) {
-        if (res.status === 401 || res.status === 403 || res.status === 503) {
+        if (
+          res.status === 401 ||
+          res.status === 403 ||
+          res.status === 429 ||
+          res.status === 503
+        ) {
           return [];
         }
         continue;
@@ -1078,6 +1103,59 @@ async function fetchUpstreamFeed(
   return [];
 }
 
+function loadHomeDiskCacheOnce(): void {
+  if (diskHomeCacheLoaded || isTestRuntime()) return;
+  diskHomeCacheLoaded = true;
+  try {
+    if (!fs.existsSync(HOME_DISK_CACHE_PATH)) return;
+    const raw = JSON.parse(fs.readFileSync(HOME_DISK_CACHE_PATH, 'utf-8')) as Record<
+      string,
+      { payload?: StoredHomePayload; updatedAt?: number; expiresAt?: number }
+    >;
+    if (!raw || typeof raw !== 'object') return;
+    for (const [key, entry] of Object.entries(raw)) {
+      if (entry?.payload && hasAnyItems(entry.payload) && !memoryHomeCache.has(key)) {
+        memoryHomeCache.set(key, {
+          payload: entry.payload,
+          updatedAt: Number(entry.updatedAt) || Date.now(),
+          expiresAt: Number(entry.expiresAt) || 0,
+        });
+      }
+    }
+  } catch {
+    // Ignore corrupt disk snapshot
+  }
+}
+
+function persistHomeDiskCache(): void {
+  if (isTestRuntime()) return;
+  try {
+    const dir = path.dirname(HOME_DISK_CACHE_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const snapshot: Record<
+      string,
+      { payload: StoredHomePayload; updatedAt: number; expiresAt: number }
+    > = {};
+    let count = 0;
+    for (const [k, v] of memoryHomeCache.entries()) {
+      if (!hasAnyItems(v.payload)) continue;
+      snapshot[k] = v;
+      count += 1;
+      if (count >= 24) break;
+    }
+    const tmpPath = `${HOME_DISK_CACHE_PATH}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(snapshot), 'utf-8');
+    fs.renameSync(tmpPath, HOME_DISK_CACHE_PATH);
+  } catch (err) {
+    console.warn(
+      '[HomeCache] Disk cache write failed:',
+      err instanceof Error ? err.message : String(err)
+    );
+  }
+}
+
 async function readHomeFromDb(
   cacheKey: string
 ): Promise<{
@@ -1085,6 +1163,7 @@ async function readHomeFromDb(
   updatedAt: number;
   expiresAt: number;
 } | null> {
+  loadHomeDiskCacheOnce();
   const mem = memoryHomeCache.get(cacheKey);
   if (mem) {
     return mem;
@@ -1111,6 +1190,7 @@ async function readHomeFromDb(
         expiresAt: Number(row.expires_at) || 0,
       };
       memoryHomeCache.set(cacheKey, entry);
+      persistHomeDiskCache();
       return entry;
     }
   } catch (err) {
@@ -1129,6 +1209,7 @@ async function writeHomeToDb(
   expiresAt: number
 ): Promise<void> {
   memoryHomeCache.set(cacheKey, { payload, updatedAt, expiresAt });
+  persistHomeDiskCache();
   try {
     await dbQuery(
       `INSERT INTO home_cache (cache_key, payload_json, updated_at, expires_at)
@@ -1172,8 +1253,10 @@ async function buildHomePayloadFromUpstream(
       { provider: 'AnyReel', apiSegment: 'anyreel', path: '/foryou', role: 'foryou' },
       { provider: 'MeloLoV2', apiSegment: 'melolo', path: '/rank', role: 'rank', extraQuery: { page_size: 18 } },
       { provider: 'MeloLoV2', apiSegment: 'melolo', path: '/new_release', role: 'new', extraQuery: { page_size: 10 } },
-      { provider: 'WeTV', apiSegment: 'wetv', path: '/foryou', role: 'foryou' },
+      { provider: 'iDramaV2', apiSegment: 'idramav2', path: '/foryou', role: 'foryou' },
       { provider: 'ReelShortV2', apiSegment: 'reelshortv2', path: '/foryou', role: 'foryou' },
+      { provider: 'Ansflix', apiSegment: 'ansflix', path: '/foryou', role: 'foryou', extraQuery: { pagesize: 12 } },
+      { provider: 'WeTV', apiSegment: 'wetv', path: '/foryou', role: 'foryou' },
       { provider: 'GoodShort', apiSegment: 'goodshort', path: '/tren', role: 'rank', extraQuery: { page_size: 15 } },
     ];
 
@@ -1186,7 +1269,8 @@ async function buildHomePayloadFromUpstream(
           target.path,
           lang,
           target.role === 'rank',
-          target.extraQuery
+          target.extraQuery,
+          true
         )
       )
     );
@@ -1306,6 +1390,108 @@ function hasAnyItems(p: {
   );
 }
 
+function mapLookSeriesCardToCachedDrama(
+  card: LookSeriesCard,
+  index: number
+): CachedDramaItem {
+  const cleanId = cleanText(card.bookId || card.slug);
+  const title = cleanText(card.title, 'Featured Series');
+  const slug = buildLookSeriesSlug(cleanId, title) || slugifyTitle(title);
+  return {
+    id: cleanId,
+    bookId: cleanId,
+    title,
+    slug,
+    cover: cleanText(card.cover || card.coverHz),
+    description: cleanText(
+      card.description,
+      `Watch ${title} in Full HD on KanoDrama.`
+    ),
+    chapterCount: Math.max(1, Number(card.chapterCount) || 1),
+    episodes: Math.max(1, Number(card.chapterCount) || 1),
+    tags: Array.isArray(card.genre) ? card.genre.slice(0, 6) : [],
+    isVip: false,
+    provider: 'LookSeries',
+    rank: index + 1,
+    status: (Number(card.chapterCount) || 1) >= 20 ? 'Completed' : 'Ongoing',
+  };
+}
+
+async function buildFallbackHomePayload(
+  token: string,
+  lang: HomeLangCode,
+  provider: string
+): Promise<StoredHomePayload | null> {
+  const now = Date.now();
+  // 1. Try existing PostgreSQL drama_catalog first when upstream is slow/down
+  try {
+    const catalogRows = await listCatalogForSitemapFromDb(40);
+    const matching = catalogRows.filter(
+      (r) =>
+        r.title &&
+        r.cover &&
+        (provider === 'All' || normalizeMediaProviderName(r.provider) === provider)
+    );
+    if (matching.length > 0) {
+      const items: CachedDramaItem[] = matching.slice(0, 24).map((r, idx) => ({
+        id: r.dramaId,
+        bookId: r.dramaId,
+        title: r.title,
+        slug: r.slug,
+        cover: r.cover || '',
+        description: r.description || `Watch ${r.title} in HD on KanoDrama.`,
+        chapterCount: Math.max(1, r.chapterCount || 1),
+        episodes: Math.max(1, r.chapterCount || 1),
+        tags: r.genres.slice(0, 5),
+        isVip: false,
+        provider: normalizeMediaProviderName(r.provider),
+        rank: idx + 1,
+        status: (r.chapterCount || 1) >= 20 ? 'Completed' : 'Ongoing',
+      }));
+      return {
+        lang,
+        provider,
+        heroSpotlights: items.slice(0, 6),
+        trendingTop: items.slice(0, 12),
+        hotReleases: items.slice(4, 16).length > 0 ? items.slice(4, 16) : items.slice(0, 12),
+        catalogGrid: items.slice(0, 20),
+        providerCounts: { all: items.length, [provider]: items.length },
+        updatedAt: now,
+        expiresAt: now + 3 * 60 * 1000,
+      };
+    }
+  } catch {
+    // Ignore DB catalog fallback error
+  }
+
+  // 2. Fallback to LookSeries feed when primary drama endpoints fail or return empty
+  if (token && (provider === 'All' || provider === 'LookSeries')) {
+    try {
+      const lsFeed = await getLookSeriesFeed(() => token, 'series', 1);
+      if (lsFeed.items.length > 0) {
+        const mapped = lsFeed.items
+          .slice(0, 20)
+          .map((card, idx) => mapLookSeriesCardToCachedDrama(card, idx));
+        return {
+          lang,
+          provider,
+          heroSpotlights: mapped.filter((d) => Boolean(d.cover)).slice(0, 6),
+          trendingTop: mapped.slice(0, 12),
+          hotReleases: mapped.slice(0, 12),
+          catalogGrid: mapped,
+          providerCounts: { all: mapped.length, LookSeries: mapped.length },
+          updatedAt: now,
+          expiresAt: now + 5 * 60 * 1000,
+        };
+      }
+    } catch {
+      // Ignore LookSeries fallback failure
+    }
+  }
+
+  return null;
+}
+
 async function refreshAndPersistHome(
   token: string,
   lang: HomeLangCode,
@@ -1318,9 +1504,12 @@ async function refreshAndPersistHome(
   const task = (async (): Promise<HomeCatalogPayload> => {
     if (!token) {
       const existing = await readHomeFromDb(cacheKey);
-      if (existing) {
+      if (existing && hasAnyItems(existing.payload)) {
+        const enriched = await enrichHomePayloadWithLiveStats(existing.payload);
         return {
-          ...existing.payload,
+          ...enriched,
+          updatedAt: existing.updatedAt,
+          expiresAt: existing.expiresAt,
           cached: true,
           stale: true,
           source: 'database-cache',
@@ -1345,24 +1534,31 @@ async function refreshAndPersistHome(
       };
     }
 
-    const built = await buildHomePayloadFromUpstream(token, lang, provider);
-    if (hasAnyItems(built)) {
-      await writeHomeToDb(cacheKey, built, built.updatedAt, built.expiresAt);
-      const allBuilt = [
-        ...built.heroSpotlights,
-        ...built.trendingTop,
-        ...built.hotReleases,
-        ...built.catalogGrid,
-      ];
-      void syncDramasToCatalogDb(allBuilt).catch(() => {});
-      const enriched = await enrichHomePayloadWithLiveStats(built);
-      return {
-        ...enriched,
-        cached: false,
-        stale: false,
-        source: 'live-refresh',
-        storage: getStorageMode(),
-      };
+    try {
+      const built = await buildHomePayloadFromUpstream(token, lang, provider);
+      if (hasAnyItems(built)) {
+        await writeHomeToDb(cacheKey, built, built.updatedAt, built.expiresAt);
+        const allBuilt = [
+          ...built.heroSpotlights,
+          ...built.trendingTop,
+          ...built.hotReleases,
+          ...built.catalogGrid,
+        ];
+        void syncDramasToCatalogDb(allBuilt).catch(() => {});
+        const enriched = await enrichHomePayloadWithLiveStats(built);
+        return {
+          ...enriched,
+          cached: false,
+          stale: false,
+          source: 'live-refresh',
+          storage: getStorageMode(),
+        };
+      }
+    } catch (err) {
+      console.warn(
+        `[HomeCache] Upstream refresh failed for ${cacheKey}:`,
+        err instanceof Error ? err.message : String(err)
+      );
     }
 
     const previous = await readHomeFromDb(cacheKey);
@@ -1370,6 +1566,8 @@ async function refreshAndPersistHome(
       const enriched = await enrichHomePayloadWithLiveStats(previous.payload);
       return {
         ...enriched,
+        updatedAt: previous.updatedAt,
+        expiresAt: previous.expiresAt,
         cached: true,
         stale: true,
         source: 'database-cache',
@@ -1377,9 +1575,35 @@ async function refreshAndPersistHome(
       };
     }
 
+    const emergencyFallback = await buildFallbackHomePayload(token, lang, provider);
+    if (emergencyFallback && hasAnyItems(emergencyFallback)) {
+      await writeHomeToDb(
+        cacheKey,
+        emergencyFallback,
+        emergencyFallback.updatedAt,
+        emergencyFallback.expiresAt
+      );
+      const enriched = await enrichHomePayloadWithLiveStats(emergencyFallback);
+      return {
+        ...enriched,
+        cached: false,
+        stale: true,
+        source: 'live-refresh',
+        storage: getStorageMode(),
+      };
+    }
+
+    const now = Date.now();
     return {
-      ...built,
-      expiresAt: Date.now() + 30_000,
+      lang,
+      provider,
+      heroSpotlights: [],
+      trendingTop: [],
+      hotReleases: [],
+      catalogGrid: [],
+      providerCounts: {},
+      updatedAt: now,
+      expiresAt: now + 30_000,
       cached: false,
       stale: false,
       source: 'empty-fallback',
@@ -1396,14 +1620,15 @@ async function refreshAndPersistHome(
 export async function getCachedHomeData(
   token: string,
   rawLang?: string,
-  rawProvider?: string
+  rawProvider?: string,
+  forceRefresh = false
 ): Promise<HomeCatalogPayload> {
   const lang = normalizeLang(rawLang);
   const provider = normalizeProviderFilter(rawProvider);
   const cacheKey = makeHomeCacheKey(lang, provider);
 
   const cached = await readHomeFromDb(cacheKey);
-  if (cached && hasAnyItems(cached.payload)) {
+  if (!forceRefresh && cached && hasAnyItems(cached.payload)) {
     const isStale = Date.now() > cached.expiresAt;
     if (isStale && token && !inFlightHomeBuilds.has(cacheKey)) {
       void refreshAndPersistHome(token, lang, provider).catch(() => {});
@@ -1445,6 +1670,55 @@ export async function peekCachedHomeDataForSsr(
     source: 'database-cache',
     storage: getStorageMode(),
   };
+}
+
+export async function clearHomeCatalogCache(options?: {
+  lang?: string;
+  provider?: string;
+  includeApiFeedCache?: boolean;
+}): Promise<{ clearedKeys: string[]; clearedAll: boolean }> {
+  const hasSpecific = Boolean(options?.lang || options?.provider);
+  const clearedKeys: string[] = [];
+
+  if (hasSpecific) {
+    const lang = normalizeLang(options?.lang);
+    const provider = normalizeProviderFilter(options?.provider);
+    const cacheKey = makeHomeCacheKey(lang, provider);
+    if (memoryHomeCache.delete(cacheKey)) {
+      clearedKeys.push(cacheKey);
+    }
+    try {
+      await dbQuery('DELETE FROM home_cache WHERE cache_key = $1', [cacheKey]);
+    } catch {
+      // Ignore DB failure
+    }
+    persistHomeDiskCache();
+    return { clearedKeys, clearedAll: false };
+  }
+
+  for (const key of memoryHomeCache.keys()) {
+    clearedKeys.push(key);
+  }
+  memoryHomeCache.clear();
+  if (options?.includeApiFeedCache) {
+    memoryApiCache.clear();
+  }
+  try {
+    await dbQuery('DELETE FROM home_cache');
+    if (options?.includeApiFeedCache) {
+      await dbQuery('DELETE FROM api_response_cache');
+    }
+  } catch {
+    // Ignore DB failure
+  }
+  if (!isTestRuntime() && fs.existsSync(HOME_DISK_CACHE_PATH)) {
+    try {
+      fs.unlinkSync(HOME_DISK_CACHE_PATH);
+    } catch {
+      // Ignore unlink failure
+    }
+  }
+  return { clearedKeys, clearedAll: true };
 }
 
 export function triggerAsyncHomeRevalidate(
@@ -1850,6 +2124,7 @@ async function pruneExpiredApiCache(): Promise<void> {
 }
 
 export function startHomeCacheWorker(getToken: () => string): () => void {
+  loadHomeDiskCacheOnce();
   const runWarmupCycle = async () => {
     await ensureDatabaseReady();
     const token = getToken();
@@ -1860,7 +2135,11 @@ export function startHomeCacheWorker(getToken: () => string): () => void {
     ];
     for (const [lang, prov] of defaultKeys) {
       try {
-        await refreshAndPersistHome(token, lang, prov);
+        const cacheKey = makeHomeCacheKey(lang, prov);
+        const existing = await readHomeFromDb(cacheKey);
+        if (!existing || !hasAnyItems(existing.payload) || Date.now() > existing.expiresAt) {
+          await refreshAndPersistHome(token, lang, prov);
+        }
       } catch {
         // Non-blocking background worker
       }
@@ -1870,7 +2149,7 @@ export function startHomeCacheWorker(getToken: () => string): () => void {
 
   const warmupTimer = setTimeout(() => {
     void runWarmupCycle();
-  }, 1200);
+  }, 300);
 
   const intervalTimer = setInterval(() => {
     void runWarmupCycle();

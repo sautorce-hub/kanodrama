@@ -70,6 +70,7 @@ import {
 import {
   attachLiveBadgesToItems,
   type CachedDramaItem,
+  clearHomeCatalogCache,
   findDramaBySlugInHomeCache,
   findDramaBySlugInApiCache,
   getCachedDramasForSitemap,
@@ -3478,17 +3479,27 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     const lang = typeof req.query.lang === 'string' ? req.query.lang : 'en';
     const provider =
       typeof req.query.provider === 'string' ? req.query.provider : 'All';
+    const forceRefresh =
+      req.query.refresh === '1' ||
+      req.query.refresh === 'true' ||
+      req.query.force === '1';
     try {
-      const data = await getCachedHomeData(getMolaToken(), lang, provider);
+      const data = await getCachedHomeData(
+        getMolaToken(),
+        lang,
+        provider,
+        forceRefresh
+      );
       res.setHeader('X-Robots-Tag', 'noindex, nofollow');
       res.setHeader(
         'Cache-Control',
-        'public, max-age=60, stale-while-revalidate=3600'
+        'public, max-age=120, stale-while-revalidate=900'
       );
       res.setHeader(
         'X-Home-Cache',
         data.cached ? (data.stale ? 'STALE' : 'HIT') : 'MISS'
       );
+      res.setHeader('X-Home-Storage', data.storage);
       res.json(data);
     } catch {
       const now = Date.now();
@@ -3511,7 +3522,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   });
 
   // Manual async revalidation trigger for Home cache
-  app.post('/api/home/revalidate', (req: Request, res: Response) => {
+  app.post('/api/home/revalidate', async (req: Request, res: Response) => {
     try {
       const lang =
         typeof req.query.lang === 'string'
@@ -3525,9 +3536,17 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           : typeof req.body?.provider === 'string'
           ? req.body.provider
           : 'All';
+      const shouldClear =
+        req.query.clear === '1' ||
+        req.query.clear === 'true' ||
+        req.body?.clear === true;
+      if (shouldClear) {
+        await clearHomeCatalogCache({ lang, provider });
+      }
       const result = triggerAsyncHomeRevalidate(getMolaToken(), lang, provider);
       res.status(result.started ? 202 : 200).json({
         ok: true,
+        cleared: shouldClear,
         revalidating: result.started,
         cacheKey: result.cacheKey,
       });
@@ -3536,6 +3555,46 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         ok: false,
         error:
           err instanceof Error ? err.message : 'Failed to trigger home revalidation',
+      });
+    }
+  });
+
+  app.post('/api/home/cache-clear', async (req: Request, res: Response) => {
+    try {
+      const lang =
+        typeof req.query.lang === 'string'
+          ? req.query.lang
+          : typeof req.body?.lang === 'string'
+          ? req.body.lang
+          : undefined;
+      const provider =
+        typeof req.query.provider === 'string'
+          ? req.query.provider
+          : typeof req.body?.provider === 'string'
+          ? req.body.provider
+          : undefined;
+      const includeApiFeedCache =
+        req.query.all === '1' || req.body?.includeApiFeedCache === true;
+      const result = await clearHomeCatalogCache({
+        lang,
+        provider,
+        includeApiFeedCache,
+      });
+      const shouldWarm =
+        req.query.warm !== '0' && req.body?.warm !== false && Boolean(getMolaToken());
+      if (shouldWarm) {
+        triggerAsyncHomeRevalidate(getMolaToken(), lang ?? 'en', provider ?? 'All');
+      }
+      res.json({
+        ok: true,
+        ...result,
+        warming: shouldWarm,
+      });
+    } catch (err) {
+      res.status(500).json({
+        ok: false,
+        error:
+          err instanceof Error ? err.message : 'Failed to clear home cache',
       });
     }
   });
@@ -9146,6 +9205,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           ssrLang,
           homeFeatured
         );
+        if (!initialHomeSsr || initialHomeSsr.stale) {
+          const token = getMolaToken();
+          if (token) {
+            triggerAsyncHomeRevalidate(token, ssrLang, 'All');
+          }
+        }
         if (initialHomeSsr) {
           const homeBootstrapScript = `<script>window.__INITIAL_HOME__=${JSON.stringify(
             initialHomeSsr

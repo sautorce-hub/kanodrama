@@ -35,6 +35,95 @@ const INITIAL_ENDPOINT_STATE: EndpointFeedState = {
   loaded: false,
 };
 
+interface StoredEndpointCacheEntry {
+  items: DramaItem[];
+  page: number;
+  hasMore: boolean;
+  updatedAt: number;
+  expiresAt: number;
+  staleUntil: number;
+}
+
+const ENDPOINT_CACHE_TTL_MS = 5 * 60 * 1000;
+const ENDPOINT_CACHE_SWR_MS = 30 * 60 * 1000;
+const ENDPOINT_STORAGE_PREFIX = 'kano_drama_provider_ep_v1_';
+const memoryEndpointCache = new Map<string, StoredEndpointCacheEntry>();
+
+function readEndpointCache(
+  key: string
+): { state: EndpointFeedState; isStale: boolean } | null {
+  const now = Date.now();
+  let entry = memoryEndpointCache.get(key) ?? null;
+
+  if (!entry && typeof window !== 'undefined') {
+    try {
+      const raw = window.sessionStorage.getItem(`${ENDPOINT_STORAGE_PREFIX}${key}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<StoredEndpointCacheEntry>;
+        if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+          entry = {
+            items: parsed.items,
+            page: Number(parsed.page) || 1,
+            hasMore: Boolean(parsed.hasMore),
+            updatedAt: Number(parsed.updatedAt) || now,
+            expiresAt: Number(parsed.expiresAt) || now + ENDPOINT_CACHE_TTL_MS,
+            staleUntil: Number(parsed.staleUntil) || now + ENDPOINT_CACHE_SWR_MS,
+          };
+          memoryEndpointCache.set(key, entry);
+        }
+      }
+    } catch {
+      // Ignore storage read errors
+    }
+  }
+
+  if (!entry || entry.items.length === 0 || now > entry.staleUntil) {
+    return null;
+  }
+
+  return {
+    state: {
+      items: entry.items,
+      page: entry.page,
+      hasMore: entry.hasMore,
+      loading: false,
+      loadingMore: false,
+      error: null,
+      loaded: true,
+    },
+    isStale: now > entry.expiresAt,
+  };
+}
+
+function writeEndpointCache(
+  key: string,
+  items: DramaItem[],
+  page: number,
+  hasMore: boolean
+): void {
+  if (items.length === 0) return;
+  const now = Date.now();
+  const entry: StoredEndpointCacheEntry = {
+    items: items.slice(0, 80),
+    page,
+    hasMore,
+    updatedAt: now,
+    expiresAt: now + ENDPOINT_CACHE_TTL_MS,
+    staleUntil: now + ENDPOINT_CACHE_SWR_MS,
+  };
+  memoryEndpointCache.set(key, entry);
+  if (typeof window !== 'undefined') {
+    try {
+      window.sessionStorage.setItem(
+        `${ENDPOINT_STORAGE_PREFIX}${key}`,
+        JSON.stringify(entry)
+      );
+    } catch {
+      // Ignore sessionStorage quota errors
+    }
+  }
+}
+
 interface ProviderEndpointSectionProps {
   provider: ProviderName;
   language: LanguageCode;
@@ -68,7 +157,12 @@ export const ProviderEndpointSection: React.FC<ProviderEndpointSectionProps> = (
   const [logoStage, setLogoStage] = useState<0 | 1 | 2>(
     officialLogoUrl ? 0 : 2
   );
-  const [feedMap, setFeedMap] = useState<Record<string, EndpointFeedState>>({});
+  const [feedMap, setFeedMap] = useState<Record<string, EndpointFeedState>>(() => {
+    const firstKey = endpoints[0]?.key ?? 'foryou';
+    const initialCacheKey = `${provider}:${language}:${firstKey}`;
+    const cached = readEndpointCache(initialCacheKey);
+    return cached ? { [initialCacheKey]: cached.state } : {};
+  });
   const feedMapRef = useRef<Record<string, EndpointFeedState>>(feedMap);
   feedMapRef.current = feedMap;
   const inFlightKeysRef = useRef<Set<string>>(new Set());
@@ -88,40 +182,60 @@ export const ProviderEndpointSection: React.FC<ProviderEndpointSectionProps> = (
   const cacheKey = activeEndpoint
     ? `${provider}:${language}:${activeEndpoint.key}`
     : '';
-  const activeState = (cacheKey && feedMap[cacheKey]) || INITIAL_ENDPOINT_STATE;
+  const activeState =
+    (cacheKey && (feedMap[cacheKey] ?? readEndpointCache(cacheKey)?.state)) ||
+    INITIAL_ENDPOINT_STATE;
 
   const loadEndpointPage = useCallback(
     async (
       spec: ProviderEndpointSpec,
       pageNum: number,
       append: boolean,
-      force = false
+      force = false,
+      silentBackground = false
     ) => {
       const key = `${provider}:${language}:${spec.key}`;
-      if (!append && !force) {
+      if (!append && !force && !silentBackground) {
         const existing = feedMapRef.current[key];
         if (existing?.loaded && existing.items.length > 0) return;
+
+        const cached = readEndpointCache(key);
+        if (cached) {
+          setFeedMap((prev) => ({
+            ...prev,
+            [key]: cached.state,
+          }));
+          if (!cached.isStale) {
+            return;
+          }
+          silentBackground = true;
+        }
       }
       if (inFlightKeysRef.current.has(`${key}:${pageNum}`)) return;
       inFlightKeysRef.current.add(`${key}:${pageNum}`);
 
-      setFeedMap((prev) => {
-        const current = prev[key] ?? INITIAL_ENDPOINT_STATE;
-        return {
-          ...prev,
-          [key]: {
-            ...current,
-            loading: !append,
-            loadingMore: append,
-            error: null,
-          },
-        };
-      });
+      if (!silentBackground) {
+        setFeedMap((prev) => {
+          const current = prev[key] ?? INITIAL_ENDPOINT_STATE;
+          return {
+            ...prev,
+            [key]: {
+              ...current,
+              loading: !append && current.items.length === 0,
+              loadingMore: append,
+              error: null,
+            },
+          };
+        });
+      }
 
       try {
         const res = await spec.fetch(pageNum);
         setFeedMap((prev) => {
           const current = prev[key] ?? INITIAL_ENDPOINT_STATE;
+          if (silentBackground && res.items.length === 0 && current.items.length > 0) {
+            return prev;
+          }
           const base = append ? current.items : [];
           const seen = new Set(base.map((d) => `${d.provider}:${d.bookId}`));
           const merged = [...base];
@@ -131,6 +245,9 @@ export const ProviderEndpointSection: React.FC<ProviderEndpointSectionProps> = (
               seen.add(itemKey);
               merged.push(item);
             }
+          }
+          if (merged.length > 0) {
+            writeEndpointCache(key, merged, pageNum, res.hasMore);
           }
           return {
             ...prev,
@@ -146,8 +263,22 @@ export const ProviderEndpointSection: React.FC<ProviderEndpointSectionProps> = (
           };
         });
       } catch (err) {
+        if (silentBackground) {
+          return;
+        }
         setFeedMap((prev) => {
           const current = prev[key] ?? INITIAL_ENDPOINT_STATE;
+          if (current.items.length > 0) {
+            return {
+              ...prev,
+              [key]: {
+                ...current,
+                loading: false,
+                loadingMore: false,
+                loaded: true,
+              },
+            };
+          }
           return {
             ...prev,
             [key]: {
@@ -169,13 +300,18 @@ export const ProviderEndpointSection: React.FC<ProviderEndpointSectionProps> = (
     [provider, language]
   );
 
-  // Automatically fetch the active endpoint when provider, language, or selected endpoint changes
+  // Automatically fetch or hydrate cached endpoint when provider, language, or selected endpoint changes
   useEffect(() => {
     if (!activeEndpoint) return;
     const key = `${provider}:${language}:${activeEndpoint.key}`;
     const existing = feedMapRef.current[key];
     if (!existing || (!existing.loaded && !existing.loading)) {
       void loadEndpointPage(activeEndpoint, 1, false);
+    } else {
+      const cached = readEndpointCache(key);
+      if (cached?.isStale) {
+        void loadEndpointPage(activeEndpoint, 1, false, false, true);
+      }
     }
   }, [provider, language, activeEndpoint, loadEndpointPage]);
 
