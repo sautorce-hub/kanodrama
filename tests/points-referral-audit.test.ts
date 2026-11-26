@@ -139,6 +139,7 @@ interface MemSecuritySignal {
   device_hash: string;
   risk_flag: string;
   suspicious_reason: string;
+  first_seen_at?: Date;
   last_seen_at: Date;
 }
 
@@ -210,7 +211,7 @@ function createStatefulPgMock() {
     if (sql.startsWith('INSERT INTO user_security_signals')) {
       const uid = String(params[0]);
       const existing = state.securitySignals.get(uid);
-      if (params.length === 4) {
+      if (params.length === 4 || params.length === 3) {
         const risk = String(params[1] || '');
         const reason = String(params[2] || '');
         if (!existing) {
@@ -222,6 +223,7 @@ function createStatefulPgMock() {
             device_hash: '',
             risk_flag: risk,
             suspicious_reason: reason,
+            first_seen_at: new Date(),
             last_seen_at: new Date(),
           });
         } else {
@@ -242,6 +244,7 @@ function createStatefulPgMock() {
           device_hash: String(params[4] || existing?.device_hash || ''),
           risk_flag: String(params[5] || existing?.risk_flag || ''),
           suspicious_reason: String(params[6] || existing?.suspicious_reason || ''),
+          first_seen_at: existing?.first_seen_at ?? new Date(),
           last_seen_at: new Date(),
         });
       }
@@ -289,6 +292,23 @@ function createStatefulPgMock() {
       };
     }
 
+    if (sql.includes('SELECT user_id FROM user_security_signals WHERE device_hash = $1')) {
+      const devHash = String(params[0] || '');
+      const cutoffMs = Date.now() - 30 * 86_400_000;
+      const matches = Array.from(state.securitySignals.values())
+        .filter((s) => s.device_hash === devHash && s.last_seen_at.getTime() >= cutoffMs)
+        .sort((a, b) => {
+          const tA = (a.first_seen_at ?? a.last_seen_at).getTime();
+          const tB = (b.first_seen_at ?? b.last_seen_at).getTime();
+          if (tA !== tB) return tA - tB;
+          return a.user_id.localeCompare(b.user_id);
+        });
+      return {
+        rows: matches[0] ? [{ user_id: matches[0].user_id }] : [],
+        rowCount: matches[0] ? 1 : 0,
+      };
+    }
+
     if (sql.includes('COUNT(DISTINCT user_id)::text AS cnt FROM user_security_signals')) {
       const hashVal = String(params[0] || '');
       const isDev = sql.includes('WHERE device_hash = $1');
@@ -317,8 +337,23 @@ function createStatefulPgMock() {
     if (sql.startsWith('UPDATE user_security_signals SET risk_flag')) {
       const sig = state.securitySignals.get(String(params[0]));
       if (sig) {
-        sig.risk_flag = String(params[1] || '');
-        sig.suspicious_reason = String(params[2] || '');
+        if (sql.includes("ARRAY_REMOVE(STRING_TO_ARRAY(risk_flag, ','), 'multi_account_device')")) {
+          const nextFlags = sig.risk_flag
+            .split(',')
+            .map((p) => p.trim())
+            .filter((p) => p && p !== 'multi_account_device');
+          sig.risk_flag = nextFlags.join(',');
+          if (!sig.risk_flag) sig.suspicious_reason = '';
+        } else {
+          const flag = String(params[1] || '');
+          const parts = sig.risk_flag
+            .split(',')
+            .map((p) => p.trim())
+            .filter(Boolean);
+          if (flag && !parts.includes(flag)) parts.push(flag);
+          sig.risk_flag = parts.join(',');
+          if (!sig.suspicious_reason) sig.suspicious_reason = String(params[2] || '');
+        }
       }
       return { rows: [], rowCount: 1 };
     }
@@ -867,6 +902,17 @@ function createStatefulPgMock() {
       return { rows: [], rowCount: 1 };
     }
 
+    if (sql.startsWith('UPDATE watch_telemetry SET active_stream_session_id = $2')) {
+      const t = state.telemetry.get(String(params[0]));
+      if (t) {
+        t.active_stream_session_id = String(params[1]);
+        t.active_stream_media_key = String(params[2]);
+        t.last_heartbeat_at = new Date();
+        t.last_video_time_sec = String(params[3]);
+      }
+      return { rows: [], rowCount: 1 };
+    }
+
     if (sql.startsWith('UPDATE watch_telemetry SET verified_watch_seconds = $2')) {
       const t = state.telemetry.get(String(params[0]));
       if (t) {
@@ -882,6 +928,13 @@ function createStatefulPgMock() {
         }
         if (sql.includes('concurrent_tab_strikes = GREATEST(0')) {
           t.concurrent_tab_strikes = Math.max(0, (t.concurrent_tab_strikes || 0) - 1);
+        }
+        if (t.fast_delta_strikes === 0 && t.concurrent_tab_strikes === 0 && t.risk_flag) {
+          t.risk_flag = t.risk_flag
+            .split(',')
+            .map((p) => p.trim())
+            .filter((p) => p && p !== 'concurrent_streams' && p !== 'heartbeat_flood')
+            .join(',');
         }
       }
       return { rows: [], rowCount: 1 };
@@ -4851,5 +4904,231 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
     });
     assert.equal(reloadHb.status, 200);
     assert.equal((await reloadHb.json()).reason, 'session_started');
+  });
+
+  await t.test('22. Balanced 1-Device-1-Account Anti-Cheat: Primary Account Always Earns Normally While Same-Device Clone Account Is Blocked', async () => {
+    const { mockPool, state } = createStatefulPgMock();
+    _setDbPoolForTest(mockPool);
+
+    // Seed an existing referrer on the same shared Wi-Fi IP as our primary user
+    state.users.set('user-alice', {
+      uid: 'user-alice',
+      email: 'alice@example.com',
+      display_name: 'Alice Referrer',
+      referral_code: 'KDA11CE01',
+      referred_by: null,
+      streak_count: 1,
+      last_visit_date: '',
+      is_vip: false,
+    });
+    state.securitySignals.set('user-alice', {
+      user_id: 'user-alice',
+      ip_hash: 'shared-wifi-ip',
+      subnet_hash: 'shared-wifi-sub',
+      ua_hash: 'alice-ua',
+      device_hash: 'fp-alice-phone',
+      risk_flag: '',
+      suspicious_reason: '',
+      first_seen_at: new Date(Date.now() - 86_400_000),
+      last_seen_at: new Date(),
+    });
+
+    // 1. Primary 1-device-1-account user registers on fp-single-phone-001 (same public Wi-Fi IP as Alice)
+    const regPrimary = await fetch(`${baseUrl}/api/auth/email/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'cf-connecting-ip': '203.0.113.55',
+        'x-device-fingerprint': 'fp-single-phone-001',
+      },
+      body: JSON.stringify({
+        email: 'primary-user@example.com',
+        password: 'password123',
+        displayName: 'Primary User',
+        deviceFingerprint: 'fp-single-phone-001',
+      }),
+    });
+    assert.equal(regPrimary.status, 201);
+    const primaryBody = await regPrimary.json();
+    const primaryUid = primaryBody.user.uid as string;
+    const primaryToken = primaryBody.sessionToken as string;
+    assert.equal(primaryBody.firstLoginBonusAwarded, 25000);
+    assert.equal(state.securitySignals.get(primaryUid)?.risk_flag || '', '');
+
+    // Make first_seen_at older so primary precedes any future secondary account cleanly
+    state.securitySignals.get(primaryUid)!.first_seen_at = new Date(Date.now() - 60_000);
+
+    // 2. Rejected referral bind (shared IP/Wi-Fi) rejects ONLY the referral bind, NEVER poisoning primary user's personal earnings
+    state.securitySignals.get('user-alice')!.ip_hash = state.securitySignals.get(primaryUid)!.ip_hash;
+    const sharedWifiBind = await fetch(`${baseUrl}/api/referrals/bind`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${primaryToken}`,
+        'cf-connecting-ip': '203.0.113.55',
+        'x-device-fingerprint': 'fp-single-phone-001',
+      },
+      body: JSON.stringify({
+        referralCode: 'KDA11CE01',
+        deviceFingerprint: 'fp-single-phone-001',
+      }),
+    }).then((r) => r.json());
+    assert.equal(sharedWifiBind.bound, false);
+    assert.equal(sharedWifiBind.reason, 'fraud_signal_match');
+    assert.equal(state.securitySignals.get(primaryUid)?.risk_flag || '', '');
+
+    // 3. Even if legacy non-blocking flags (self_referral_attempt, concurrent_streams, heartbeat_flood) exist in DB,
+    // primary user still earns watch points (+40/min at 1.25x), check-in (+1,000), and daily social share (+1,000) normally!
+    state.securitySignals.get(primaryUid)!.risk_flag = 'self_referral_attempt,multi_account_device';
+    // Re-syncing primary user on its own device auto-clears stale multi_account_device too
+    await fetch(`${baseUrl}/api/users/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${primaryToken}`,
+        'x-device-fingerprint': 'fp-single-phone-001',
+      },
+      body: JSON.stringify({ isLoginEvent: false, displayName: 'Primary User' }),
+    });
+    assert.equal(state.securitySignals.get(primaryUid)?.risk_flag, 'self_referral_attempt');
+
+    const checkinPrimary = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${primaryToken}`,
+        'x-device-fingerprint': 'fp-single-phone-001',
+      },
+      body: JSON.stringify({ action: 'daily_checkin' }),
+    });
+    assert.equal(checkinPrimary.status, 200);
+
+    const sharePrimary = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${primaryToken}`,
+        'x-device-fingerprint': 'fp-single-phone-001',
+      },
+      body: JSON.stringify({ action: 'daily_social_share', channel: 'whatsapp' }),
+    });
+    assert.equal(sharePrimary.status, 200);
+    assert.equal((await sharePrimary.json()).awardedPoints, 1000);
+
+    const sessPrimary = await startWatchSessionInDb({
+      userId: primaryUid,
+      mediaKey: 'DramaBoxV2:d-balanced:ep1',
+      provider: 'DramaBoxV2',
+      dramaId: 'd-balanced',
+      episodeNumber: 1,
+      deviceHash: 'fp-single-phone-001',
+    });
+    await recordWatchHeartbeatInDb({
+      userId: primaryUid,
+      streamSessionId: sessPrimary.sessionToken,
+      mediaKey: 'DramaBoxV2:d-balanced:ep1',
+      currentTimeSec: 1,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1.25,
+      seq: 1,
+      ipHash: 'p-ip',
+      subnetHash: 'p-sub',
+      uaHash: 'p-ua',
+      deviceHash: state.securitySignals.get(primaryUid)!.device_hash,
+    });
+    // Mark legacy transient telemetry flags on primary user
+    const primaryTel = state.telemetry.get(primaryUid)!;
+    primaryTel.risk_flag = 'concurrent_streams,heartbeat_flood';
+    primaryTel.fast_delta_strikes = 1;
+    primaryTel.concurrent_tab_strikes = 1;
+    primaryTel.last_heartbeat_at = new Date(Date.now() - 62_000);
+
+    const hbPrimary = await recordWatchHeartbeatInDb({
+      userId: primaryUid,
+      streamSessionId: sessPrimary.sessionToken,
+      mediaKey: 'DramaBoxV2:d-balanced:ep1',
+      currentTimeSec: 78.5, // 62s * 1.25x = 77.5s -> normal 1.25x speed accepted
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1.25,
+      seq: 2,
+      ipHash: 'p-ip',
+      subnetHash: 'p-sub',
+      uaHash: 'p-ua',
+      deviceHash: state.securitySignals.get(primaryUid)!.device_hash,
+    });
+    assert.equal(hbPrimary.ok, true);
+    assert.equal(hbPrimary.awardedWatchPoints, 40);
+    assert.equal(primaryTel.risk_flag, '');
+
+    // 4. Secondary clone account registering on the EXACT SAME device fingerprint is blocked (0 welcome bonus, 403 on tasks),
+    // while Primary Account continues working normally
+    const regClone = await fetch(`${baseUrl}/api/auth/email/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'cf-connecting-ip': '203.0.113.55',
+        'x-device-fingerprint': 'fp-single-phone-001',
+      },
+      body: JSON.stringify({
+        email: 'second-account-same-phone@example.com',
+        password: 'password123',
+        displayName: 'Clone Account',
+        deviceFingerprint: 'fp-single-phone-001',
+      }),
+    });
+    assert.equal(regClone.status, 201);
+    const cloneBody = await regClone.json();
+    const cloneUid = cloneBody.user.uid as string;
+    const cloneToken = cloneBody.sessionToken as string;
+    assert.equal(cloneBody.firstLoginBonusAwarded, 0);
+    assert.match(state.securitySignals.get(cloneUid)?.risk_flag || '', /multi_account_device/);
+
+    const cloneCheckin = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cloneToken}`,
+        'x-device-fingerprint': 'fp-single-phone-001',
+      },
+      body: JSON.stringify({ action: 'daily_checkin' }),
+    });
+    assert.equal(cloneCheckin.status, 403);
+    assert.equal((await cloneCheckin.json()).reason, 'anti_cheat_blocked');
+
+    const cloneShare = await fetch(`${baseUrl}/api/points/claim`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cloneToken}`,
+        'x-device-fingerprint': 'fp-single-phone-001',
+      },
+      body: JSON.stringify({ action: 'daily_social_share', channel: 'telegram' }),
+    });
+    assert.equal(cloneShare.status, 403);
+    assert.equal((await cloneShare.json()).reason, 'anti_cheat_blocked');
+
+    // Primary user continues earning normally after clone attempt
+    primaryTel.last_heartbeat_at = new Date(Date.now() - 62_000);
+    const hbPrimaryAfterClone = await recordWatchHeartbeatInDb({
+      userId: primaryUid,
+      streamSessionId: sessPrimary.sessionToken,
+      mediaKey: 'DramaBoxV2:d-balanced:ep1',
+      currentTimeSec: 140.5,
+      isPlaying: true,
+      isBuffering: false,
+      tabVisible: true,
+      playbackRate: 1.0,
+      seq: 3,
+      ipHash: 'p-ip',
+      subnetHash: 'p-sub',
+      uaHash: 'p-ua',
+      deviceHash: state.securitySignals.get(primaryUid)!.device_hash,
+    });
+    assert.equal(hbPrimaryAfterClone.ok, true);
+    assert.equal(hbPrimaryAfterClone.awardedWatchPoints, 40);
   });
 });

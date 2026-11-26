@@ -2828,7 +2828,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           !isNewMedia &&
           watchSessionTokenRef.current?.mediaKey === epSessionKey &&
           exactVideoTime > 0 &&
-          elapsedSinceHb >= 12_200;
+          elapsedSinceHb >= 10_200;
         const shouldSendRegularHb =
           !immediate &&
           isPlaying &&
@@ -2839,7 +2839,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
           tabVisible &&
           !isBuffering &&
           playbackRate >= 0.75 &&
-          playbackRate <= 1.15 &&
+          playbackRate <= 1.25 &&
           (shouldSendRegularHb || canFlushEndingSegment)
         ) {
           const prevHbMedia = lastWatchHeartbeatMediaRef.current;
@@ -2930,9 +2930,21 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
               }
               return;
             }
+            if (res.status === 403 || hb?.reason === 'anti_cheat_blocked') {
+              lastWatchHeartbeatSentAtRef.current = Date.now() + 30_000;
+              if (hb?.error) {
+                pushToast(hb.error, 'neutral');
+              }
+              return;
+            }
             if (hb) {
               setPointsDbConnected(true);
               setPointsDbError(null);
+              if (hb.reason === 'concurrent_stream_detected') {
+                watchSessionTokenRef.current = null;
+                lastWatchHeartbeatSentAtRef.current = Date.now() + 5_000;
+                return;
+              }
               lastWatchHeartbeatSentAtRef.current =
                 hb.reason === 'heartbeat_too_fast'
                   ? Date.now() + 3_000

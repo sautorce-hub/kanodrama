@@ -39,15 +39,15 @@ export const REWARDS_DEFAULTS = {
 } as const;
 
 export const ANTI_CHEAT_DEFAULTS = {
-  minHeartbeatIntervalSec: 12,
-  concurrentSessionWindowSec: 25,
-  maxConcurrentStrikes: 3,
-  maxFastDeltaStrikes: 4,
+  minHeartbeatIntervalSec: 10,
+  concurrentSessionWindowSec: 18,
+  maxConcurrentStrikes: 8,
+  maxFastDeltaStrikes: 10,
   minPlaybackRate: 0.75,
-  maxPlaybackRate: 1.15,
+  maxPlaybackRate: 1.25,
   minVideoAdvanceSec: 0.5,
   maxHeartbeatStepSec: 65,
-  maxSeekRatio: 1.45,
+  maxSeekRatio: 1.65,
   watchSessionTtlSec: 4 * 3600,
   newAccountMaxLedgerEntries: 2,
   newAccountMaxWatchSeconds: 600,

@@ -82,7 +82,7 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
 
   const isId = language === 'id';
   const safeRate = Number(playbackRate) || 1;
-  const speedValid = safeRate >= 0.75 && safeRate <= 1.15;
+  const speedValid = safeRate >= 0.75 && safeRate <= 1.25;
   const isActivelyCounting = Boolean(
     user && isPlaying && !isBuffering && speedValid && !tabHidden
   );

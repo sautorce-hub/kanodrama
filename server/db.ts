@@ -721,8 +721,10 @@ const SCHEMA_STATEMENTS: string[] = [
     device_hash TEXT NOT NULL DEFAULT '',
     risk_flag TEXT NOT NULL DEFAULT '',
     suspicious_reason TEXT NOT NULL DEFAULT '',
+    first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  `ALTER TABLE user_security_signals ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
   `CREATE INDEX IF NOT EXISTS idx_security_signals_ip ON user_security_signals (ip_hash)`,
   `CREATE INDEX IF NOT EXISTS idx_security_signals_subnet ON user_security_signals (subnet_hash)`,
   `CREATE INDEX IF NOT EXISTS idx_security_signals_device ON user_security_signals (device_hash)`,
@@ -738,14 +740,59 @@ const SCHEMA_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS idx_email_credentials_uid ON email_credentials (uid)`,
 
   `UPDATE user_security_signals
-   SET risk_flag = ARRAY_TO_STRING(ARRAY_REMOVE(STRING_TO_ARRAY(risk_flag, ','), 'multi_account_subnet'), ','),
+   SET risk_flag = ARRAY_TO_STRING(
+         ARRAY_REMOVE(
+           ARRAY_REMOVE(STRING_TO_ARRAY(risk_flag, ','), 'multi_account_subnet'),
+           'self_referral_attempt'
+         ),
+         ','
+       ),
        suspicious_reason = CASE
-         WHEN suspicious_reason LIKE '%IP subnet in 24h%'
-          AND ARRAY_TO_STRING(ARRAY_REMOVE(STRING_TO_ARRAY(risk_flag, ','), 'multi_account_subnet'), ',') = ''
+         WHEN (
+           suspicious_reason LIKE '%IP subnet in 24h%'
+           OR suspicious_reason LIKE '%IP address matches referrer%'
+           OR suspicious_reason LIKE '%IP subnet + browser UA matches referrer%'
+           OR suspicious_reason LIKE '%Device fingerprint matches referrer%'
+           OR suspicious_reason LIKE '%Duplicate device referral blocked%'
+         )
+         AND ARRAY_TO_STRING(
+           ARRAY_REMOVE(
+             ARRAY_REMOVE(STRING_TO_ARRAY(risk_flag, ','), 'multi_account_subnet'),
+             'self_referral_attempt'
+           ),
+           ','
+         ) = ''
          THEN ''
          ELSE suspicious_reason
        END
-   WHERE risk_flag LIKE '%multi_account_subnet%'`,
+   WHERE risk_flag LIKE '%multi_account_subnet%' OR risk_flag LIKE '%self_referral_attempt%'`,
+
+  `UPDATE watch_telemetry
+   SET risk_flag = ARRAY_TO_STRING(
+         ARRAY_REMOVE(
+           ARRAY_REMOVE(STRING_TO_ARRAY(risk_flag, ','), 'concurrent_streams'),
+           'heartbeat_flood'
+         ),
+         ','
+       ),
+       suspicious_reason = CASE
+         WHEN (
+           suspicious_reason LIKE '%Multiple simultaneous watch streams%'
+           OR suspicious_reason LIKE '%Rapid heartbeat flood%'
+         )
+         AND ARRAY_TO_STRING(
+           ARRAY_REMOVE(
+             ARRAY_REMOVE(STRING_TO_ARRAY(risk_flag, ','), 'concurrent_streams'),
+             'heartbeat_flood'
+           ),
+           ','
+         ) = ''
+         THEN ''
+         ELSE suspicious_reason
+       END,
+       fast_delta_strikes = 0,
+       concurrent_tab_strikes = 0
+   WHERE risk_flag LIKE '%concurrent_streams%' OR risk_flag LIKE '%heartbeat_flood%'`,
 ];
 
 export async function ensureDatabaseReady(): Promise<boolean> {
@@ -5218,7 +5265,11 @@ export async function claimDailyCheckinInDb(input: {
   timeZone?: string | null;
 }): Promise<{
   ok: boolean;
-  reason?: 'duplicate_claim' | 'cooldown_active' | 'daily_cap_reached';
+  reason?:
+    | 'duplicate_claim'
+    | 'cooldown_active'
+    | 'daily_cap_reached'
+    | 'anti_cheat_blocked';
   cooldownSecondsRemaining?: number;
   streakDay?: number;
   entry?: PointsLedgerRecord;
@@ -5237,6 +5288,26 @@ export async function claimDailyCheckinInDb(input: {
 
     const { timeZone, todayKey, yesterdayKey, periodStartAt, nextResetAt } =
       await resolveUserTimeZonePg(client, input.userId, input.timeZone, true);
+
+    const secSigRes = await client.query<{ risk_flag: string }>(
+      `SELECT risk_flag FROM user_security_signals WHERE user_id = $1`,
+      [input.userId]
+    );
+    const telRiskRes = await client.query<{ risk_flag: string }>(
+      `SELECT risk_flag FROM watch_telemetry WHERE user_id = $1 LIMIT 1`,
+      [input.userId]
+    );
+    if (
+      hasBlockingAntiCheatRiskFlag(
+        secSigRes.rows[0]?.risk_flag,
+        telRiskRes.rows[0]?.risk_flag
+      )
+    ) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'anti_cheat_blocked', summary };
+    }
+
     const referenceId = `checkin:${input.userId}:${todayKey}`;
     const checkinPrefix = `checkin:${input.userId}:%`;
 
@@ -5667,7 +5738,8 @@ export async function claimWatchMilestoneInDb(input: {
     | 'milestone_not_reached'
     | 'duplicate_claim'
     | 'daily_cap_reached'
-    | 'daily_watch_cap_reached';
+    | 'daily_watch_cap_reached'
+    | 'anti_cheat_blocked';
   milestoneMinutes?: number;
   awardedPoints?: number;
   entry?: PointsLedgerRecord;
@@ -5696,6 +5768,35 @@ export async function claimWatchMilestoneInDb(input: {
       input.timeZone,
       true
     );
+
+    const secSigRes = await client.query<{ risk_flag: string }>(
+      `SELECT risk_flag FROM user_security_signals WHERE user_id = $1`,
+      [input.userId]
+    );
+    const telRes = await client.query<{
+      verified_watch_seconds: number;
+      today_watch_seconds: number;
+      today_date_key: string;
+      risk_flag: string;
+    }>(
+      `SELECT verified_watch_seconds, today_watch_seconds, today_date_key, risk_flag
+       FROM watch_telemetry
+       WHERE user_id = $1
+       LIMIT 1`,
+      [input.userId]
+    );
+    const telRow = telRes.rows[0];
+    if (
+      hasBlockingAntiCheatRiskFlag(
+        secSigRes.rows[0]?.risk_flag,
+        telRow?.risk_flag
+      )
+    ) {
+      const summary = await queryUserPointsSummaryOnClient(client, input.userId, cfg, timeZone);
+      await client.query('COMMIT');
+      return { ok: false, reason: 'anti_cheat_blocked', summary };
+    }
+
     const referenceId = `mission_${validMilestone.minutes}m:${input.userId}:${todayKey}`;
     const milestonePrefix = `mission_${validMilestone.minutes}m:${input.userId}:%`;
 
@@ -5716,19 +5817,6 @@ export async function claimWatchMilestoneInDb(input: {
       return { ok: false, reason: 'duplicate_claim', summary };
     }
 
-    const telRes = await client.query<{
-      verified_watch_seconds: number;
-      today_watch_seconds: number;
-      today_date_key: string;
-      risk_flag: string;
-    }>(
-      `SELECT verified_watch_seconds, today_watch_seconds, today_date_key, risk_flag
-       FROM watch_telemetry
-       WHERE user_id = $1
-       LIMIT 1`,
-      [input.userId]
-    );
-    const telRow = telRes.rows[0];
     const verifiedWatchSec = Math.max(0, Number(telRow?.verified_watch_seconds) || 0);
     const effectiveTodayWatchSec =
       telRow && telRow.today_date_key === todayKey
@@ -6120,6 +6208,15 @@ export async function grantFirstLoginBonusIfEligibleInDb(input: {
       `points:${cleanUserId}`,
     ]);
 
+    const secSigRes = await client.query<{ risk_flag: string }>(
+      `SELECT risk_flag FROM user_security_signals WHERE user_id = $1`,
+      [cleanUserId]
+    );
+    if (hasBlockingAntiCheatRiskFlag(secSigRes.rows[0]?.risk_flag)) {
+      await client.query('COMMIT');
+      return { granted: false, points: 0, dbConnected: true };
+    }
+
     const existing = await client.query<{ id: string }>(
       `SELECT id FROM points_ledger WHERE reference_id = $1 LIMIT 1`,
       [referenceId]
@@ -6205,7 +6302,8 @@ export async function claimPointsInDb(input: {
     | 'cooldown_active'
     | 'daily_cap_reached'
     | 'invalid_amount'
-    | 'watch_duration_insufficient';
+    | 'watch_duration_insufficient'
+    | 'anti_cheat_blocked';
   cooldownSecondsRemaining?: number;
   entry?: PointsLedgerRecord;
   summary: UserPointsSummary;
@@ -6972,7 +7070,12 @@ export async function listLivePayoutFeedFromDb(
 
 // --- Referral System (1-Hour Verified Active Watch) & Multi-Layer Anti-Cheat ---
 
-const NON_BLOCKING_LEGACY_RISK_FLAGS = new Set(['multi_account_subnet']);
+const NON_BLOCKING_LEGACY_RISK_FLAGS = new Set([
+  'multi_account_subnet',
+  'self_referral_attempt',
+  'concurrent_streams',
+  'heartbeat_flood',
+]);
 
 export function getBlockingRiskFlagList(
   ...rawFlags: Array<string | null | undefined>
@@ -7020,14 +7123,15 @@ export async function recordUserSecuritySignalInDb(input: {
 
     await client.query(
       `INSERT INTO user_security_signals (
-         user_id, ip_hash, subnet_hash, ua_hash, device_hash, last_seen_at
+         user_id, ip_hash, subnet_hash, ua_hash, device_hash, first_seen_at, last_seen_at
        )
-       VALUES ($1, $2, $3, $4, $5, NOW())
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
        ON CONFLICT (user_id) DO UPDATE SET
          ip_hash = CASE WHEN EXCLUDED.ip_hash <> '' THEN EXCLUDED.ip_hash ELSE user_security_signals.ip_hash END,
          subnet_hash = CASE WHEN EXCLUDED.subnet_hash <> '' THEN EXCLUDED.subnet_hash ELSE user_security_signals.subnet_hash END,
          ua_hash = CASE WHEN EXCLUDED.ua_hash <> '' THEN EXCLUDED.ua_hash ELSE user_security_signals.ua_hash END,
          device_hash = CASE WHEN EXCLUDED.device_hash <> '' THEN EXCLUDED.device_hash ELSE user_security_signals.device_hash END,
+         first_seen_at = COALESCE(user_security_signals.first_seen_at, NOW()),
          last_seen_at = NOW()`,
       [
         input.userId,
@@ -7041,27 +7145,47 @@ export async function recordUserSecuritySignalInDb(input: {
     let riskFlag = '';
     let suspiciousReason = '';
 
-    // NOTE: Do not block /24 IPv4 or /48 IPv6 subnet sharing here because mobile carrier CGNAT
-    // (e.g. Telkomsel, XL, Indosat) and shared Wi-Fi networks routinely assign 5+ legitimate
-    // unrelated users to the same /24 prefix. Genuine self-referral / multi-account farming
-    // is still strictly caught by referral IP+UA/device matching and payout destination checks.
+    // Enforce 1 device = 1 primary account cleanly:
+    // - Never block /24 IPv4 or /48 IPv6 CGNAT/Wi-Fi subnets.
+    // - Keep the 1st/primary account on a device completely clean & able to earn normally.
+    // - Only block 2nd+ secondary accounts detected on the exact same device fingerprint.
     if (input.deviceHash) {
-      const devCluster = await client.query<{ cnt: string }>(
-        `SELECT COUNT(DISTINCT user_id)::text AS cnt
+      const devPrimary = await client.query<{ user_id: string }>(
+        `SELECT user_id
          FROM user_security_signals
-         WHERE device_hash = $1 AND last_seen_at >= NOW() - INTERVAL '7 days'`,
+         WHERE device_hash = $1 AND last_seen_at >= NOW() - INTERVAL '30 days'
+         ORDER BY first_seen_at ASC, user_id ASC
+         LIMIT 1`,
         [input.deviceHash]
       );
-      if ((Number(devCluster.rows[0]?.cnt) || 0) >= 5) {
+      const primaryUid = devPrimary.rows[0]?.user_id || '';
+      if (primaryUid && primaryUid !== input.userId) {
         riskFlag = 'multi_account_device';
-        suspiciousReason = '5+ accounts detected sharing identical device fingerprint';
+        suspiciousReason = '1 device hanya boleh digunakan untuk 1 akun utama';
+      } else if (primaryUid === input.userId) {
+        await client.query(
+          `UPDATE user_security_signals
+           SET risk_flag = ARRAY_TO_STRING(ARRAY_REMOVE(STRING_TO_ARRAY(risk_flag, ','), 'multi_account_device'), ','),
+               suspicious_reason = CASE
+                 WHEN suspicious_reason LIKE '%sharing identical device fingerprint%'
+                   OR suspicious_reason LIKE '%1 device hanya boleh%'
+                 THEN ''
+                 ELSE suspicious_reason
+               END
+           WHERE user_id = $1 AND risk_flag LIKE '%multi_account_device%'`,
+          [input.userId]
+        );
       }
     }
 
     if (riskFlag) {
       await client.query(
         `UPDATE user_security_signals
-         SET risk_flag = CASE WHEN risk_flag = '' THEN $2 ELSE risk_flag END,
+         SET risk_flag = CASE
+               WHEN risk_flag = '' THEN $2
+               WHEN risk_flag LIKE '%' || $2 || '%' THEN risk_flag
+               ELSE risk_flag || ',' || $2
+             END,
              suspicious_reason = CASE WHEN suspicious_reason = '' THEN $3 ELSE suspicious_reason END
          WHERE user_id = $1`,
         [input.userId, riskFlag, suspiciousReason]
@@ -7257,15 +7381,6 @@ export async function bindReferralForUserInDb(input: {
           input.deviceHash.slice(0, 64),
           reasonText,
         ]
-      );
-      await client.query(
-        `INSERT INTO user_security_signals (user_id, risk_flag, suspicious_reason, last_seen_at)
-         VALUES ($1, 'self_referral_attempt', $2, NOW())
-         ON CONFLICT (user_id) DO UPDATE SET
-           risk_flag = CASE WHEN user_security_signals.risk_flag = '' THEN 'self_referral_attempt' ELSE user_security_signals.risk_flag END,
-           suspicious_reason = CASE WHEN user_security_signals.suspicious_reason = '' THEN EXCLUDED.suspicious_reason ELSE user_security_signals.suspicious_reason END,
-           last_seen_at = NOW()`,
-        [input.refereeUid, reasonText]
       );
       await client.query('COMMIT');
       return {
@@ -7722,6 +7837,7 @@ export async function recordWatchHeartbeatInDb(input: {
   referralReferrerUid?: string;
   referralOngoingStep?: number;
   riskFlag: string;
+  antiCheatBlocked?: boolean;
   reason?:
     | 'session_started'
     | 'paused_or_hidden'
@@ -7734,6 +7850,7 @@ export async function recordWatchHeartbeatInDb(input: {
     | 'replay_blocked'
     | 'invalid_session'
     | 'daily_watch_cap_reached'
+    | 'anti_cheat_blocked'
     | 'counted';
 }> {
   const cfg = getPayoutRuntimeConfig();
@@ -8158,8 +8275,8 @@ export async function recordWatchHeartbeatInDb(input: {
 
     // 6. Seek / forward-skip jump guard: re-anchor without awarding skipped seconds
     const maxAllowedVideoDelta = Math.max(
-      8,
-      wallElapsedSec * ANTI_CHEAT_DEFAULTS.maxSeekRatio + 4
+      10,
+      wallElapsedSec * ANTI_CHEAT_DEFAULTS.maxSeekRatio + 6
     );
     if (videoDeltaSec > maxAllowedVideoDelta) {
       await client.query(
@@ -8217,9 +8334,54 @@ export async function recordWatchHeartbeatInDb(input: {
       };
     }
 
+    const secCheckSelf = await client.query<{ risk_flag: string }>(
+      `SELECT risk_flag FROM user_security_signals WHERE user_id = $1`,
+      [input.userId]
+    );
+    const blockingRiskFlags = getBlockingRiskFlagList(
+      riskFlag,
+      secCheckSelf.rows[0]?.risk_flag
+    );
+    const hasRiskFlag = blockingRiskFlags.length > 0;
+
+    if (hasRiskFlag) {
+      const blockedState = await getQuickPointsStatePg(
+        client,
+        input.userId,
+        periodStartAt,
+        nextResetAt
+      );
+      await client.query(
+        `UPDATE watch_telemetry
+         SET active_stream_session_id = $2,
+             active_stream_media_key = $3,
+             last_heartbeat_at = NOW(),
+             last_video_time_sec = $4,
+             updated_at = NOW()
+         WHERE user_id = $1`,
+        [input.userId, cleanSessionId, cleanMediaKey, safeVideoTime]
+      );
+      await client.query('COMMIT');
+      return {
+        ok: false,
+        addedSeconds: 0,
+        sessionWatchSeconds: sessionAccumSec,
+        verifiedWatchSeconds,
+        todayWatchSeconds,
+        awardedWatchPoints: 0,
+        todayWatchPointsEarned: blockedState.todayWatchPointsEarned,
+        dailyMissionMaxWatchSeconds: cfg.dailyMissionMaxWatchSeconds,
+        pointsBalance: blockedState.balance,
+        referralQualified: false,
+        riskFlag: blockingRiskFlags.join(','),
+        antiCheatBlocked: true,
+        reason: 'anti_cheat_blocked',
+      };
+    }
+
     const rawStep = Math.min(
       wallElapsedSec,
-      Math.ceil(videoDeltaSec * 1.1),
+      Math.ceil(videoDeltaSec * 1.15),
       ANTI_CHEAT_DEFAULTS.maxHeartbeatStepSec
     );
     const remainingDaily = Math.max(0, cfg.maxDailyVerifiedWatchSeconds - todayWatchSeconds);
@@ -8239,6 +8401,19 @@ export async function recordWatchHeartbeatInDb(input: {
            last_video_time_sec = $7,
            fast_delta_strikes = GREATEST(0, fast_delta_strikes - 1),
            concurrent_tab_strikes = GREATEST(0, concurrent_tab_strikes - 1),
+           risk_flag = CASE
+             WHEN GREATEST(0, fast_delta_strikes - 1) = 0
+              AND GREATEST(0, concurrent_tab_strikes - 1) = 0
+              AND (risk_flag LIKE '%concurrent_streams%' OR risk_flag LIKE '%heartbeat_flood%')
+             THEN ARRAY_TO_STRING(
+               ARRAY_REMOVE(
+                 ARRAY_REMOVE(STRING_TO_ARRAY(risk_flag, ','), 'concurrent_streams'),
+                 'heartbeat_flood'
+               ),
+               ','
+             )
+             ELSE risk_flag
+           END,
            updated_at = NOW()
        WHERE user_id = $1`,
       [
@@ -8262,15 +8437,6 @@ export async function recordWatchHeartbeatInDb(input: {
     );
 
     // 7. Grant daily watch-minute + milestone mission points (max 1h/day)
-    const secCheckSelf = await client.query<{ risk_flag: string }>(
-      `SELECT risk_flag FROM user_security_signals WHERE user_id = $1`,
-      [input.userId]
-    );
-    const blockingRiskFlags = getBlockingRiskFlagList(
-      riskFlag,
-      secCheckSelf.rows[0]?.risk_flag
-    );
-    const hasRiskFlag = blockingRiskFlags.length > 0;
     const missionGrant = await grantWatchMissionPointsPg(
       client,
       input.userId,
@@ -8280,7 +8446,7 @@ export async function recordWatchHeartbeatInDb(input: {
       todayWatchSeconds,
       verifiedWatchSeconds,
       cfg,
-      addedSeconds > 0 && !hasRiskFlag
+      addedSeconds > 0
     );
 
     // 8. Auto-qualify referral if verifiedWatchSeconds >= 3600 (1 hour)

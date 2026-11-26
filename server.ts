@@ -5970,6 +5970,8 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               ? 429
               : result.reason === 'duplicate_claim'
               ? 409
+              : result.reason === 'anti_cheat_blocked'
+              ? 403
               : 400;
           const message =
             result.reason === 'duplicate_claim'
@@ -5980,6 +5982,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               ? isId
                 ? `Batas poin harian (${cfg.maxDailyEarnPoints.toLocaleString('id-ID')} poin) hari ini sudah tercapai.`
                 : `Daily earn limit (${cfg.maxDailyEarnPoints.toLocaleString('en-US')} pts) reached for today.`
+              : result.reason === 'anti_cheat_blocked'
+              ? isId
+                ? 'Akun ini dibatasi karena 1 perangkat hanya dapat dipakai untuk 1 akun utama.'
+                : 'This account is restricted because only 1 primary account is allowed per device.'
               : isId
               ? 'Gagal menyelesaikan check-in harian.'
               : 'Unable to complete daily check-in';
@@ -6205,6 +6211,8 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               ? 429
               : result.reason === 'duplicate_claim'
               ? 409
+              : result.reason === 'anti_cheat_blocked'
+              ? 403
               : 400;
           const message =
             result.reason === 'duplicate_claim'
@@ -6223,6 +6231,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               ? isId
                 ? `Batas poin harian (${cfg.maxDailyEarnPoints.toLocaleString('id-ID')} poin) hari ini sudah tercapai.`
                 : `Daily earn limit (${cfg.maxDailyEarnPoints.toLocaleString('en-US')} pts) reached for today.`
+              : result.reason === 'anti_cheat_blocked'
+              ? isId
+                ? 'Akun ini dibatasi karena 1 perangkat hanya dapat dipakai untuk 1 akun utama.'
+                : 'This account is restricted because only 1 primary account is allowed per device.'
               : isId
               ? 'Milestone menit menonton tidak valid.'
               : 'Invalid watch milestone.';
@@ -6619,6 +6631,16 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       });
 
       res.setHeader('Cache-Control', 'no-store');
+      if (!hbRes.ok && hbRes.reason === 'anti_cheat_blocked') {
+        const isId = isIndonesianRequest(req);
+        res.status(403).json({
+          ...hbRes,
+          error: isId
+            ? 'Akun ini dibatasi karena 1 perangkat hanya mendukung 1 akun utama.'
+            : 'Watch rewards restricted: only 1 primary account is allowed per device.',
+        });
+        return;
+      }
       if (
         !hbRes.ok &&
         (hbRes.reason === 'concurrent_stream_detected' ||
