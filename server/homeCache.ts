@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   type CatalogUpsertItem,
   type LiveDramaBadgeStat,
+  bumpSitemapCatalogVersion,
   dbQuery,
   ensureDatabaseReady,
   getMostWatchedVideosFromDb,
@@ -93,15 +94,29 @@ const inFlightApiRevalidations = new Set<string>();
 const recentIndexedBySlug = new Map<string, CachedDramaItem>();
 
 function rememberIndexedDramas(items: CachedDramaItem[]): void {
+  let changed = false;
   for (const item of items) {
     if (!item?.bookId || !item?.title) continue;
     const slug = slugifyTitle(item.slug || item.title);
     if (!slug) continue;
-    if (recentIndexedBySlug.size >= 1500) {
+    const prev = recentIndexedBySlug.get(slug);
+    if (
+      !prev ||
+      prev.bookId !== item.bookId ||
+      Number(item.chapterCount || 0) > Number(prev.chapterCount || 0) ||
+      (!prev.cover && Boolean(item.cover)) ||
+      (!prev.description && Boolean(item.description))
+    ) {
+      changed = true;
+    }
+    if (!prev && recentIndexedBySlug.size >= 10000) {
       const oldest = recentIndexedBySlug.keys().next().value;
       if (oldest) recentIndexedBySlug.delete(oldest);
     }
     recentIndexedBySlug.set(slug, { ...item, slug });
+  }
+  if (changed) {
+    bumpSitemapCatalogVersion();
   }
 }
 
@@ -2791,7 +2806,9 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
         const cacheKey = String(row.cache_key || '');
         const updatedAt = Number(row.updated_at) || Date.now();
         const segMatch = cacheKey.match(/^mola:\/([^/?]+)/i);
-        const providerGuess = segMatch?.[1] || 'dramaboxv2';
+        const segment = segMatch?.[1]?.toLowerCase() || '';
+        const providerGuess =
+          (segment ? resolveProviderFromMolaSegment(segment) : null) || 'DramaBoxV2';
         try {
           const parsed = JSON.parse(String(row.payload_json));
           const books = extractBookArray(parsed);
@@ -2818,6 +2835,36 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
     ];
     for (const item of allLists) {
       pushItem(item, val.updatedAt);
+    }
+  }
+
+  const nowTs = Date.now();
+  for (const item of recentIndexedBySlug.values()) {
+    if (seenDramas.size >= limit) break;
+    const itemUpdated =
+      typeof item.updatedAt === 'number'
+        ? item.updatedAt
+        : typeof item.updatedAt === 'string' && !Number.isNaN(Date.parse(item.updatedAt))
+        ? Date.parse(item.updatedAt)
+        : nowTs;
+    pushItem(item, itemUpdated);
+  }
+
+  for (const [cacheKey, cached] of memoryApiCache.entries()) {
+    if (seenDramas.size >= limit) break;
+    if (cached.statusCode < 200 || cached.statusCode >= 300) continue;
+    const segment = cacheKey.match(/^mola:\/([^/?]+)/i)?.[1]?.toLowerCase();
+    if (!segment || segment === 'lk21' || segment === 'lookseries') continue;
+    const providerGuess = resolveProviderFromMolaSegment(segment) || 'DramaBoxV2';
+    try {
+      const books = extractBookArray(JSON.parse(cached.payloadJson));
+      for (const raw of books) {
+        const norm = normalizeDrama(raw, providerGuess);
+        if (norm) pushItem(norm, cached.updatedAt || nowTs);
+        if (seenDramas.size >= limit) break;
+      }
+    } catch {
+      // Ignore malformed cached payload
     }
   }
 

@@ -45,7 +45,7 @@ export function resolveSiteOrigin(fallbackOrigin?: string): string {
   const fallback = (fallbackOrigin || '').trim().replace(/\/+$/, '');
   if (fallback && /^https?:\/\//i.test(fallback)) {
     if (
-      /^https?:\/\/(www\.)?(kano-drama\.live|kano-drama\.xyz|house-drama\.xyz|house-drama\.web\.id)$/i.test(
+      /^https?:\/\/(www\.)?(kano-drama\.live|kano-drama\.xyz)$/i.test(
         fallback
       )
     ) {

@@ -94,7 +94,7 @@ export function getConfiguredSiteUrl(): string {
     const clean = (cand || '').trim().replace(/\/+$/, '');
     if (clean && clean !== 'MY_APP_URL' && /^https?:\/\//i.test(clean)) {
       if (
-        /^https?:\/\/(www\.)?(kano-drama\.live|kano-drama\.xyz|house-drama\.xyz|house-drama\.web\.id)$/i.test(
+        /^https?:\/\/(www\.)?(kano-drama\.live|kano-drama\.xyz)$/i.test(
           clean
         )
       ) {

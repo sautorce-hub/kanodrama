@@ -177,16 +177,23 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
           saveDramaLookupCache(mergedMovie);
         } else if (!mergedMovie && eps.length > 0) {
           const fallbackTitle = formatFallbackTitleFromIdOrSlug(id, 'Featured Movie');
+          const resolvedMovieProvider = isLookSeries ? 'LookSeries' : 'LK21';
           mergedMovie = {
             bookId: id,
             slug: id,
             title: fallbackTitle,
             cover: '',
-            description: `Stream ${fallbackTitle} in Full HD on KanoDrama.`,
+            description: buildDramaFallbackDescription({
+              title: fallbackTitle,
+              providerName: resolvedMovieProvider,
+              episodeCount: eps.length,
+              isMovie: true,
+              lang: language,
+            }),
             chapterCount: eps.length,
             tags: [],
             isVip: false,
-            provider: isLookSeries ? 'LookSeries' : 'LK21',
+            provider: resolvedMovieProvider,
             mediaType: 'movie',
           };
           setDetail(mergedMovie);
@@ -252,7 +259,13 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
           bookId: id,
           title: fallbackTitle,
           cover: '',
-          description: `Watch ${fallbackTitle} (${resolvedEps.length} episodes) in HD on KanoDrama.`,
+          description: buildDramaFallbackDescription({
+            title: fallbackTitle,
+            providerName: provider,
+            episodeCount: resolvedEps.length,
+            isMovie: false,
+            lang: language,
+          }),
           chapterCount: resolvedEps.length,
           tags: [],
           isVip: false,

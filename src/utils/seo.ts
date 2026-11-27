@@ -579,7 +579,13 @@ function upsertMetaTag(
 }
 
 function upsertCanonicalLink(href: string) {
-  let el = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  const existing = Array.from(
+    document.head.querySelectorAll<HTMLLinkElement>('link[rel="canonical"]')
+  );
+  let el = existing[0] ?? null;
+  if (existing.length > 1) {
+    existing.slice(1).forEach((dup) => dup.remove());
+  }
   if (!el) {
     el = document.createElement('link');
     el.setAttribute('rel', 'canonical');
@@ -716,6 +722,18 @@ export function syncSectionDocumentSeo(
     pageKey === 'vip' ||
     pageKey === 'anime' ||
     pageKey === 'dubbing';
+  const rewardsBreadcrumbMap: Record<LanguageCode, string> = {
+    id: 'Poin & Referral',
+    en: 'Rewards & Referral',
+    cn: '积分与邀请',
+    vi: 'Điểm & Giới thiệu',
+    es: 'Puntos y Referidos',
+    ko: '포인트 & 초대',
+    ja: 'ポイント＆紹介',
+    th: 'คะแนน & แนะนำเพื่อน',
+    ms: 'Mata & Rujukan',
+    tl: 'Puntos at Referral',
+  };
   const sectionLabelMap: Record<string, string> = {
     movies: 'Movies',
     explore: 'Explore',
@@ -725,7 +743,7 @@ export function syncSectionDocumentSeo(
     vip: 'VIP Originals',
     anime: 'Anime & Donghua',
     dubbing: 'Dubbed Series',
-    rewards: lang === 'id' ? 'Poin & Referral' : 'Rewards & Referral',
+    rewards: rewardsBreadcrumbMap[lang] || rewardsBreadcrumbMap.en,
     watchlist: 'My Account',
     dashboard: 'My Account',
   };

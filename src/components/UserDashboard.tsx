@@ -239,17 +239,27 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
   ];
 
   if (standaloneRewards) {
+    const rewardsSubtitleMap: Record<string, string> = {
+      id: 'Check-in WIB, bonus nonton, referral, dan tarik saldo',
+      en: 'UTC check-in, watch bonus, referrals, and withdrawals',
+      cn: 'UTC 签到、观影奖励、好友邀请与提现',
+      vi: 'Điểm danh UTC, thưởng xem phim, giới thiệu & rút tiền',
+      es: 'Registro UTC, bono por ver, referidos y retiros',
+      ko: 'UTC 출석체크, 시청 보너스, 친구 초대 및 출금',
+      ja: 'UTC チェックイン、視聴ボーナス、紹介・出金',
+      th: 'เช็กอิน UTC โบนัสรับชม ชวนเพื่อน และถอนเงิน',
+      ms: 'Daftar masuk UTC, bonus tontonan, rujukan & pengeluaran',
+      tl: 'UTC check-in, watch bonus, referrals, at withdrawals',
+    };
     return (
       <div className="max-w-[1200px] mx-auto px-3 sm:px-6 py-4 sm:py-6 pb-20 space-y-5">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-lg sm:text-xl font-extrabold text-white tracking-tight truncate">
-              {language === 'id' ? 'Poin & Hadiah' : 'Rewards'}
+              {language === 'id' ? 'Poin & Hadiah' : t.rewards.tabLabel}
             </h1>
             <p className="text-[11px] sm:text-xs text-[#A1A1AA] truncate">
-              {language === 'id'
-                ? 'Check-in WIB, bonus nonton, referral, dan tarik saldo'
-                : 'UTC check-in, watch bonus, referrals, and withdrawals'}
+              {rewardsSubtitleMap[language] || rewardsSubtitleMap.en}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">

@@ -2,7 +2,9 @@ import {
   getLk21CacheFromDb,
   getTrendingStatsMapFromDb,
   setLk21CacheInDb,
+  upsertMoviesBatchInDb,
   type LiveDramaBadgeStat,
+  type MovieUpsertInput,
 } from './db.ts';
 import type {
   Lk21DetailPayload,
@@ -100,6 +102,77 @@ function cleanStr(val: unknown, fallback = ''): string {
     return fallback;
   }
   return trimmed;
+}
+
+function toMovieUpsertFromLookSeries(
+  card: LookSeriesCard,
+  popularityScore = 1000
+): MovieUpsertInput {
+  const ratingNum = parseFloat(card.rating || '0');
+  const score = Math.max(
+    popularityScore,
+    Number.isFinite(ratingNum) ? Math.round(ratingNum * 1000) : 1000
+  );
+  return {
+    slug: card.slug,
+    movieId: card.bookId || card.id || card.slug,
+    title: card.title,
+    cover: card.cover,
+    coverHz: card.coverHz || card.cover,
+    poster: card.coverVt || card.cover,
+    synopsis: card.description,
+    year: card.year || '',
+    director: card.director || '',
+    actors: card.actors || [],
+    genres: card.genre || [],
+    rating: card.rating,
+    quality: card.quality,
+    badge: card.badge,
+    movieType: card.type || 'series',
+    updateInfo: card.updateInfo,
+    movieJson: card as unknown as Record<string, unknown>,
+    popularityScore: score,
+  };
+}
+
+async function persistLookSeriesMovies(
+  cards: LookSeriesCard[],
+  detail?: LookSeriesDetailPayload
+): Promise<void> {
+  const dedup = new Map<string, MovieUpsertInput>();
+  if (detail && detail.slug && detail.title) {
+    const ratingNum = parseFloat(detail.rating || '0');
+    dedup.set(detail.slug, {
+      slug: detail.slug,
+      movieId: detail.bookId || detail.id || detail.slug,
+      title: detail.title,
+      cover: detail.cover,
+      coverHz: detail.coverHz || detail.cover,
+      poster: detail.poster || detail.cover,
+      synopsis: detail.synopsis || detail.description || '',
+      year: detail.year || '',
+      area: detail.area || '',
+      director: detail.director || '',
+      actors: detail.actors || [],
+      genres: detail.genres || [],
+      rating: detail.rating || '',
+      quality: detail.quality || 'HD',
+      badge: detail.type === 'series' ? 'Series' : 'Movie',
+      movieType: detail.type || 'series',
+      updateInfo: detail.updateInfo || '',
+      providers: detail.providers || [],
+      recommendations: (detail.recommendations || []) as unknown as Array<Record<string, unknown>>,
+      movieJson: detail as unknown as Record<string, unknown>,
+      popularityScore: Number.isFinite(ratingNum) && ratingNum > 0 ? Math.round(ratingNum * 1000) : 2500,
+    });
+  }
+  cards.forEach((c, idx) => {
+    if (!c?.slug || !c?.title || dedup.has(c.slug)) return;
+    dedup.set(c.slug, toMovieUpsertFromLookSeries(c, Math.max(500, 4500 - idx * 25)));
+  });
+  if (dedup.size > 0) {
+    await upsertMoviesBatchInDb(Array.from(dedup.values()));
+  }
 }
 
 function slugifyTitle(title: string): string {
@@ -453,6 +526,7 @@ export async function getLookSeriesFeed(
 
     if (items.length > 0) {
       await writeCache(cacheKey, `lookseries-${section}`, payload, LIST_TTL_MS);
+      void persistLookSeriesMovies(items).catch(() => {});
     }
     return payload;
   };
@@ -530,6 +604,7 @@ export async function getLookSeriesCategory(
 
     if (items.length > 0) {
       await writeCache(cacheKey, 'lookseries-category', payload, LIST_TTL_MS);
+      void persistLookSeriesMovies(items).catch(() => {});
     }
     return payload;
   };
@@ -723,6 +798,7 @@ export async function getLookSeriesDetail(
     };
 
     await writeCache(cacheKey, 'lookseries-detail', detail, DETAIL_TTL_MS);
+    void persistLookSeriesMovies(recommendations, detail).catch(() => {});
     return detail;
   };
 

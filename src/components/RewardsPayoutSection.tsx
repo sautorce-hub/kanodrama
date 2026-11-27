@@ -578,40 +578,29 @@ function formatRelativeTime(iso: string, lang: string, nowMs: number): string {
   const ts = Date.parse(iso);
   if (!Number.isFinite(ts)) return '';
   const diffSec = Math.max(0, Math.floor((nowMs - ts) / 1000));
-  if (lang === 'id') {
-    if (diffSec < 15) return 'baru saja';
-    if (diffSec < 60) return `${diffSec} dtk lalu`;
-    const mins = Math.floor(diffSec / 60);
-    if (mins < 60) return `${mins} mnt lalu`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs} jam lalu`;
-    return `${Math.floor(hrs / 24)} hr lalu`;
-  }
-  if (lang === 'cn') {
-    if (diffSec < 15) return '刚刚';
-    if (diffSec < 60) return `${diffSec}秒前`;
-    const mins = Math.floor(diffSec / 60);
-    if (mins < 60) return `${mins}分钟前`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}小时前`;
-    return `${Math.floor(hrs / 24)}天前`;
-  }
-  if (lang === 'vi') {
-    if (diffSec < 15) return 'vừa xong';
-    if (diffSec < 60) return `${diffSec} giây trước`;
-    const mins = Math.floor(diffSec / 60);
-    if (mins < 60) return `${mins} phút trước`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs} giờ trước`;
-    return `${Math.floor(hrs / 24)} ngày trước`;
-  }
-  if (diffSec < 15) return 'just now';
-  if (diffSec < 60) return `${diffSec}s ago`;
+  const unitLabels: Record<
+    string,
+    { justNow: string; s: string; m: string; h: string; d: string }
+  > = {
+    id: { justNow: 'baru saja', s: '{n} dtk lalu', m: '{n} mnt lalu', h: '{n} jam lalu', d: '{n} hr lalu' },
+    cn: { justNow: '刚刚', s: '{n}秒前', m: '{n}分钟前', h: '{n}小时前', d: '{n}天前' },
+    vi: { justNow: 'vừa xong', s: '{n} giây trước', m: '{n} phút trước', h: '{n} giờ trước', d: '{n} ngày trước' },
+    es: { justNow: 'ahora mismo', s: 'hace {n}s', m: 'hace {n}m', h: 'hace {n}h', d: 'hace {n}d' },
+    ko: { justNow: '방금 전', s: '{n}초 전', m: '{n}분 전', h: '{n}시간 전', d: '{n}일 전' },
+    ja: { justNow: 'たった今', s: '{n}秒前', m: '{n}分前', h: '{n}時間前', d: '{n}日前' },
+    th: { justNow: 'เมื่อสักครู่', s: '{n} วินาทีที่แล้ว', m: '{n} นาทีที่แล้ว', h: '{n} ชั่วโมงที่แล้ว', d: '{n} วันที่แล้ว' },
+    ms: { justNow: 'baru sebentar', s: '{n} saat lalu', m: '{n} min lalu', h: '{n} jam lalu', d: '{n} hari lalu' },
+    tl: { justNow: 'ngayon lang', s: '{n}s ang nakalipas', m: '{n}m ang nakalipas', h: '{n}h ang nakalipas', d: '{n}d ang nakalipas' },
+    en: { justNow: 'just now', s: '{n}s ago', m: '{n}m ago', h: '{n}h ago', d: '{n}d ago' },
+  };
+  const labels = unitLabels[lang] || unitLabels.en;
+  if (diffSec < 15) return labels.justNow;
+  if (diffSec < 60) return labels.s.replace('{n}', String(diffSec));
   const mins = Math.floor(diffSec / 60);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return labels.m.replace('{n}', String(mins));
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  if (hrs < 24) return labels.h.replace('{n}', String(hrs));
+  return labels.d.replace('{n}', String(Math.floor(hrs / 24)));
 }
 
 function formatLedgerDescription(
@@ -675,25 +664,28 @@ function formatLedgerDescription(
     case 'welcome_login':
       return rewardsDict.ledgerWelcomeBonus;
     case 'daily_checkin': {
-      const dayMatch = /Hari ke-(\d+)/i.exec(desc);
+      const dayMatch = /(?:Hari ke-|Day\s*)(\d+)/i.exec(desc);
       const streakDay = Number(meta.streakDay) || Number(dayMatch?.[1]) || 1;
       return `${rewardsDict.ledgerDailyCheckin.replace('{day}', String(streakDay))}${levelSuffix}`;
     }
     case 'watch_minute': {
-      const minMatch = /Menit\s+(\d+)\s*\/\s*(\d+)/i.exec(desc) || /:m(\d+)$/.exec(ref);
+      const minMatch =
+        /(?:Menit|Minute)\s+(\d+)\s*\/\s*(\d+)/i.exec(desc) ||
+        /:m(\d+)$/.exec(ref);
       const minute = Number(meta.minute) || Number(minMatch?.[1]) || 1;
-      const maxMinutes = Number(meta.maxMinutes) || (minMatch && minMatch[2] ? Number(minMatch[2]) : 60);
+      const maxMinutes =
+        Number(meta.maxMinutes) || (minMatch && minMatch[2] ? Number(minMatch[2]) : 60);
       return `${rewardsDict.ledgerWatchMinute
         .replace('{minute}', String(minute))
         .replace('{max}', String(maxMinutes))}${levelSuffix}`;
     }
     case 'watch_milestone': {
-      const msMatch = /(\d+)\s*Menit/i.exec(desc) || /^mission_(\d+)m:/.exec(ref);
+      const msMatch = /(\d+)\s*(?:Menit|Min(?:utes?)?)/i.exec(desc) || /^mission_(\d+)m:/.exec(ref);
       const milestoneMinutes = Number(meta.milestoneMinutes) || Number(msMatch?.[1]) || 15;
       return `${rewardsDict.ledgerWatchMilestone.replace('{minutes}', String(milestoneMinutes))}${levelSuffix}`;
     }
     case 'watch_episode': {
-      const epNum = Number(meta.episodeNumber) || Number(desc.match(/\bEp\s*(\d+)/i)?.[1]) || 0;
+      const epNum = Number(meta.episodeNumber) || Number(desc.match(/\bEp(?:isode)?\s*(\d+)/i)?.[1]) || 0;
       const title = typeof meta.title === 'string' ? meta.title : '';
       const provider = typeof meta.provider === 'string' ? meta.provider : '';
       const subject = title && epNum
@@ -717,7 +709,7 @@ function formatLedgerDescription(
     case 'referral_qualify':
       return rewardsDict.ledgerReferralQualify;
     case 'referral_ongoing': {
-      const stepMatch = /:s(\d+)$/.exec(ref) || /Tahap\s*(\d+)/i.exec(desc);
+      const stepMatch = /:s(\d+)$/.exec(ref) || /(?:Tahap|Step)\s*(\d+)/i.exec(desc);
       const step = Number(meta.ongoingStep) || Number(stepMatch?.[1]) || 1;
       const maxSteps = Number(meta.totalStepsMax) || 10;
       const tpl =
@@ -744,7 +736,7 @@ function formatLedgerDescription(
       return rewardsDict.ledgerDailySocialShare.replace('{channel}', channelLabel);
     }
     case 'payout_request': {
-      const match = /^Penarikan\s+(.+?)\s+\(([A-Z]+)\)$/.exec(desc);
+      const match = /^(?:Penarikan|Withdrawal)\s+(.+?)\s+\(([A-Z]+)\)$/.exec(desc);
       const methodLabel =
         (typeof meta.methodLabel === 'string' && meta.methodLabel) || match?.[1] || '';
       const currency =
@@ -754,7 +746,7 @@ function formatLedgerDescription(
     }
     case 'payout_refund': {
       const payoutStatus =
-        meta.payoutStatus === 'failed' || /Penarikan Gagal/i.test(desc)
+        meta.payoutStatus === 'failed' || /(?:Penarikan Gagal|\bFailed\b)/i.test(desc)
           ? 'failed'
           : 'rejected';
       const statusText =

@@ -17,6 +17,16 @@ import {
 let pool: Pool | null = null;
 let schemaReadyPromise: Promise<boolean> | null = null;
 let dbAvailable = false;
+let sitemapCatalogVersion = 1;
+
+export function getSitemapCatalogVersion(): number {
+  return sitemapCatalogVersion;
+}
+
+export function bumpSitemapCatalogVersion(): number {
+  sitemapCatalogVersion += 1;
+  return sitemapCatalogVersion;
+}
 
 const DEFAULT_FALLBACK_TIMEZONE = 'Asia/Jakarta';
 const dateFormatterCache = new Map<string, Intl.DateTimeFormat>();
@@ -3052,6 +3062,7 @@ export async function upsertDramaCatalogBatchInDb(
   if (!dbAvailable) return [];
 
   const notifications: CatalogChangeNotification[] = [];
+  let catalogTouched = false;
 
   for (const item of items) {
     if (!item.dramaId || !item.title || !item.slug) continue;
@@ -3138,6 +3149,7 @@ export async function upsertDramaCatalogBatchInDb(
 
       const savedRow = upsertRes.rows[0];
       if (savedRow) {
+        catalogTouched = true;
         if (savedRow.was_inserted || !prevRow) {
           notifications.push({
             dramaId: item.dramaId,
@@ -3162,6 +3174,10 @@ export async function upsertDramaCatalogBatchInDb(
     } catch {
       // Skip duplicate slug race cleanly
     }
+  }
+
+  if (catalogTouched) {
+    bumpSitemapCatalogVersion();
   }
 
   return notifications;
@@ -3547,6 +3563,7 @@ export async function updateCatalogEpisodeCountIfHigherInDb(
      WHERE drama_id = $1 AND provider = $2`,
     [dramaId, provider, safeEp]
   );
+  bumpSitemapCatalogVersion();
   return { slug: prev.slug, chapterCount: safeEp, increased: true };
 }
 
@@ -3780,6 +3797,7 @@ export async function upsertMoviesBatchInDb(
   if (!dbAvailable) return [];
 
   const newlyInserted: Array<{ slug: string; title: string; movieId: string }> = [];
+  let moviesTouched = false;
 
   for (const item of items) {
     const cleanSlug = (item.slug || '').trim().toLowerCase().slice(0, 180);
@@ -3849,6 +3867,7 @@ export async function upsertMoviesBatchInDb(
         ]
       );
 
+      moviesTouched = true;
       if (isNew) {
         newlyInserted.push({
           slug: cleanSlug,
@@ -3859,6 +3878,10 @@ export async function upsertMoviesBatchInDb(
     } catch {
       // Skip malformed row gracefully
     }
+  }
+
+  if (moviesTouched) {
+    bumpSitemapCatalogVersion();
   }
 
   return newlyInserted;
