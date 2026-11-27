@@ -23,7 +23,7 @@ import { KanoDramaLogo } from './CoffeeDramaLogo';
 import { PWAInstallButton } from './PWAInstallBanner';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { useDramaContext } from '../context/DramaContext';
-import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
+import { DEFAULT_SITE_ORIGIN, getLanguageIntlLocale } from '../i18n/helpers';
 import type {
   AccentThemeId,
   LanguageCode,
@@ -93,7 +93,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   onOpenProviderHub,
 }) => {
   const { t, language, user, myListItems, pointsBalance } = useDramaContext();
-  const rewardsLabel = language === 'id' ? 'Poin & Referral' : 'Points & Referral';
+  const rewardsLabel = t.rewards.navLabel;
 
   const primaryItems: Array<{
     id: NavTab;
@@ -318,7 +318,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'mylist', label: t.nav.watchlist },
     {
       id: 'rewards',
-      label: language === 'id' ? 'Poin & Referral' : 'Points & Referral',
+      label: t.rewards.navLabel,
       icon: <Coins className="w-4 h-4 text-[#D4AF37]" />,
     },
     { id: 'dashboard', label: t.nav.dashboard },
@@ -458,8 +458,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               e.preventDefault();
               onSelectTab('rewards');
             }}
-            aria-label={language === 'id' ? 'Poin & Referral' : 'Points & Referral'}
-            title={language === 'id' ? 'Poin, Referral & Penarikan' : 'Points, Referral & Payout'}
+            aria-label={t.rewards.navLabel}
+            title={t.rewards.navTitle}
             className={`inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-full border text-[11px] sm:text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
               activeTab === 'rewards'
                 ? 'bg-[#D4AF37] border-[#D4AF37] text-[#09090B] shadow'
@@ -474,9 +474,9 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="tabular-nums max-w-[76px] sm:max-w-none truncate">
               {user && typeof pointsBalance === 'number' ? (
                 <>
-                  {pointsBalance.toLocaleString()}{' '}
+                  {pointsBalance.toLocaleString(getLanguageIntlLocale(language))}{' '}
                   <span className="hidden sm:inline">
-                    {language === 'id' ? 'Poin' : 'Pts'}
+                    {t.rewards.shortUnit}
                   </span>
                 </>
               ) : authLoading && !user ? (
@@ -484,10 +484,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               ) : (
                 <>
                   <span className="sm:hidden">
-                    {language === 'id' ? 'Poin' : 'Pts'}
+                    {t.rewards.shortUnit}
                   </span>
                   <span className="hidden sm:inline">
-                    {language === 'id' ? 'Poin & Referral' : 'Points & Referral'}
+                    {t.rewards.navLabel}
                   </span>
                 </>
               )}
@@ -695,7 +695,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
               {user && typeof pointsBalance === 'number' && (
                 <span className="tabular-nums font-extrabold">
-                  {pointsBalance.toLocaleString()} {language === 'id' ? 'Poin' : 'Pts'}
+                  {pointsBalance.toLocaleString(getLanguageIntlLocale(language))} {t.rewards.shortUnit}
                 </span>
               )}
             </a>

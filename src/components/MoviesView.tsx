@@ -122,7 +122,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
         setHomeError(
           homeRes.reason instanceof Error
             ? homeRes.reason.message
-            : 'Failed to load movies catalog'
+            : t.ui.unableToLoadCatalog
         );
       }
       if (menuRes.status === 'fulfilled') {
@@ -131,7 +131,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
     } finally {
       setHomeLoading(false);
     }
-  }, []);
+  }, [t.ui.unableToLoadCatalog]);
 
   const loadLookSeriesInitial = useCallback(async () => {
     setLsLoading(true);
@@ -228,13 +228,13 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
       });
     } catch (err) {
       setLatestError(
-        err instanceof Error ? err.message : 'Failed to load latest movies'
+        err instanceof Error ? err.message : t.ui.failedToLoadSection
       );
     } finally {
       setLatestLoading(false);
       setLatestLoadingMore(false);
     }
-  }, []);
+  }, [t.ui.failedToLoadSection]);
 
   useEffect(() => {
     void loadHomeAndMenu();
@@ -286,14 +286,14 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
         });
       } catch (err) {
         setCategoryError(
-          err instanceof Error ? err.message : 'Failed to load movie category'
+          err instanceof Error ? err.message : t.ui.failedToLoadSection
         );
       } finally {
         setCategoryLoading(false);
         setCategoryLoadingMore(false);
       }
     },
-    []
+    [t.ui.failedToLoadSection]
   );
 
   // Debounced live search when user types into the dedicated Movies search box
@@ -354,7 +354,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
       } catch (err) {
         if (cancelled) return;
         setSearchError(
-          err instanceof Error ? err.message : 'Failed to search movies'
+          err instanceof Error ? err.message : t.ui.failedToLoadSection
         );
       } finally {
         if (!cancelled) setSearchLoading(false);
@@ -365,7 +365,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [searchInput, providerMode]);
+  }, [searchInput, providerMode, t.ui.failedToLoadSection]);
 
   const handleLoadMoreSearch = async () => {
     if (!submittedSearch || searchLoadingMore) return;
@@ -418,7 +418,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
       }
     } catch (err) {
       setSearchError(
-        err instanceof Error ? err.message : 'Failed to load more search results'
+        err instanceof Error ? err.message : t.ui.failedToLoadSection
       );
     } finally {
       setSearchLoadingMore(false);
@@ -694,11 +694,11 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
               <div
                 className="inline-flex items-center gap-1 p-1 rounded-full bg-[var(--cd-surface)] border border-[var(--cd-border)]"
                 role="group"
-                aria-label="Filter provider Movies"
+                aria-label={t.providers.hubTitle}
               >
                 {(
                   [
-                    { id: 'all', label: 'Semua' },
+                    { id: 'all', label: t.providers.all },
                     { id: 'lk21', label: 'LK21' },
                     { id: 'lookseries', label: 'LookSeries' },
                   ] as const
@@ -751,7 +751,7 @@ export const MoviesView: React.FC<MoviesViewProps> = ({
               <button
                 type="button"
                 onClick={() => setSearchInput('')}
-                aria-label="Clear movie search"
+                aria-label={t.moviesPage.clearFilters}
                 className="p-0.5 text-[#A1A1AA] hover:text-white"
               >
                 <X className="w-4 h-4" />

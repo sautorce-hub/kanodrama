@@ -161,12 +161,12 @@ export const DramaCard: React.FC<DramaCardProps> = ({
                 {effectiveTrendBadge === 'HOT' ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gradient-to-r from-[#EF4444] to-[#F59E0B] text-white text-[10px] font-bold whitespace-nowrap shadow-md">
                     <Flame className="w-2.5 h-2.5 fill-current" />
-                    Hot Today
+                    {t.card.hotToday}
                   </span>
                 ) : effectiveTrendBadge === 'TRENDING' ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#EF4444]/90 border border-white/20 text-white text-[10px] font-bold whitespace-nowrap shadow-md">
                     <TrendingUp className="w-2.5 h-2.5" />
-                    Trending
+                    {t.card.trending}
                   </span>
                 ) : badgeStyle === 'VIP' ||
                   (badgeStyle === 'none' && drama.isVip) ? (
@@ -176,15 +176,15 @@ export const DramaCard: React.FC<DramaCardProps> = ({
                   </span>
                 ) : badgeStyle === 'NEW' ? (
                   <span className="px-2 py-0.5 rounded cd-accent-bg text-white text-[10px] font-semibold whitespace-nowrap">
-                    NEW
+                    {t.card.newBadge}
                   </span>
                 ) : badgeStyle === 'ANIME' ? (
                   <span className="px-2 py-0.5 rounded cd-accent-bg text-white text-[10px] font-semibold whitespace-nowrap">
-                    Anime
+                    {t.card.anime}
                   </span>
                 ) : badgeStyle === 'DUB' ? (
                   <span className="px-2 py-0.5 rounded bg-black/80 border border-[var(--cd-accent)] text-[var(--cd-accent-text)] text-[10px] font-semibold whitespace-nowrap">
-                    Dubbed
+                    {t.card.dubbed}
                   </span>
                 ) : subBadgeText ? (
                   <span className="px-2 py-0.5 rounded bg-black/75 backdrop-blur-md border border-white/10 text-[10px] font-medium text-[#E4E4E7] whitespace-nowrap">
@@ -196,7 +196,7 @@ export const DramaCard: React.FC<DramaCardProps> = ({
 
             {showRank && fluid && (
               <span className="px-2 py-0.5 rounded cd-accent-bg text-white text-[10px] font-extrabold tabular-nums shadow">
-                TOP {rank}
+                {t.card.topPrefix} {rank}
               </span>
             )}
           </div>
@@ -327,13 +327,13 @@ export const DramaCard: React.FC<DramaCardProps> = ({
                     }`}
               </span>
               <span className="text-[#A1A1AA] shrink-0">
-                {isSingleMovie ? drama.quality || 'HD' : `Ep: ${episodeCount}`}
+                {isSingleMovie ? drama.quality || 'HD' : `${t.card.epPrefix} ${episodeCount}`}
               </span>
             </div>
           ) : (
             <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-[#A1A1AA] tabular-nums truncate">
               <span>
-                {isSingleMovie ? drama.quality || 'HD' : `Ep: ${episodeCount}`}
+                {isSingleMovie ? drama.quality || 'HD' : `${t.card.epPrefix} ${episodeCount}`}
               </span>
               {Math.max(effectiveTotalViews, effectiveDailyViews) > 0 ? (
                 <>
@@ -342,14 +342,14 @@ export const DramaCard: React.FC<DramaCardProps> = ({
                     {formatViewsShort(
                       Math.max(effectiveTotalViews, effectiveDailyViews)
                     )}{' '}
-                    views
+                    {t.card.viewsUnit}
                   </span>
                 </>
               ) : showRank ? (
                 <>
                   <span aria-hidden="true">·</span>
                   <span className="text-[#A1A1AA] font-medium truncate">
-                    0 views
+                    0 {t.card.viewsUnit}
                   </span>
                 </>
               ) : drama.tags[0] ? (

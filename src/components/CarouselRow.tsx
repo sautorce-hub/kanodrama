@@ -127,7 +127,7 @@ export const CarouselRow: React.FC<CarouselRowProps> = ({
             <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
             <div>
               <p className="text-sm font-semibold text-white">
-                Failed to load {title}
+                {t.ui.failedToLoadSection} {title}
               </p>
               <p className="text-xs text-[#A1A1AA] mt-0.5">{error}</p>
             </div>

@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { renderGoogleCredentialButton } from '../config/auth';
 import { useDramaContext } from '../context/DramaContext';
+import { getLanguageIntlLocale } from '../i18n/helpers';
 
 const EMAIL_INPUT_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -490,9 +491,7 @@ export const AuthProfileModal: React.FC = () => {
                 <span className="inline-flex items-center gap-2">
                   <Coins className="w-4 h-4 text-[#D4AF37]" />
                   <span>
-                    {isId
-                      ? 'Lihat Sistem Poin & Referral (Tukar IDR / USD)'
-                      : 'View Points & Referral System (Redeem IDR / USD)'}
+                    {t.rewards.navTitle}
                   </span>
                 </span>
                 <ChevronRight className="w-4 h-4 text-[#D4AF37]" />
@@ -627,12 +626,12 @@ export const AuthProfileModal: React.FC = () => {
                   <Flame className="w-4 h-4 text-orange-400 fill-orange-400" />
                   <span>
                     {t.retention.streakBadge} {Math.max(1, streak.count)}{' '}
-                    {streak.count === 1 ? 'Day' : 'Days'}
+                    {streak.count === 1 ? t.ui.daySingular : t.ui.dayPlural}
                   </span>
                 </span>
                 {streak.isVipCoffeeLover ? (
                   <span className="text-[11px] font-bold text-[#D4AF37]">
-                    Active VIP
+                    {t.ui.activeVipBadge}
                   </span>
                 ) : (
                   <span className="text-[11px] text-[#A1A1AA] tabular-nums">
@@ -737,9 +736,9 @@ export const AuthProfileModal: React.FC = () => {
                 <span className="inline-flex items-center gap-2.5">
                   <Coins className="w-4 h-4 text-[#D4AF37]" />
                   <span>
-                    {isId ? 'Poin & Referral' : 'Points & Referral'}
+                    {t.rewards.navLabel}
                     {typeof pointsBalance === 'number'
-                      ? ` (${pointsBalance.toLocaleString()} ${t.rewards.pointsUnit})`
+                      ? ` (${pointsBalance.toLocaleString(getLanguageIntlLocale(language))} ${t.rewards.pointsUnit})`
                       : ''}
                   </span>
                 </span>

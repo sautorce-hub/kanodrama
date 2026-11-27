@@ -1716,7 +1716,9 @@ export default function App() {
           !hasHomeItems(homeCatalogRef.current)
         ) {
           setHomeError(
-            err instanceof Error ? err.message : 'Failed to load cached catalog'
+            err instanceof Error
+              ? err.message
+              : getDictionary(langToLoad).ui.unableToLoadCatalog
           );
         }
       } finally {
@@ -2075,7 +2077,7 @@ export default function App() {
     if (!activeDramaRoute && !activeSeoLanding) {
       if (activeTab === 'providers') {
         if (invalidProviderSlug) {
-          document.title = '404 — Provider Not Found | KanoDrama';
+          document.title = `404 — ${t.ui.providerNotFound} | KanoDrama`;
           let robotsMeta = document.querySelector('meta[name="robots"]');
           if (!robotsMeta) {
             robotsMeta = document.createElement('meta');
@@ -2484,7 +2486,7 @@ export default function App() {
         }
       } catch {
         if (!options?.silent) {
-          pushToast('Language switch failed — retrying feeds', 'error');
+          pushToast(getDictionary(nextLang).ui.languageSwitchFailed, 'error');
         }
       } finally {
         setLanguageLoading(false);
@@ -4045,7 +4047,7 @@ export default function App() {
                       HTTP 404
                     </p>
                     <h1 className="text-xl sm:text-2xl font-bold text-white">
-                      Provider Not Found
+                      {t.ui.providerNotFound}
                     </h1>
                     <p className="text-xs sm:text-sm text-[#A1A1AA]">
                       {t.providers.noMatches}
@@ -4437,7 +4439,7 @@ export default function App() {
                     {activeGridInfo.title}
                   </h1>
                   <p className="text-xs sm:text-sm text-[#A1A1AA] mt-1 tabular-nums">
-                    {activeGridInfo.items.length} titles
+                    {activeGridInfo.items.length} {t.ui.titlesUnit}
                   </p>
                 </div>
 
@@ -4584,7 +4586,7 @@ export default function App() {
                         type="submit"
                         className="px-4 py-2 rounded-xl cd-accent-bg text-white text-xs font-semibold"
                       >
-                        Save
+                        {t.ui.save}
                       </button>
                     </form>
                   )}
@@ -4711,7 +4713,7 @@ export default function App() {
                 <div className="p-8 rounded-2xl bg-[var(--cd-surface)] border border-red-500/30 max-w-lg mx-auto text-center">
                   <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-3" />
                   <h2 className="text-lg font-bold text-white">
-                    Unable to Load Catalog
+                    {t.ui.unableToLoadCatalog}
                   </h2>
                   <p className="text-xs text-[#A1A1AA] mt-1.5">
                     {activeGridInfo.error}
@@ -4744,7 +4746,7 @@ export default function App() {
                           watchlistCategory === 'movie'
                             ? t.moviesPage.watchlistTitle
                             : t.sections.dramaWatchlistTitle
-                        } is empty`
+                        } ${t.ui.emptyWatchlistSuffix}`
                       : t.search.noResults}
                   </h2>
                   <p className="text-sm text-[#A1A1AA] mt-2 leading-relaxed">

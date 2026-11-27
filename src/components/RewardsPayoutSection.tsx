@@ -38,7 +38,7 @@ import {
 } from 'lucide-react';
 import { useDramaContext } from '../context/DramaContext';
 import { getClientDeviceFingerprint, getProductionReferralUrl } from '../config/auth';
-import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
+import { DEFAULT_SITE_ORIGIN, getLanguageIntlLocale } from '../i18n/helpers';
 import { PaymentMethodLogo } from './PaymentMethodLogo';
 import { RewardsSeoContent } from './RewardsSeoContent';
 
@@ -4529,7 +4529,7 @@ export const RewardsPayoutSection: React.FC = () => {
                           <p className="text-[11px] text-[#71717A] tabular-nums">
                             <RelativeTimeText iso={row.createdAt} lang={language} />
                             {typeof row.balanceAfter === 'number'
-                              ? ` · ${t.rewards.balanceLabel}: ${row.balanceAfter.toLocaleString()}`
+                              ? ` · ${t.rewards.balanceLabel}: ${row.balanceAfter.toLocaleString(getLanguageIntlLocale(language))}`
                               : ''}
                           </p>
                         </div>
@@ -4541,7 +4541,7 @@ export const RewardsPayoutSection: React.FC = () => {
                         }`}
                       >
                         {isEarn ? '+' : '-'}
-                        {row.points.toLocaleString()} {t.rewards.pointsUnit}
+                        {row.points.toLocaleString(getLanguageIntlLocale(language))} {t.rewards.pointsUnit}
                       </span>
                     </div>
                   );

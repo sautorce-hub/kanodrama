@@ -131,7 +131,6 @@ import {
 import {
   buildOgImageEndpointUrl,
   DEFAULT_SITE_ORIGIN,
-  detectLanguageFromContent,
   formatProviderDisplayName,
   generateMetadata,
   getHtmlLangTag,
@@ -2329,19 +2328,7 @@ function injectDramaSeoIntoHtml(
   const epWatchUrl =
     isWatchRoute || safeEp > 1 ? `${brandOrigin}${watchPath}` : canonicalUrl;
   const epCount = Math.max(1, episodes.length || drama.chapterCount || 1);
-  const effectiveLang =
-    explicitQueryLang ??
-    (_pref !== 'auto'
-      ? _ssrLang
-      : detectLanguageFromContent(
-          {
-            title: drama.title,
-            description: drama.description,
-            tags: drama.tags,
-            provider: drama.provider,
-          },
-          _ssrLang
-        ));
+  const effectiveLang = explicitQueryLang ?? _ssrLang;
   const isId = effectiveLang === 'id';
   const activeEpisode = episodes.find((ep) => Number(ep.episodeNumber) === safeEp);
   const { seriesDescription, episodeDescription } =
@@ -2915,20 +2902,7 @@ function injectMovieSeoIntoHtml(
   const yearTag = movie.year ? ` (${movie.year})` : '';
   const rawDesc = cleanSeoDescription(movie.synopsis || movie.description || '');
   const movieProviderLabel = movie.app === 'lookseries' ? 'LookSeries' : 'LK21';
-  const effectiveLang =
-    explicitQueryLang ??
-    (_pref !== 'auto'
-      ? _ssrLang
-      : detectLanguageFromContent(
-          {
-            title: movie.title,
-            description: rawDesc,
-            tags: movie.genres,
-            area: movie.area,
-            provider: movieProviderLabel,
-          },
-          _ssrLang
-        ));
+  const effectiveLang = explicitQueryLang ?? _ssrLang;
   const isId = effectiveLang === 'id';
   const cleanMovieBaseTitle =
     stripLeadingWatchPrefix(movie.title || '') || movie.title || 'HD Movie';
@@ -3342,6 +3316,23 @@ function injectProgrammaticSeoIntoHtml(
     };
   });
 
+  const programmaticLabels: Record<
+    LanguageCode,
+    { home: string; tags: string; genres: string; explore: string }
+  > = {
+    id: { home: 'Beranda', tags: 'Tag', genres: 'Genre', explore: 'Jelajahi' },
+    en: { home: 'Home', tags: 'Tags', genres: 'Genres', explore: 'Explore' },
+    cn: { home: '首页', tags: '标签', genres: '类型', explore: '探索' },
+    vi: { home: 'Trang chủ', tags: 'Thẻ', genres: 'Thể loại', explore: 'Khám phá' },
+    es: { home: 'Inicio', tags: 'Etiquetas', genres: 'Géneros', explore: 'Explorar' },
+    ko: { home: '홈', tags: '태그', genres: '장르', explore: '탐색' },
+    ja: { home: 'ホーム', tags: 'タグ', genres: 'ジャンル', explore: '探す' },
+    th: { home: 'หน้าแรก', tags: 'แท็ก', genres: 'หมวดหมู่', explore: 'สำรวจ' },
+    ms: { home: 'Utama', tags: 'Tag', genres: 'Genre', explore: 'Teroka' },
+    tl: { home: 'Tahanan', tags: 'Mga Tag', genres: 'Mga Genre', explore: 'Mag-explore' },
+  };
+  const progLabels = programmaticLabels[ssrLang] || programmaticLabels.en;
+
   const jsonLd = {
     '@context': 'https://schema.org',
     '@graph': [
@@ -3365,11 +3356,11 @@ function injectProgrammaticSeoIntoHtml(
       {
         '@type': 'BreadcrumbList',
         itemListElement: [
-          { '@type': 'ListItem', position: 1, name: 'Home', item: `${brandOrigin}/` },
+          { '@type': 'ListItem', position: 1, name: progLabels.home, item: `${brandOrigin}/` },
           {
             '@type': 'ListItem',
             position: 2,
-            name: landing.basePath === 'tag' ? 'Tags' : 'Genres',
+            name: landing.basePath === 'tag' ? progLabels.tags : progLabels.genres,
             item: `${brandOrigin}/explore`,
           },
           { '@type': 'ListItem', position: 3, name: landing.h1, item: canonicalUrl },
@@ -3427,7 +3418,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
           .join('')}</ul>`
       : '';
   const ssrLandingHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
-    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <a href="${brandOrigin}/explore">Explore</a> / <span>${escapeHtmlAttr(landing.h1)}</span></nav>
+    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${escapeHtmlAttr(progLabels.home)}</a> / <a href="${brandOrigin}/explore">${escapeHtmlAttr(progLabels.explore)}</a> / <span>${escapeHtmlAttr(landing.h1)}</span></nav>
     <h1>${escapeHtmlAttr(landing.h1)}</h1>
     <p>${escapeHtmlAttr(landing.description)}</p>
     ${ssrLinksHtml}
@@ -3941,7 +3932,7 @@ function injectPageMetadataIntoHtml(
             {
               '@type': 'BreadcrumbList',
               itemListElement: [
-                { '@type': 'ListItem', position: 1, name: 'Home', item: `${brandOrigin}/` },
+                { '@type': 'ListItem', position: 1, name: sectionLabelMap.home || 'Home', item: `${brandOrigin}/` },
                 {
                   '@type': 'ListItem',
                   position: 2,
@@ -4100,6 +4091,89 @@ function injectProviderSeoIntoHtml(
     };
   });
 
+  const providerSsrLabels: Record<
+    LanguageCode,
+    {
+      home: string;
+      providers: string;
+      allProviders: string;
+      exploreDramas: string;
+      hdMovies: string;
+    }
+  > = {
+    id: {
+      home: 'Beranda',
+      providers: 'Provider',
+      allProviders: 'Semua Provider',
+      exploreDramas: 'Jelajahi Drama',
+      hdMovies: 'Film HD',
+    },
+    en: {
+      home: 'Home',
+      providers: 'Providers',
+      allProviders: 'All Providers',
+      exploreDramas: 'Explore Dramas',
+      hdMovies: 'HD Movies',
+    },
+    cn: {
+      home: '首页',
+      providers: '片源平台',
+      allProviders: '全部平台',
+      exploreDramas: '探索短剧',
+      hdMovies: '高清电影',
+    },
+    vi: {
+      home: 'Trang chủ',
+      providers: 'Nguồn phim',
+      allProviders: 'Tất cả nguồn',
+      exploreDramas: 'Khám phá phim',
+      hdMovies: 'Phim HD',
+    },
+    es: {
+      home: 'Inicio',
+      providers: 'Plataformas',
+      allProviders: 'Todas las Plataformas',
+      exploreDramas: 'Explorar Dramas',
+      hdMovies: 'Películas HD',
+    },
+    ko: {
+      home: '홈',
+      providers: '플랫폼',
+      allProviders: '전체 플랫폼',
+      exploreDramas: '드라마 탐색',
+      hdMovies: 'HD 영화',
+    },
+    ja: {
+      home: 'ホーム',
+      providers: '配信元',
+      allProviders: 'すべての配信元',
+      exploreDramas: 'ドラマを探す',
+      hdMovies: 'HD映画',
+    },
+    th: {
+      home: 'หน้าแรก',
+      providers: 'แพลตฟอร์ม',
+      allProviders: 'แพลตฟอร์มทั้งหมด',
+      exploreDramas: 'สำรวจซีรีส์',
+      hdMovies: 'หนัง HD',
+    },
+    ms: {
+      home: 'Utama',
+      providers: 'Platform',
+      allProviders: 'Semua Platform',
+      exploreDramas: 'Teroka Drama',
+      hdMovies: 'Filem HD',
+    },
+    tl: {
+      home: 'Tahanan',
+      providers: 'Mga Platform',
+      allProviders: 'Lahat ng Platform',
+      exploreDramas: 'Mag-explore ng Drama',
+      hdMovies: 'Mga HD Pelikula',
+    },
+  };
+  const pLabels = providerSsrLabels[ssrLang] || providerSsrLabels.en;
+
   const jsonLd = {
     '@context': 'https://schema.org',
     '@graph': [
@@ -4127,8 +4201,8 @@ function injectProviderSeoIntoHtml(
       {
         '@type': 'BreadcrumbList',
         itemListElement: [
-          { '@type': 'ListItem', position: 1, name: 'Home', item: `${brandOrigin}/` },
-          { '@type': 'ListItem', position: 2, name: 'Providers', item: `${brandOrigin}/providers` },
+          { '@type': 'ListItem', position: 1, name: pLabels.home, item: `${brandOrigin}/` },
+          { '@type': 'ListItem', position: 2, name: pLabels.providers, item: `${brandOrigin}/providers` },
           { '@type': 'ListItem', position: 3, name: provider, item: meta.canonicalUrl },
         ],
       },
@@ -4180,12 +4254,24 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
       : '';
 
   const providerDisplay = formatProviderDisplayName(provider);
+  const providerHeadingByLang: Record<LanguageCode, string> = {
+    id: `Nonton Drama Pendek ${escapeHtmlAttr(providerDisplay)} Sub Indo HD di KanoDrama`,
+    en: `Watch ${escapeHtmlAttr(providerDisplay)} Short Dramas Free in HD on KanoDrama`,
+    cn: `在 KanoDrama 免费观看 ${escapeHtmlAttr(providerDisplay)} 高清短剧`,
+    vi: `Xem Phim Ngắn ${escapeHtmlAttr(providerDisplay)} Vietsub HD Miễn Phí trên KanoDrama`,
+    es: `Ver Dramas Cortos de ${escapeHtmlAttr(providerDisplay)} Gratis en HD en KanoDrama`,
+    ko: `KanoDrama에서 ${escapeHtmlAttr(providerDisplay)} 숏드라마 무료 HD 시청`,
+    ja: `KanoDramaで ${escapeHtmlAttr(providerDisplay)} ショートドラマをHD無料視聴`,
+    th: `ดูซีรีส์สั้น ${escapeHtmlAttr(providerDisplay)} ซับไทย HD ฟรีที่ KanoDrama`,
+    ms: `Tonton Drama Pendek ${escapeHtmlAttr(providerDisplay)} HD Percuma di KanoDrama`,
+    tl: `Manood ng ${escapeHtmlAttr(providerDisplay)} Short Dramas nang Libre sa HD sa KanoDrama`,
+  };
   const ssrProviderBodyHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
-    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">Home</a> / <a href="${brandOrigin}/providers">Providers</a> / <span>${escapeHtmlAttr(providerDisplay)}</span></nav>
-    <h1>${ssrLang === 'id' ? `Nonton Drama Pendek ${escapeHtmlAttr(providerDisplay)} Sub Indo HD di KanoDrama` : `Watch ${escapeHtmlAttr(providerDisplay)} Short Dramas Free in HD on KanoDrama`}</h1>
+    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${escapeHtmlAttr(pLabels.home)}</a> / <a href="${brandOrigin}/providers">${escapeHtmlAttr(pLabels.providers)}</a> / <span>${escapeHtmlAttr(providerDisplay)}</span></nav>
+    <h1>${providerHeadingByLang[ssrLang] || providerHeadingByLang.en}</h1>
     <p>${escapeHtmlAttr(meta.description)}</p>
     ${ssrItemsHtml}
-    <nav aria-label="Provider Navigation"><a href="${brandOrigin}/providers">All Providers</a> · <a href="${brandOrigin}/explore">Explore Dramas</a> · <a href="${brandOrigin}/movies">HD Movies</a></nav>
+    <nav aria-label="Provider Navigation"><a href="${brandOrigin}/providers">${escapeHtmlAttr(pLabels.allProviders)}</a> · <a href="${brandOrigin}/explore">${escapeHtmlAttr(pLabels.exploreDramas)}</a> · <a href="${brandOrigin}/movies">${escapeHtmlAttr(pLabels.hdMovies)}</a></nav>
   </main>`;
 
   const withHead = applyHtmlLangTag(stripStaticSeoHeadTags(html), ssrLang).replace(

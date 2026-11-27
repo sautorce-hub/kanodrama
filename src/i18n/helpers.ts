@@ -221,28 +221,147 @@ export function getOgLocaleTag(lang: LanguageCode): string {
   return getLanguageMeta(lang).ogLocale;
 }
 
+export function getLanguageIntlLocale(lang: LanguageCode = 'en'): string {
+  switch (lang) {
+    case 'id':
+      return 'id-ID';
+    case 'cn':
+      return 'zh-CN';
+    case 'vi':
+      return 'vi-VN';
+    case 'es':
+      return 'es-ES';
+    case 'ko':
+      return 'ko-KR';
+    case 'ja':
+      return 'ja-JP';
+    case 'th':
+      return 'th-TH';
+    case 'ms':
+      return 'ms-MY';
+    case 'tl':
+      return 'fil-PH';
+    default:
+      return 'en-US';
+  }
+}
+
+export function getCanonicalTimeZone(lang: LanguageCode = 'en'): 'Asia/Jakarta' | 'UTC' {
+  return lang === 'id' ? 'Asia/Jakarta' : 'UTC';
+}
+
+export function formatCanonicalTime(
+  input: string | number | Date,
+  lang: LanguageCode = 'en',
+  includeZoneSuffix = true
+): string {
+  const date = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(date.getTime())) return '';
+  const timeZone = getCanonicalTimeZone(lang);
+  const locale = getLanguageIntlLocale(lang);
+  const formatted = date.toLocaleTimeString(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone,
+  });
+  if (!includeZoneSuffix) return formatted;
+  return `${formatted} ${lang === 'id' ? 'WIB' : 'UTC'}`;
+}
+
+export function formatCanonicalDate(
+  input: string | number | Date,
+  lang: LanguageCode = 'en'
+): string {
+  const date = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(date.getTime())) return '';
+  const timeZone = getCanonicalTimeZone(lang);
+  const locale = getLanguageIntlLocale(lang);
+  const formatted = date.toLocaleDateString(locale, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone,
+  });
+  return `${formatted} · ${lang === 'id' ? 'WIB' : 'UTC'}`;
+}
+
+function resolveWithEnglishFallback(
+  target: unknown,
+  fallback: unknown
+): unknown {
+  if (target === undefined || target === null) return fallback;
+  if (typeof target === 'string') {
+    return target.trim().length > 0 ? target : fallback;
+  }
+  if (Array.isArray(target)) {
+    return target.length > 0 ? target : fallback;
+  }
+  if (
+    typeof target === 'object' &&
+    fallback &&
+    typeof fallback === 'object' &&
+    !Array.isArray(fallback)
+  ) {
+    const out: Record<string, unknown> = {
+      ...(fallback as Record<string, unknown>),
+    };
+    for (const key of Object.keys(target as Record<string, unknown>)) {
+      out[key] = resolveWithEnglishFallback(
+        (target as Record<string, unknown>)[key],
+        (fallback as Record<string, unknown>)[key]
+      );
+    }
+    return out;
+  }
+  return target;
+}
+
+const resolvedDictionaryCache = new Map<LanguageCode, Translations>();
+
 /**
- * Helper to fetch the active translation dictionary for any supported language.
+ * Helper to fetch the active translation dictionary for any supported language,
+ * safely falling back to English for any missing or empty leaf keys.
  */
 export function getDictionary(lang: LanguageCode = 'en'): Translations {
-  return TRANSLATIONS[lang] ?? TRANSLATIONS.en;
+  const safeLang: LanguageCode = lang in TRANSLATIONS ? lang : 'en';
+  if (safeLang === 'en') return TRANSLATIONS.en;
+  const cached = resolvedDictionaryCache.get(safeLang);
+  if (cached) return cached;
+  const merged = resolveWithEnglishFallback(
+    TRANSLATIONS[safeLang],
+    TRANSLATIONS.en
+  ) as Translations;
+  resolvedDictionaryCache.set(safeLang, merged);
+  return merged;
+}
+
+function lookupTranslationPath(dictObj: unknown, parts: string[]): string | null {
+  let curr: unknown = dictObj;
+  for (const part of parts) {
+    if (
+      curr &&
+      typeof curr === 'object' &&
+      part in (curr as Record<string, unknown>)
+    ) {
+      curr = (curr as Record<string, unknown>)[part];
+    } else {
+      return null;
+    }
+  }
+  return typeof curr === 'string' && curr.trim().length > 0 ? curr : null;
 }
 
 /**
  * Simple path-based translator helper (e.g. translate('id', 'hero.playNow')).
+ * Safely falls back to English before returning the keyPath.
  */
 export function translate(lang: LanguageCode, keyPath: string): string {
-  const dict = getDictionary(lang) as unknown as Record<string, unknown>;
   const parts = keyPath.split('.');
-  let curr: unknown = dict;
-  for (const part of parts) {
-    if (curr && typeof curr === 'object' && part in (curr as Record<string, unknown>)) {
-      curr = (curr as Record<string, unknown>)[part];
-    } else {
-      return keyPath;
-    }
-  }
-  return typeof curr === 'string' ? curr : keyPath;
+  const active = lookupTranslationPath(getDictionary(lang), parts);
+  if (active !== null) return active;
+  const enFallback = lookupTranslationPath(TRANSLATIONS.en, parts);
+  return enFallback ?? keyPath;
 }
 
 const INDONESIAN_STRONG_PHRASE_RE =

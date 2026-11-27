@@ -21,7 +21,12 @@ import {
 } from 'lucide-react';
 import { useDramaContext } from '../context/DramaContext';
 import { RewardsPayoutSection } from './RewardsPayoutSection';
-import { DEFAULT_SITE_ORIGIN, SUPPORTED_LANGUAGES } from '../i18n/helpers';
+import {
+  DEFAULT_SITE_ORIGIN,
+  SUPPORTED_LANGUAGES,
+  formatCanonicalDate,
+  getLanguageIntlLocale,
+} from '../i18n/helpers';
 import { formatPlaybackClock, getDramaPath, getWatchPath } from '../utils/seo';
 import type {
   AccentThemeId,
@@ -418,7 +423,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
             <div className="flex items-center justify-between gap-1.5 text-[11px] text-[#FDE68A]">
               <span className="inline-flex items-center gap-1.5">
                 <Coins className="w-3.5 h-3.5 text-[#D4AF37]" />
-                <span>{language === 'id' ? 'Poin & Hadiah' : 'Points & Rewards'}</span>
+                <span>{t.rewards.pointsAndRewards}</span>
               </span>
               {user && accountLevelInfo && (
                 <span className="px-1.5 py-0.5 rounded bg-[#D4AF37]/20 text-[10px] font-bold text-[#FDE68A] border border-[#D4AF37]/30">
@@ -430,7 +435,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
               {authLoading && !user ? (
                 <span className="inline-block w-24 h-7 rounded-lg skeleton-espresso align-middle" />
               ) : user && typeof pointsBalance === 'number' ? (
-                pointsBalance.toLocaleString()
+                pointsBalance.toLocaleString(getLanguageIntlLocale(language))
               ) : (
                 0
               )}
@@ -519,7 +524,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                   onClick={() => openAuthModal()}
                   className="px-4 py-2 min-h-[40px] rounded-full bg-white text-[#09090B] text-xs font-bold shrink-0"
                 >
-                  {language === 'id' ? 'Masuk / Daftar' : 'Sign In / Register'}
+                  {t.ui.signInRegisterBtn}
                 </button>
               </div>
             )
@@ -865,7 +870,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           {drama.provider} ·{' '}
                           {isSingleMovie
                             ? drama.quality || 'Full Movie'
-                            : `${drama.chapterCount} Episodes`}
+                            : `${drama.chapterCount} ${t.ui.episodesUnit}`}
                         </p>
                       </div>
 
@@ -880,7 +885,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                           className="inline-flex items-center gap-1 px-3 py-1.5 min-h-[34px] rounded-lg cd-accent-bg text-xs font-semibold text-white"
                         >
                           <Play className="w-3 h-3 fill-white" />
-                          <span>Play</span>
+                          <span>{t.ui.play}</span>
                         </a>
 
                         <select
@@ -1134,7 +1139,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({
                     <p className="text-sm text-white">{cmt.text}</p>
                   </div>
                   <span className="text-[11px] text-[#71717A] tabular-nums shrink-0">
-                    {new Date(cmt.createdAt).toLocaleDateString()}
+                    {formatCanonicalDate(cmt.createdAt, language)}
                   </span>
                 </div>
               ))}

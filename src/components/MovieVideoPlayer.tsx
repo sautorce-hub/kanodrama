@@ -48,6 +48,7 @@ import {
   readOfflineCachedEpisode,
 } from '../utils/offlineCache';
 import { useDramaContext } from '../context/DramaContext';
+import { formatCanonicalTime } from '../i18n/helpers';
 import { getWatchPath, syncEpisodePlayerSeo } from '../utils/seo';
 import { ProviderBadge } from './ProviderBadge';
 import { ShareDramaModal } from './ShareDramaModal';
@@ -336,7 +337,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
   const [brokenCoverMap, setBrokenCoverMap] = useState<Record<string, boolean>>({});
   const [wmPosIdx, setWmPosIdx] = useState(0);
   const [wmClock, setWmClock] = useState(() =>
-    new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    formatCanonicalTime(Date.now(), language)
   );
 
   const prefetchedEpisodeRef = useRef<string | null>(null);
@@ -373,15 +374,14 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
 
   // Dynamic Watermark Corner Cycling
   useEffect(() => {
+    setWmClock(formatCanonicalTime(Date.now(), language));
     if (!drama) return;
     const interval = window.setInterval(() => {
       setWmPosIdx((prev) => (prev + 1) % WM_CORNER_CLASSES.length);
-      setWmClock(
-        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      );
+      setWmClock(formatCanonicalTime(Date.now(), language));
     }, 12000);
     return () => window.clearInterval(interval);
-  }, [drama?.bookId, drama?.provider]);
+  }, [drama?.bookId, drama?.provider, language]);
 
   useEffect(() => {
     if (!drama) return;
@@ -3358,10 +3358,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
                         )}
                       </div>
                       <span className="tabular-nums shrink-0">
-                        {new Date(c.createdAt).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
+                        {formatCanonicalTime(c.createdAt, language)}
                       </span>
                     </div>
                     <p className="text-xs text-[#E4E4E7] leading-relaxed pl-7">
@@ -4483,10 +4480,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
                             )}
                           </div>
                           <span className="tabular-nums shrink-0">
-                            {new Date(c.createdAt).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
+                            {formatCanonicalTime(c.createdAt, language)}
                           </span>
                         </div>
                         <p className="text-xs text-[#E4E4E7] leading-relaxed pl-8">

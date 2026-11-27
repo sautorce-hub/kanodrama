@@ -12,7 +12,7 @@ import { KanoDramaLogo } from './CoffeeDramaLogo';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { PWAInstallButton } from './PWAInstallBanner';
 import { useDramaContext } from '../context/DramaContext';
-import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
+import { DEFAULT_SITE_ORIGIN, getLanguageIntlLocale } from '../i18n/helpers';
 import type { LegalModalTopic } from '../types/drama';
 
 interface VisitorStats {
@@ -395,7 +395,7 @@ export const Footer: React.FC = () => {
                     }}
                     className="inline-flex items-center min-h-[36px] text-xs font-semibold text-[#D4AF37] hover:text-[#FDE68A] transition-colors"
                   >
-                    {language === 'id' ? 'Poin & Referral' : 'Points & Referral'}
+                    {t.rewards.navLabel}
                   </a>
                 </li>
                 <li>
@@ -424,7 +424,7 @@ export const Footer: React.FC = () => {
                     </span>
                   </div>
                   <span className="text-sm font-bold text-emerald-400 tabular-nums">
-                    {stats.onlineNow.toLocaleString()}
+                    {stats.onlineNow.toLocaleString(getLanguageIntlLocale(language))}
                   </span>
                 </div>
 
@@ -435,7 +435,7 @@ export const Footer: React.FC = () => {
                       <span className="break-words">{t.footer.todayVisitors}</span>
                     </div>
                     <p className="text-sm font-semibold text-white min-[440px]:mt-1 tabular-nums shrink-0">
-                      {stats.todayVisitors.toLocaleString()}
+                      {stats.todayVisitors.toLocaleString(getLanguageIntlLocale(language))}
                     </p>
                   </div>
 
@@ -445,7 +445,7 @@ export const Footer: React.FC = () => {
                       <span className="break-words">{t.footer.totalVisitors}</span>
                     </div>
                     <p className="text-sm font-semibold text-white min-[440px]:mt-1 tabular-nums shrink-0">
-                      {stats.totalVisitors.toLocaleString()}
+                      {stats.totalVisitors.toLocaleString(getLanguageIntlLocale(language))}
                     </p>
                   </div>
 
@@ -455,7 +455,7 @@ export const Footer: React.FC = () => {
                       <span className="break-words">{t.footer.totalViews}</span>
                     </div>
                     <p className="text-sm font-semibold text-white min-[440px]:mt-1 tabular-nums shrink-0">
-                      {stats.totalViews.toLocaleString()}
+                      {stats.totalViews.toLocaleString(getLanguageIntlLocale(language))}
                     </p>
                   </div>
                 </div>

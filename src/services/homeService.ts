@@ -23,6 +23,13 @@ function cacheKey(lang: LanguageCode, provider: ProviderId): string {
   return `${lang}:${provider}`;
 }
 
+export function resolveCanonicalHomeFeedLang(lang: LanguageCode): LanguageCode {
+  if (lang === 'id' || lang === 'cn' || lang === 'vi') {
+    return lang;
+  }
+  return 'en';
+}
+
 export function hasHomeItems(
   data: Partial<HomeCatalogResponse> | null | undefined
 ): boolean {
@@ -148,7 +155,10 @@ function hydrateFromSsrBootstrap(
       hasHomeItems(ssrHome)
     ) {
       const now = Date.now();
-      const langMatches = !ssrHome.lang || ssrHome.lang === lang;
+      const expectedFeedLang = resolveCanonicalHomeFeedLang(lang);
+      const langMatches =
+        !ssrHome.lang ||
+        resolveCanonicalHomeFeedLang(ssrHome.lang) === expectedFeedLang;
       const normalizedData = normalizeSsrHomeData(ssrHome, lang, provider);
       const serverExpires = Number(normalizedData.expiresAt) || 0;
       const isBootstrapStale = Boolean(normalizedData.stale) || !langMatches;
@@ -190,7 +200,11 @@ export function getPeekCachedHomeEntry(
       }
       return null;
     }
-    const langMismatch = Boolean(stored.data.lang && stored.data.lang !== lang);
+    const expectedFeedLang = resolveCanonicalHomeFeedLang(lang);
+    const langMismatch = Boolean(
+      stored.data.lang &&
+        resolveCanonicalHomeFeedLang(stored.data.lang) !== expectedFeedLang
+    );
     if (now <= stored.expiresAt && !stored.data.stale && !langMismatch) {
       return { data: stored.data, isStale: false };
     }

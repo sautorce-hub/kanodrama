@@ -91,7 +91,7 @@ export const ProviderDirectoryView: React.FC<ProviderDirectoryViewProps> = ({
             {t.providers.hubTitle}
           </h1>
           <p className="text-xs sm:text-sm text-[#A1A1AA] mt-1 max-w-2xl">
-            {t.providers.hubSubtitle} · {PROVIDER_DIRECTORY_ITEMS.length} Platforms
+            {t.providers.hubSubtitle} · {PROVIDER_DIRECTORY_ITEMS.length} {t.ui.platformsUnit}
           </p>
         </div>
 

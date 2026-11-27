@@ -250,6 +250,10 @@ export interface Translations {
   };
   rewards: {
     tabLabel: string;
+    navLabel: string;
+    navTitle: string;
+    shortUnit: string;
+    pointsAndRewards: string;
     balanceTitle: string;
     pointsUnit: string;
     estimatedValue: string;
@@ -457,6 +461,36 @@ export interface Translations {
     royalPalace: string;
     topShortDramas: string;
   };
+  card: {
+    hotToday: string;
+    trending: string;
+    newBadge: string;
+    anime: string;
+    dubbed: string;
+    topPrefix: string;
+    epPrefix: string;
+    viewsUnit: string;
+  };
+  ui: {
+    save: string;
+    play: string;
+    episodesUnit: string;
+    titlesUnit: string;
+    platformsUnit: string;
+    endpointSingular: string;
+    endpointPlural: string;
+    failedToLoadSection: string;
+    unableToLoadCatalog: string;
+    providerNotFound: string;
+    languageSwitchFailed: string;
+    emptyWatchlistSuffix: string;
+    signInRegisterBtn: string;
+    daySingular: string;
+    dayPlural: string;
+    activeVipBadge: string;
+    episodesFailed: string;
+    detailFailed: string;
+  };
 }
 
 type DeepPartial<T> = {
@@ -476,6 +510,13 @@ function mergeTranslationObjects<T extends Record<string, unknown>>(
     const patchVal = (patch as Record<string, unknown>)[key];
     if (patchVal === undefined) continue;
     const baseVal = result[key];
+    if (
+      typeof patchVal === 'string' &&
+      typeof baseVal === 'string' &&
+      patchVal.trim().length === 0
+    ) {
+      continue;
+    }
     if (
       patchVal &&
       typeof patchVal === 'object' &&
@@ -757,6 +798,10 @@ const EN_TRANSLATIONS: Translations = {
     },
     rewards: {
       tabLabel: 'Rewards & Payout',
+      navLabel: 'Points & Referral',
+      navTitle: 'Points, Referral & Payout',
+      shortUnit: 'Pts',
+      pointsAndRewards: 'Points & Rewards',
       balanceTitle: 'Points Balance',
       pointsUnit: 'pts',
       estimatedValue: 'Est. value',
@@ -1030,14 +1075,44 @@ const EN_TRANSLATIONS: Translations = {
       royalPalace: 'Royal Palace',
       topShortDramas: 'Top Short Dramas',
     },
+    card: {
+      hotToday: 'Hot Today',
+      trending: 'Trending',
+      newBadge: 'NEW',
+      anime: 'Anime',
+      dubbed: 'Dubbed',
+      topPrefix: 'TOP',
+      epPrefix: 'Ep:',
+      viewsUnit: 'views',
+    },
+    ui: {
+      save: 'Save',
+      play: 'Play',
+      episodesUnit: 'Episodes',
+      titlesUnit: 'titles',
+      platformsUnit: 'Platforms',
+      endpointSingular: 'Endpoint',
+      endpointPlural: 'Endpoints',
+      failedToLoadSection: 'Failed to load',
+      unableToLoadCatalog: 'Unable to Load Catalog',
+      providerNotFound: 'Provider Not Found',
+      languageSwitchFailed: 'Language switch failed — retrying feeds',
+      emptyWatchlistSuffix: 'is empty',
+      signInRegisterBtn: 'Sign In / Register',
+      daySingular: 'Day',
+      dayPlural: 'Days',
+      activeVipBadge: 'Active VIP',
+      episodesFailed: 'Failed to load episodes.',
+      detailFailed: 'Unable to fetch drama details.',
+    },
 };
 
 export const TRANSLATIONS: Record<LanguageCode, Translations> = {
   en: EN_TRANSLATIONS,
-  id: {
+  id: createLocalizedTranslation({
     nav: {
       home: 'Beranda',
-      movies: 'Movies',
+      movies: 'Film',
       explore: 'Jelajahi',
       trending: 'Trending',
       latest: 'Terbaru',
@@ -1047,8 +1122,8 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       watchlist: 'Watchlist',
       dashboard: 'Dasbor',
       search: 'Cari',
-      providers: 'Providers',
-      login: 'Login',
+      providers: 'Provider',
+      login: 'Masuk',
       account: 'Akun',
     },
     moviesPage: {
@@ -1289,6 +1364,10 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
     },
     rewards: {
       tabLabel: 'Poin & Hadiah',
+      navLabel: 'Poin & Referral',
+      navTitle: 'Poin, Referral & Penarikan',
+      shortUnit: 'Poin',
+      pointsAndRewards: 'Poin & Hadiah',
       balanceTitle: 'Saldo Poin',
       pointsUnit: 'poin',
       estimatedValue: 'Estimasi nilai',
@@ -1562,8 +1641,38 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       royalPalace: 'Drama Kerajaan',
       topShortDramas: 'Drama Pendek Terbaik',
     },
-  },
-  cn: {
+    card: {
+      hotToday: 'Sedang Hangat',
+      trending: 'Trending',
+      newBadge: 'BARU',
+      anime: 'Anime',
+      dubbed: 'Sulih Suara',
+      topPrefix: 'TOP',
+      epPrefix: 'Ep:',
+      viewsUnit: 'tayangan',
+    },
+    ui: {
+      save: 'Simpan',
+      play: 'Putar',
+      episodesUnit: 'Episode',
+      titlesUnit: 'judul',
+      platformsUnit: 'Platform',
+      endpointSingular: 'Endpoint',
+      endpointPlural: 'Endpoint',
+      failedToLoadSection: 'Gagal memuat',
+      unableToLoadCatalog: 'Gagal Memuat Katalog',
+      providerNotFound: 'Provider Tidak Ditemukan',
+      languageSwitchFailed: 'Gagal mengganti bahasa — memuat ulang katalog',
+      emptyWatchlistSuffix: 'masih kosong',
+      signInRegisterBtn: 'Masuk / Daftar',
+      daySingular: 'Hari',
+      dayPlural: 'Hari',
+      activeVipBadge: 'VIP Aktif',
+      episodesFailed: 'Gagal memuat daftar episode.',
+      detailFailed: 'Gagal memuat detail drama.',
+    },
+  }),
+  cn: createLocalizedTranslation({
     nav: {
       home: '首页',
       movies: '电影',
@@ -1813,6 +1922,10 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
     },
     rewards: {
       tabLabel: '积分与提现',
+      navLabel: '积分与邀请',
+      navTitle: '积分、邀请与提现',
+      shortUnit: '积分',
+      pointsAndRewards: '积分与奖励',
       balanceTitle: '当前可用积分',
       pointsUnit: '积分',
       estimatedValue: '预估兑换价值',
@@ -2085,8 +2198,38 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       royalPalace: '古装宫廷',
       topShortDramas: '热门短剧精选',
     },
-  },
-  vi: {
+    card: {
+      hotToday: '今日热播',
+      trending: '热门榜',
+      newBadge: '最新',
+      anime: '动漫',
+      dubbed: '配音版',
+      topPrefix: 'TOP',
+      epPrefix: '集数:',
+      viewsUnit: '次播放',
+    },
+    ui: {
+      save: '保存',
+      play: '播放',
+      episodesUnit: '集',
+      titlesUnit: '部作品',
+      platformsUnit: '个平台',
+      endpointSingular: '接口',
+      endpointPlural: '接口',
+      failedToLoadSection: '加载失败',
+      unableToLoadCatalog: '无法加载片库',
+      providerNotFound: '未找到片源平台',
+      languageSwitchFailed: '切换语言失败 — 正在重试加载',
+      emptyWatchlistSuffix: '为空',
+      signInRegisterBtn: '登录 / 注册',
+      daySingular: '天',
+      dayPlural: '天',
+      activeVipBadge: 'VIP 已激活',
+      episodesFailed: '加载剧集列表失败。',
+      detailFailed: '无法获取剧集详情。',
+    },
+  }),
+  vi: createLocalizedTranslation({
     nav: {
       home: 'Trang chủ',
       movies: 'Phim lẻ',
@@ -2339,6 +2482,10 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
     },
     rewards: {
       tabLabel: 'Điểm & Rút tiền',
+      navLabel: 'Điểm & Giới thiệu',
+      navTitle: 'Điểm, Giới thiệu & Rút tiền',
+      shortUnit: 'Điểm',
+      pointsAndRewards: 'Điểm & Phần thưởng',
       balanceTitle: 'Số dư điểm hiện có',
       pointsUnit: 'điểm',
       estimatedValue: 'Giá trị ước tính',
@@ -2614,8 +2761,59 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
       royalPalace: 'Cung đấu Hoàng gia',
       topShortDramas: 'Phim ngắn Nổi bật',
     },
-  },
+    card: {
+      hotToday: 'Hot hôm nay',
+      trending: 'Thịnh hành',
+      newBadge: 'MỚI',
+      anime: 'Hoạt hình',
+      dubbed: 'Lồng tiếng',
+      topPrefix: 'TOP',
+      epPrefix: 'Tập:',
+      viewsUnit: 'lượt xem',
+    },
+    ui: {
+      save: 'Lưu',
+      play: 'Phát',
+      episodesUnit: 'Tập',
+      titlesUnit: 'tác phẩm',
+      platformsUnit: 'Nền tảng',
+      endpointSingular: 'Kênh',
+      endpointPlural: 'Kênh',
+      failedToLoadSection: 'Không thể tải',
+      unableToLoadCatalog: 'Không thể tải danh mục',
+      providerNotFound: 'Không tìm thấy nguồn phim',
+      languageSwitchFailed: 'Đổi ngôn ngữ thất bại — đang thử lại',
+      emptyWatchlistSuffix: 'đang trống',
+      signInRegisterBtn: 'Đăng nhập / Đăng ký',
+      daySingular: 'Ngày',
+      dayPlural: 'Ngày',
+      activeVipBadge: 'VIP Đang hoạt động',
+      episodesFailed: 'Không thể tải danh sách tập.',
+      detailFailed: 'Không thể tải chi tiết phim.',
+    },
+  }),
   es: createLocalizedTranslation({
+    card: {
+      hotToday: 'Popular hoy',
+      trending: 'Tendencia',
+      newBadge: 'NUEVO',
+      anime: 'Anime',
+      dubbed: 'Doblado',
+      topPrefix: 'TOP',
+      epPrefix: 'Ep:',
+      viewsUnit: 'vistas',
+    },
+    ui: {
+      save: 'Guardar',
+      play: 'Reproducir',
+      episodesUnit: 'Episodios',
+      titlesUnit: 'títulos',
+      platformsUnit: 'Plataformas',
+      failedToLoadSection: 'Error al cargar',
+      unableToLoadCatalog: 'No se pudo cargar el catálogo',
+      providerNotFound: 'Plataforma no encontrada',
+      signInRegisterBtn: 'Iniciar sesión / Registrarse',
+    },
     nav: {
       home: 'Inicio',
       movies: 'Películas',
@@ -3033,6 +3231,27 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
     },
   }),
   ko: createLocalizedTranslation({
+    card: {
+      hotToday: '오늘의 인기',
+      trending: '인기',
+      newBadge: '신작',
+      anime: '애니',
+      dubbed: '더빙',
+      topPrefix: 'TOP',
+      epPrefix: '화:',
+      viewsUnit: '조회',
+    },
+    ui: {
+      save: '저장',
+      play: '재생',
+      episodesUnit: '화',
+      titlesUnit: '작품',
+      platformsUnit: '플랫폼',
+      failedToLoadSection: '불러오기 실패',
+      unableToLoadCatalog: '카탈로그를 불러올 수 없습니다',
+      providerNotFound: '플랫폼을 찾을 수 없습니다',
+      signInRegisterBtn: '로그인 / 가입',
+    },
     nav: {
       home: '홈',
       movies: '영화',
@@ -3439,6 +3658,27 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
     },
   }),
   ja: createLocalizedTranslation({
+    card: {
+      hotToday: '今日の注目',
+      trending: '人気',
+      newBadge: '新作',
+      anime: 'アニメ',
+      dubbed: '吹替',
+      topPrefix: 'TOP',
+      epPrefix: '話:',
+      viewsUnit: '回視聴',
+    },
+    ui: {
+      save: '保存',
+      play: '再生',
+      episodesUnit: '話',
+      titlesUnit: '作品',
+      platformsUnit: '配信元',
+      failedToLoadSection: '読み込み失敗',
+      unableToLoadCatalog: 'カタログを読み込めません',
+      providerNotFound: '配信元が見つかりません',
+      signInRegisterBtn: 'ログイン / 登録',
+    },
     nav: {
       home: 'ホーム',
       movies: '映画',
@@ -3845,6 +4085,27 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
     },
   }),
   th: createLocalizedTranslation({
+    card: {
+      hotToday: 'ยอดนิยมวันนี้',
+      trending: 'มาแรง',
+      newBadge: 'ใหม่',
+      anime: 'อนิเมะ',
+      dubbed: 'พากย์เสียง',
+      topPrefix: 'TOP',
+      epPrefix: 'ตอน:',
+      viewsUnit: 'ครั้ง',
+    },
+    ui: {
+      save: 'บันทึก',
+      play: 'เล่น',
+      episodesUnit: 'ตอน',
+      titlesUnit: 'เรื่อง',
+      platformsUnit: 'แพลตฟอร์ม',
+      failedToLoadSection: 'โหลดไม่สำเร็จ',
+      unableToLoadCatalog: 'ไม่สามารถโหลดแคตตาล็อกได้',
+      providerNotFound: 'ไม่พบแพลตฟอร์ม',
+      signInRegisterBtn: 'เข้าสู่ระบบ / สมัคร',
+    },
     nav: {
       home: 'หน้าแรก',
       movies: 'ภาพยนตร์',
@@ -4251,6 +4512,27 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
     },
   }),
   ms: createLocalizedTranslation({
+    card: {
+      hotToday: 'Hangat Hari Ini',
+      trending: 'Trending',
+      newBadge: 'BAHARU',
+      anime: 'Anime',
+      dubbed: 'Alih Suara',
+      topPrefix: 'TOP',
+      epPrefix: 'Ep:',
+      viewsUnit: 'tontonan',
+    },
+    ui: {
+      save: 'Simpan',
+      play: 'Main',
+      episodesUnit: 'Episod',
+      titlesUnit: 'tajuk',
+      platformsUnit: 'Platform',
+      failedToLoadSection: 'Gagal memuatkan',
+      unableToLoadCatalog: 'Tidak Dapat Memuatkan Katalog',
+      providerNotFound: 'Platform Tidak Ditemui',
+      signInRegisterBtn: 'Log Masuk / Daftar',
+    },
     nav: {
       home: 'Utama',
       movies: 'Filem',
@@ -4657,6 +4939,27 @@ export const TRANSLATIONS: Record<LanguageCode, Translations> = {
     },
   }),
   tl: createLocalizedTranslation({
+    card: {
+      hotToday: 'Patok Ngayon',
+      trending: 'Trending',
+      newBadge: 'BAGO',
+      anime: 'Anime',
+      dubbed: 'Dubbed',
+      topPrefix: 'TOP',
+      epPrefix: 'Ep:',
+      viewsUnit: 'panonood',
+    },
+    ui: {
+      save: 'I-save',
+      play: 'I-play',
+      episodesUnit: 'Episodyo',
+      titlesUnit: 'pamagat',
+      platformsUnit: 'Platform',
+      failedToLoadSection: 'Nabigong mag-load',
+      unableToLoadCatalog: 'Hindi Ma-load ang Catalog',
+      providerNotFound: 'Hindi Nahanap ang Platform',
+      signInRegisterBtn: 'Mag-sign In / Mag-register',
+    },
     nav: {
       home: 'Tahanan',
       movies: 'Mga Pelikula',

@@ -288,7 +288,7 @@ export const ProviderEndpointSection: React.FC<ProviderEndpointSectionProps> = (
               error:
                 err instanceof Error
                   ? err.message
-                  : `Failed to load ${spec.label}`,
+                  : `${t.ui.failedToLoadSection} ${spec.label}`,
               loaded: true,
             },
           };
@@ -350,7 +350,7 @@ export const ProviderEndpointSection: React.FC<ProviderEndpointSectionProps> = (
             </h2>
           )}
           <span className="text-xs text-[#A1A1AA] tabular-nums whitespace-nowrap">
-            · {endpoints.length} {endpoints.length === 1 ? 'Endpoint' : 'Endpoints'}
+            · {endpoints.length} {endpoints.length === 1 ? t.ui.endpointSingular : t.ui.endpointPlural}
           </span>
         </div>
 

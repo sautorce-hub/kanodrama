@@ -476,7 +476,8 @@ function normalizeDrama(
   raw: Record<string, unknown>,
   rawProvider: string,
   index?: number,
-  forceVip = false
+  forceVip = false,
+  lang: HomeLangCode = 'en'
 ): CachedDramaItem | null {
   const provider = normalizeMediaProviderName(rawProvider);
   const idCandidates = [
@@ -539,13 +540,22 @@ function normalizeDrama(
     ? `/api/proxy?url=${encodeURIComponent(rawCover)}`
     : rawCover;
 
+  const defaultDesc =
+    lang === 'id'
+      ? `Tonton gratis ${title} dalam mode teater HD vertikal di KanoDrama.`
+      : lang === 'cn'
+      ? `在 KanoDrama 免费观看《${title}》竖屏高清剧场版。`
+      : lang === 'vi'
+      ? `Xem miễn phí ${title} chất lượng HD màn hình dọc trên KanoDrama.`
+      : `Watch free ${title} in vertical HD theater mode on KanoDrama.`;
+
   const description = cleanText(
     raw.description ??
       raw.introduction ??
       raw.synopsis ??
       raw.intro ??
       raw.summary,
-    `Watch free ${title} in vertical HD theater mode on KanoDrama.`
+    defaultDesc
   );
 
   let chapterCount = toPositiveNumber(
@@ -1210,7 +1220,13 @@ async function fetchUpstreamFeed(
       const out: CachedDramaItem[] = [];
       const seen = new Set<string>();
       rawList.forEach((raw, idx) => {
-        const item = normalizeDrama(raw, provider, withRank ? idx : undefined);
+        const item = normalizeDrama(
+          raw,
+          provider,
+          withRank ? idx : undefined,
+          false,
+          lang
+        );
         if (item && !seen.has(item.bookId)) {
           seen.add(item.bookId);
           out.push(item);

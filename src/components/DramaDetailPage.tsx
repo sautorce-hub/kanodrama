@@ -129,14 +129,20 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
   }>({ open: false, episode: 1, unlockMode: false });
 
   const activeReqIdRef = useRef(0);
+  const loadedItemKeyRef = useRef<string>('');
+  const detailRef = useRef<DramaItem | null>(detail);
+  detailRef.current = detail;
 
   const loadDetailAndEpisodes = async (
     id: string,
     provider: MediaProviderName,
-    baseDrama: DramaItem | null
+    baseDrama: DramaItem | null,
+    silentRefresh = false
   ) => {
     const reqId = ++activeReqIdRef.current;
-    setLoading(true);
+    if (!silentRefresh) {
+      setLoading(true);
+    }
     setError(null);
 
     try {
@@ -211,14 +217,14 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
             setError(
               movieRes.reason instanceof Error
                 ? movieRes.reason.message
-                : 'Failed to load movie detail.'
+                : t.ui.detailFailed
             );
           }
         } else {
           setError(
             epsRes.reason instanceof Error
               ? epsRes.reason.message
-              : 'Failed to load movie stream list.'
+              : t.ui.episodesFailed
           );
         }
         return;
@@ -283,20 +289,20 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
           setError(
             detailRes.reason instanceof Error
               ? detailRes.reason.message
-              : 'Failed to load series detail.'
+              : t.ui.detailFailed
           );
         }
       } else {
         setError(
           episodesRes.reason instanceof Error
             ? episodesRes.reason.message
-            : 'Failed to load episodes.'
+            : t.ui.episodesFailed
         );
       }
     } catch (err) {
       if (reqId !== activeReqIdRef.current) return;
       setError(
-        err instanceof Error ? err.message : 'Unable to fetch drama details.'
+        err instanceof Error ? err.message : t.ui.detailFailed
       );
     } finally {
       if (reqId === activeReqIdRef.current) {
@@ -306,31 +312,50 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
   };
 
   useEffect(() => {
-    setDetail(initialDrama);
-    setEpisodes(initialEpisodes);
-    setSelectedBatch(0);
-    setCoverFailed(false);
-    setPosterSrc(initialDrama?.cover ?? '');
-    setError(null);
+    const itemKey = `${resolvedProvider}:${bookId}`;
+    const isSameItem = loadedItemKeyRef.current === itemKey;
+    loadedItemKeyRef.current = itemKey;
 
-    if (initialDrama) {
-      saveDramaLookupCache(initialDrama);
+    if (!isSameItem) {
+      setDetail(initialDrama);
+      setEpisodes(initialEpisodes);
+      setSelectedBatch(0);
+      setCoverFailed(false);
+      setPosterSrc(initialDrama?.cover ?? '');
+      setError(null);
+    }
+
+    const activeDrama = isSameItem ? detailRef.current ?? initialDrama : initialDrama;
+    if (activeDrama) {
+      saveDramaLookupCache(activeDrama);
       const effectiveLang = syncLanguageFromContent(
-        initialDrama,
-        initialDrama.provider === 'LK21' || initialDrama.provider === 'LookSeries'
+        activeDrama,
+        activeDrama.provider === 'LK21' || activeDrama.provider === 'LookSeries'
           ? 'id'
           : undefined
       );
       if (!/^\/[a-z0-9_]+\/watch\//i.test(window.location.pathname)) {
-        syncDramaDocumentSeo(initialDrama, initialEpisodes, effectiveLang);
+        syncDramaDocumentSeo(
+          activeDrama,
+          isSameItem ? episodes : initialEpisodes,
+          effectiveLang
+        );
       }
     }
-    if (initialNotFound && !initialDrama) {
+    if (initialNotFound && !activeDrama) {
       setLoading(false);
       return;
     }
-    void loadDetailAndEpisodes(bookId, resolvedProvider, initialDrama);
-    void refreshDramaStats(bookId, resolvedProvider);
+    const silentRefresh = isSameItem && Boolean(detailRef.current);
+    void loadDetailAndEpisodes(
+      bookId,
+      resolvedProvider,
+      activeDrama,
+      silentRefresh
+    );
+    if (!isSameItem) {
+      void refreshDramaStats(bookId, resolvedProvider);
+    }
   }, [
     bookId,
     resolvedProvider,
@@ -636,7 +661,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
   const backHref = isMovieItem ? '/movies' : '/';
   const provRouteSlug = getProviderRouteSlug(detail.provider);
   const sectionCrumbHref = isMovieItem ? '/movies' : `/provider/${provRouteSlug}`;
-  const sectionCrumbLabel = isMovieItem ? 'Movies' : detail.provider;
+  const sectionCrumbLabel = isMovieItem ? t.nav.movies : detail.provider;
   const durationLabelText =
     detail.duration || (!isSingleMovie ? t.detail.shortEpDuration : '');
   const watchEp = isSingleMovie ? 1 : resumePoint?.episode ?? 1;
@@ -697,7 +722,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
               }}
               className="hover:text-white transition-colors"
             >
-              Home
+              {t.nav.home}
             </a>
             <ChevronRight className="w-3.5 h-3.5 opacity-60 shrink-0" />
             <a
