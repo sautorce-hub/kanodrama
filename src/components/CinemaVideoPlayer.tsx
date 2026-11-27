@@ -57,6 +57,7 @@ import {
   isEpisodeCachedOffline,
   readOfflineCachedEpisode,
 } from '../utils/offlineCache';
+import { triggerVideoEpisodeRedirectAd } from '../utils/adMonetization';
 import { useDramaContext } from '../context/DramaContext';
 import { formatCanonicalTime } from '../i18n/helpers';
 import { getWatchPath, syncEpisodePlayerSeo } from '../utils/seo';
@@ -1672,6 +1673,13 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
     _options?: { fromAutoNext?: boolean }
   ) => {
     if (!drama || targetEp < 1 || targetEp > totalEpisodes) return;
+    if (targetEp !== episodeNumber) {
+      triggerVideoEpisodeRedirectAd(
+        episodeNumber,
+        targetEp,
+        `${drama.provider}:${drama.bookId}`
+      );
+    }
     commitEpisodeChange(targetEp);
   };
 
