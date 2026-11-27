@@ -56,6 +56,7 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
   const {
     t,
     user,
+    authLoading,
     language,
     pointsBalance,
     todayWatchSeconds,
@@ -66,7 +67,7 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
     dailyMissionStatuses,
     accountLevelInfo,
     pointsPerUsd,
-    openAuthModal,
+    openGuestInviteModal,
     refreshPointsBalance,
   } = useDramaContext();
 
@@ -79,6 +80,8 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const burstSeqRef = useRef(0);
   const burstTimerRef = useRef<number | null>(null);
+  const guestActiveWatchSecRef = useRef(0);
+  const guestInviteAttemptedRef = useRef(false);
 
   const isId = language === 'id';
   const safeRate = Number(playbackRate) || 1;
@@ -180,6 +183,45 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
     return () => window.clearInterval(timer);
   }, [isActivelyCounting, todayWatchSeconds]);
 
+  useEffect(() => {
+    if (user) {
+      guestActiveWatchSecRef.current = 0;
+      guestInviteAttemptedRef.current = false;
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (
+      user ||
+      authLoading ||
+      !isPlaying ||
+      isBuffering ||
+      !speedValid ||
+      tabHidden
+    ) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      guestActiveWatchSecRef.current += 1;
+      if (
+        !guestInviteAttemptedRef.current &&
+        guestActiveWatchSecRef.current >= 45
+      ) {
+        guestInviteAttemptedRef.current = true;
+        openGuestInviteModal({ source: 'watch_duration', force: false });
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [
+    user,
+    authLoading,
+    isPlaying,
+    isBuffering,
+    speedValid,
+    tabHidden,
+    openGuestInviteModal,
+  ]);
+
   // Close popover on outside click
   useEffect(() => {
     if (!expanded) return;
@@ -264,11 +306,13 @@ export const VideoPointsCounter: React.FC<VideoPointsCounterProps> = ({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            openAuthModal(
-              isId
+            openGuestInviteModal({
+              source: 'manual',
+              reason: isId
                 ? `Masuk untuk mengumpulkan poin nonton (+${watchMinutePoints} poin/menit) & menukarnya ke DANA/PayPal`
-                : `Sign in to earn watch points (+${watchMinutePoints} pts/min) & withdraw to PayPal/DANA`
-            );
+                : `Sign in to earn watch points (+${watchMinutePoints} pts/min) & withdraw to PayPal/DANA`,
+              force: true,
+            });
           }}
           className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#09090B]/90 backdrop-blur-md border border-[#D4AF37]/45 text-xs font-bold text-white shadow-lg hover:border-[#D4AF37] hover:bg-[#141418]/95 transition-all whitespace-nowrap"
         >

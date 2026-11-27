@@ -70,6 +70,79 @@ const REACTIONS_STORAGE_KEY = 'kano_drama_reactions_v1';
 const COMMENTS_STORAGE_KEY = 'kano_drama_comments_v1';
 const UNLOCKED_VIP_STORAGE_KEY = 'kano_drama_unlocked_eps_v1';
 const WATCHED_COUNT_STORAGE_KEY = 'kano_drama_watched_count_v1';
+const GUEST_INVITE_SESSION_KEY = 'kd_guest_invite_session_v1';
+const GUEST_INVITE_COOLDOWN_MS = 480_000;
+const GUEST_INVITE_DISMISS_COOLDOWN_MS = 240_000;
+const GUEST_INVITE_MAX_SHOWS_PER_SESSION = 2;
+const GUEST_INVITE_MAX_DISMISSALS_PER_SESSION = 2;
+const GUEST_INVITE_POST_MOUNT_GUARD_MS = 20_000;
+const GUEST_INVITE_WATCH_THRESHOLD_SEC = 45;
+
+export type GuestInviteTriggerSource =
+  | 'manual'
+  | 'watch_duration'
+  | 'episode_milestone'
+  | 'rewards_action';
+
+interface GuestInviteSessionMeta {
+  shownCount: number;
+  dismissedCount: number;
+  lastShownAt: number;
+  lastDismissedAt: number;
+}
+
+const EMPTY_GUEST_INVITE_META: GuestInviteSessionMeta = {
+  shownCount: 0,
+  dismissedCount: 0,
+  lastShownAt: 0,
+  lastDismissedAt: 0,
+};
+
+function readGuestInviteSessionMeta(
+  fallback: GuestInviteSessionMeta
+): GuestInviteSessionMeta {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = window.sessionStorage.getItem(GUEST_INVITE_SESSION_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<GuestInviteSessionMeta>;
+    const shownCount =
+      typeof parsed.shownCount === 'number' && Number.isFinite(parsed.shownCount)
+        ? Math.max(0, Math.floor(parsed.shownCount))
+        : fallback.shownCount;
+    const dismissedCount =
+      typeof parsed.dismissedCount === 'number' &&
+      Number.isFinite(parsed.dismissedCount)
+        ? Math.max(0, Math.floor(parsed.dismissedCount))
+        : fallback.dismissedCount;
+    const lastShownAt =
+      typeof parsed.lastShownAt === 'number' && Number.isFinite(parsed.lastShownAt)
+        ? Math.max(0, parsed.lastShownAt)
+        : fallback.lastShownAt;
+    const lastDismissedAt =
+      typeof parsed.lastDismissedAt === 'number' &&
+      Number.isFinite(parsed.lastDismissedAt)
+        ? Math.max(0, parsed.lastDismissedAt)
+        : fallback.lastDismissedAt;
+    return {
+      shownCount: Math.max(shownCount, fallback.shownCount),
+      dismissedCount: Math.max(dismissedCount, fallback.dismissedCount),
+      lastShownAt: Math.max(lastShownAt, fallback.lastShownAt),
+      lastDismissedAt: Math.max(lastDismissedAt, fallback.lastDismissedAt),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function writeGuestInviteSessionMeta(meta: GuestInviteSessionMeta): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(GUEST_INVITE_SESSION_KEY, JSON.stringify(meta));
+  } catch {
+    // Ignore sessionStorage restrictions in Incognito/private mode
+  }
+}
 
 export const DEFAULT_WATCHLIST_FOLDERS: WatchlistFolder[] = [
   { id: 'all', name: 'All Saved', isDefault: true },
@@ -166,6 +239,15 @@ interface DramaContextValue {
     source?: 'login' | 'watch' | 'claim' | 'share' | 'referral';
   }) => void;
   closeSpotlightPopup: () => void;
+  guestInviteModalOpen: boolean;
+  guestInviteTriggerSource: GuestInviteTriggerSource;
+  guestInviteContextLabel: string | null;
+  openGuestInviteModal: (options?: {
+    source?: GuestInviteTriggerSource;
+    reason?: string;
+    force?: boolean;
+  }) => void;
+  closeGuestInviteModal: (markDismissed?: boolean) => void;
   gmailLoginCount: number;
   refreshGmailLoginCount: () => Promise<number>;
   pointsBalance: number | null;
@@ -588,6 +670,8 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const watchHeartbeatInFlightRef = useRef<boolean>(false);
   const episodeBonusAttemptedRef = useRef<Set<string>>(new Set());
   const [helpModalOpen, setHelpModalOpen] = useState(false);
+  const helpModalOpenRef = useRef<boolean>(helpModalOpen);
+  helpModalOpenRef.current = helpModalOpen;
 
   const getAuthHeaders = useCallback((extra?: Record<string, string>): Record<string, string> => {
     const deviceFp = getClientDeviceFingerprint();
@@ -1009,6 +1093,25 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [spotlightPopup, setSpotlightPopup] =
     useState<SpotlightPopupState | null>(null);
+  const [guestInviteModalOpen, setGuestInviteModalOpen] = useState<boolean>(false);
+  const [guestInviteTriggerSource, setGuestInviteTriggerSource] =
+    useState<GuestInviteTriggerSource>('manual');
+  const [guestInviteContextLabel, setGuestInviteContextLabel] =
+    useState<string | null>(null);
+  const mountedAtRef = useRef<number>(Date.now());
+  const guestInviteMetaRef = useRef<GuestInviteSessionMeta>({
+    ...EMPTY_GUEST_INVITE_META,
+  });
+  const guestWatchAccumulatedSecRef = useRef<number>(0);
+  const guestLastWatchProgressAtRef = useRef<number>(0);
+  const authLoadingRef = useRef<boolean>(authLoading);
+  authLoadingRef.current = authLoading;
+  const authModalOpenRef = useRef<boolean>(authModalOpen);
+  authModalOpenRef.current = authModalOpen;
+  const spotlightPopupRef = useRef<SpotlightPopupState | null>(spotlightPopup);
+  spotlightPopupRef.current = spotlightPopup;
+  const guestInviteOpenRef = useRef<boolean>(guestInviteModalOpen);
+  guestInviteOpenRef.current = guestInviteModalOpen;
   const blockedPopupShownForUidRef = useRef<string | null>(null);
   const [liveBadgeMap, setLiveBadgeMap] = useState<
     Record<
@@ -1105,6 +1208,99 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
   const closeSpotlightPopup = useCallback(() => {
     setSpotlightPopup(null);
   }, []);
+
+  const openGuestInviteModal = useCallback(
+    (options?: {
+      source?: GuestInviteTriggerSource;
+      reason?: string;
+      force?: boolean;
+    }) => {
+      if (typeof window === 'undefined') return;
+      if (user || authLoadingRef.current) return;
+      if (
+        authModalOpenRef.current ||
+        spotlightPopupRef.current ||
+        guestInviteOpenRef.current
+      ) {
+        return;
+      }
+
+      const source = options?.source ?? 'manual';
+      const force = Boolean(options?.force);
+      const now = Date.now();
+      const currentMeta = readGuestInviteSessionMeta(guestInviteMetaRef.current);
+
+      if (!force) {
+        if (helpModalOpenRef.current) return;
+        if (typeof document !== 'undefined') {
+          if (document.hidden || Boolean(document.fullscreenElement)) {
+            return;
+          }
+        }
+        if (now - mountedAtRef.current < GUEST_INVITE_POST_MOUNT_GUARD_MS) {
+          return;
+        }
+        if (currentMeta.shownCount >= GUEST_INVITE_MAX_SHOWS_PER_SESSION) {
+          return;
+        }
+        if (
+          currentMeta.dismissedCount >= GUEST_INVITE_MAX_DISMISSALS_PER_SESSION
+        ) {
+          return;
+        }
+        if (
+          currentMeta.lastShownAt > 0 &&
+          now - currentMeta.lastShownAt < GUEST_INVITE_COOLDOWN_MS
+        ) {
+          return;
+        }
+        if (
+          currentMeta.lastDismissedAt > 0 &&
+          now - currentMeta.lastDismissedAt < GUEST_INVITE_DISMISS_COOLDOWN_MS
+        ) {
+          return;
+        }
+      }
+
+      const nextMeta: GuestInviteSessionMeta = {
+        ...currentMeta,
+        shownCount: force ? currentMeta.shownCount : currentMeta.shownCount + 1,
+        lastShownAt: now,
+      };
+      guestInviteMetaRef.current = nextMeta;
+      writeGuestInviteSessionMeta(nextMeta);
+
+      setGuestInviteTriggerSource(source);
+      setGuestInviteContextLabel(options?.reason?.trim() || null);
+      setGuestInviteModalOpen(true);
+    },
+    [user]
+  );
+
+  const closeGuestInviteModal = useCallback((markDismissed = true) => {
+    setGuestInviteModalOpen(false);
+    if (markDismissed) {
+      const now = Date.now();
+      const currentMeta = readGuestInviteSessionMeta(guestInviteMetaRef.current);
+      const nextMeta: GuestInviteSessionMeta = {
+        ...currentMeta,
+        dismissedCount: currentMeta.dismissedCount + 1,
+        lastDismissedAt: now,
+      };
+      guestInviteMetaRef.current = nextMeta;
+      writeGuestInviteSessionMeta(nextMeta);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user || authModalOpen) {
+      setGuestInviteModalOpen(false);
+      if (user) {
+        guestWatchAccumulatedSecRef.current = 0;
+        guestLastWatchProgressAtRef.current = 0;
+      }
+    }
+  }, [user, authModalOpen]);
 
   const refreshGmailLoginCount = useCallback(async (): Promise<number> => {
     try {
@@ -2017,6 +2213,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const openAuthModal = useCallback(
     (reason?: string, onSuccess?: (u: GoogleUser) => void) => {
+      setGuestInviteModalOpen(false);
       setAuthError(null);
       setAuthLoading(false);
       setAuthPromptReason(reason ?? null);
@@ -2043,6 +2240,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       const mapped = mapServerUser(result.user);
       activeActorUidRef.current = mapped.uid;
       setUser(mapped);
+      setGuestInviteModalOpen(false);
       setAuthError(null);
       setAuthModalOpen(false);
       setAuthPromptReason(null);
@@ -2887,6 +3085,9 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       if (!countedEpisodesSessionRef.current.has(epSessionKey)) {
         countedEpisodesSessionRef.current.add(epSessionKey);
         setEpisodesWatchedCount((c) => c + 1);
+        if (!user && !authLoadingRef.current && countedEpisodesSessionRef.current.size >= 2) {
+          openGuestInviteModal({ source: 'episode_milestone', force: false });
+        }
         const dramaKey = makeItemKey(drama.bookId, drama.provider);
         setLiveBadgeMap((prev) => {
           const cur = prev[dramaKey];
@@ -3065,6 +3266,44 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
             drama,
           }),
         }).catch(() => {});
+      }
+
+      // Guest active watch duration tracker (triggers lightweight invite after threshold, respects session caps/cooldowns)
+      if (!user && !authLoadingRef.current && typeof document !== 'undefined') {
+        const tabVisible = !document.hidden;
+        const videos = Array.from(document.querySelectorAll('video'));
+        const activeVideo =
+          videos.find((v) => !v.paused && !v.ended) || videos[0] || null;
+        const isPlaying =
+          typeof playbackState?.isPlaying === 'boolean'
+            ? playbackState.isPlaying
+            : activeVideo
+            ? !activeVideo.paused && !activeVideo.ended
+            : false;
+        const isBuffering = Boolean(playbackState?.isBuffering);
+
+        if (!immediate && isPlaying && !isBuffering && tabVisible) {
+          const prevTickAt = guestLastWatchProgressAtRef.current;
+          if (prevTickAt > 0) {
+            const deltaMs = nowMs - prevTickAt;
+            if (deltaMs > 0 && deltaMs <= 12_000) {
+              guestWatchAccumulatedSecRef.current += Math.min(10, deltaMs / 1000);
+            }
+          }
+          guestLastWatchProgressAtRef.current = nowMs;
+
+          if (guestWatchAccumulatedSecRef.current >= GUEST_INVITE_WATCH_THRESHOLD_SEC) {
+            openGuestInviteModal({
+              source:
+                countedEpisodesSessionRef.current.size >= 2
+                  ? 'episode_milestone'
+                  : 'watch_duration',
+              force: false,
+            });
+          }
+        } else {
+          guestLastWatchProgressAtRef.current = 0;
+        }
       }
 
       // Server-issued Watch Session + Heartbeat (15s interval -> exact 60s minute crediting)
@@ -3350,13 +3589,20 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       refreshPointsBalance,
       pushToast,
       openBlockedAccountPopup,
+      openGuestInviteModal,
       language,
     ]
   );
 
   const claimEpisodeBonus = useCallback(
     async (drama: DramaItem, episodeNumber: number) => {
-      if (!user || !drama.bookId) return;
+      if (!drama.bookId) return;
+      if (!user) {
+        if (!authLoadingRef.current) {
+          openGuestInviteModal({ source: 'episode_milestone', force: false });
+        }
+        return;
+      }
       const safeEp = Math.max(1, Math.floor(Number(episodeNumber) || 1));
       const dedupKey = `${user.uid}:${drama.provider}:${drama.bookId}:ep${safeEp}`;
       if (episodeBonusAttemptedRef.current.has(dedupKey)) return;
@@ -3442,6 +3688,7 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       language,
       pushToast,
       openBlockedAccountPopup,
+      openGuestInviteModal,
       refreshPointsBalance,
     ]
   );
@@ -3765,6 +4012,11 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       spotlightPopup,
       openBlockedAccountPopup,
       closeSpotlightPopup,
+      guestInviteModalOpen,
+      guestInviteTriggerSource,
+      guestInviteContextLabel,
+      openGuestInviteModal,
+      closeGuestInviteModal,
       gmailLoginCount,
       refreshGmailLoginCount,
       pointsBalance,
@@ -3861,6 +4113,11 @@ export const DramaProvider: React.FC<{ children: React.ReactNode }> = ({
       spotlightPopup,
       openBlockedAccountPopup,
       closeSpotlightPopup,
+      guestInviteModalOpen,
+      guestInviteTriggerSource,
+      guestInviteContextLabel,
+      openGuestInviteModal,
+      closeGuestInviteModal,
       gmailLoginCount,
       refreshGmailLoginCount,
       pointsBalance,

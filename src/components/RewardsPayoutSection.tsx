@@ -1000,6 +1000,7 @@ export const RewardsPayoutSection: React.FC = () => {
     pointsDbConnected,
     pointsDbError,
     openAuthModal,
+    openGuestInviteModal,
     openBlockedAccountPopup,
     getAuthHeaders,
     refreshPointsBalance,
@@ -1501,7 +1502,7 @@ export const RewardsPayoutSection: React.FC = () => {
 
   const handleDailyCheckin = async () => {
     if (!user) {
-      openAuthModal();
+      openGuestInviteModal({ source: 'rewards_action', force: true });
       return;
     }
     setClaimingCheckin(true);
@@ -1585,7 +1586,7 @@ export const RewardsPayoutSection: React.FC = () => {
 
   const handleClaimMilestone = async (milestoneMinutes: number) => {
     if (!user) {
-      openAuthModal();
+      openGuestInviteModal({ source: 'rewards_action', force: true });
       return;
     }
     if (claimingMilestoneMinutes !== null) return;
@@ -1682,7 +1683,7 @@ export const RewardsPayoutSection: React.FC = () => {
     channel: 'whatsapp' | 'telegram' | 'x' | 'facebook' | 'copy_link' | 'native_share'
   ) => {
     if (!user) {
-      openAuthModal();
+      openGuestInviteModal({ source: 'rewards_action', force: true });
       return;
     }
     setShareFeedback(null);
@@ -1861,7 +1862,7 @@ export const RewardsPayoutSection: React.FC = () => {
   const handleRequestWithdrawConfirmation = (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
-      openAuthModal();
+      openGuestInviteModal({ source: 'rewards_action', force: true });
       return;
     }
     setFormFeedback(null);
@@ -2031,7 +2032,11 @@ export const RewardsPayoutSection: React.FC = () => {
 
   const handleBindReferralCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !bindCodeInput.trim()) return;
+    if (!user) {
+      openGuestInviteModal({ source: 'rewards_action', force: true });
+      return;
+    }
+    if (!bindCodeInput.trim()) return;
     setBindingRef(true);
     setBindFeedback(null);
     try {
@@ -3174,7 +3179,7 @@ export const RewardsPayoutSection: React.FC = () => {
             <p className="text-xs text-[#A1A1AA]">{t.rewards.dailyShareHint}</p>
             <button
               type="button"
-              onClick={() => openAuthModal()}
+              onClick={() => openGuestInviteModal({ source: 'rewards_action', force: true })}
               className="px-4 py-2 min-h-[40px] rounded-xl bg-[#D4AF37] text-[#09090B] text-xs font-extrabold hover:brightness-110 transition-all whitespace-nowrap shrink-0"
             >
               {isId
@@ -3464,7 +3469,7 @@ export const RewardsPayoutSection: React.FC = () => {
             </div>
             <button
               type="button"
-              onClick={() => openAuthModal()}
+              onClick={() => openGuestInviteModal({ source: 'rewards_action', force: true })}
               className="px-5 py-2.5 min-h-[40px] rounded-xl bg-[#D4AF37] text-[#09090B] text-xs font-extrabold hover:brightness-110 transition-all whitespace-nowrap shrink-0"
             >
               {isId ? 'Masuk & Ambil Kode' : 'Sign In for Code'}
@@ -4254,7 +4259,7 @@ export const RewardsPayoutSection: React.FC = () => {
             ) : (
               <button
                 type="button"
-                onClick={() => openAuthModal()}
+                onClick={() => openGuestInviteModal({ source: 'rewards_action', force: true })}
                 className="px-6 py-2.5 min-h-[44px] rounded-xl cd-accent-bg text-xs sm:text-sm font-bold text-white shadow-lg whitespace-nowrap shrink-0"
               >
                 {t.auth.continueBtn}

@@ -174,6 +174,11 @@ const AuthProfileModal = lazy(() =>
     default: m.AuthProfileModal,
   }))
 );
+const GuestRewardsInviteModal = lazy(() =>
+  import('./components/GuestRewardsInviteModal').then((m) => ({
+    default: m.GuestRewardsInviteModal,
+  }))
+);
 const HelpCenterModal = lazy(() =>
   import('./components/HelpCenterModal').then((m) => ({
     default: m.HelpCenterModal,
@@ -959,6 +964,8 @@ export default function App() {
     user,
     authLoading,
     authModalOpen,
+    spotlightPopup,
+    guestInviteModalOpen,
     openAuthModal,
     closeAuthModal,
     setLanguageState,
@@ -5249,6 +5256,12 @@ export default function App() {
           ))}
 
         {authModalOpen && <AuthProfileModal />}
+        {guestInviteModalOpen &&
+          !user &&
+          !authLoading &&
+          !homeLoading &&
+          !authModalOpen &&
+          !spotlightPopup && <GuestRewardsInviteModal />}
         <HelpCenterModal />
       </Suspense>
 
