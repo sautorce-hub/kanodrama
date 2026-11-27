@@ -1828,60 +1828,187 @@ export function generateMetadata(
     'x-default': canonicalUrl,
   };
 
-  const keywords = (
-    input.keywords && input.keywords.length > 0
-      ? input.keywords
-      : input.page === 'rewards'
-      ? lang === 'id'
+  const keywords = (() => {
+    if (input.page === 'drama' || input.page === 'movie') {
+      const baseTitle =
+        stripLeadingWatchPrefix(input.title || '') ||
+        sanitizeMetaText(input.title) ||
+        (input.page === 'movie' ? 'HD Movie' : 'Short Drama');
+      const epCount = Math.max(1, input.episodeCount || 1);
+      const epNum =
+        input.episodeNumber && input.episodeNumber >= 1
+          ? Math.floor(input.episodeNumber)
+          : 0;
+      const cleanTags = (input.tags || [])
+        .map((t) => sanitizeMetaText(t))
+        .filter(Boolean)
+        .slice(0, 6);
+
+      const localizedCore: Record<LanguageCode, string[]> = {
+        id: [
+          `Nonton ${baseTitle} Sub Indo`,
+          `Streaming ${baseTitle} Full Episode`,
+          `${baseTitle} Sub Indo HD`,
+          ...(input.page === 'movie'
+            ? [`Nonton Film ${baseTitle} Sub Indo`, 'Streaming Film HD Gratis']
+            : ['Nonton Drama Pendek Sub Indo', 'Drama China Sub Indo']),
+          'Nonton Gratis Tanpa Iklan',
+        ],
+        en: [
+          `Watch ${baseTitle} Full Episodes`,
+          `${baseTitle} HD Subtitles`,
+          `Stream ${baseTitle} Online Free`,
+          ...(input.page === 'movie'
+            ? [`Watch ${baseTitle} Full Movie HD`, 'Free Asian Movies HD']
+            : ['Watch Vertical Short Dramas', 'Asian Short Series HD']),
+          'Ad-Free HD Streaming',
+        ],
+        cn: [
+          `免费观看 ${baseTitle}`,
+          `${baseTitle} 高清全集`,
+          '在线短剧免费看',
+          '竖屏短剧高清',
+        ],
+        vi: [
+          `Xem ${baseTitle} Vietsub HD`,
+          `${baseTitle} Trọn Bộ`,
+          'Phim Ngắn Trung Quốc',
+          'Xem Phim HD Miễn Phí',
+        ],
+        es: [
+          `Ver ${baseTitle} Sub Español`,
+          `${baseTitle} Capítulos Completos`,
+          'Dramas Cortos HD',
+          'Ver Series Asiáticas Gratis',
+        ],
+        ko: [
+          `${baseTitle} 무료 다시보기`,
+          `${baseTitle} 전편 HD`,
+          '숏드라마 무료 감상',
+        ],
+        ja: [
+          `${baseTitle} 無料視聴`,
+          `${baseTitle} 全話 HD`,
+          'ショートドラマ無料',
+        ],
+        th: [
+          `ดู ${baseTitle} ซับไทย HD`,
+          `${baseTitle} ครบทุกตอน`,
+          'มินิซีรีส์ออนไลน์ฟรี',
+        ],
+        ms: [
+          `Tonton ${baseTitle} Sari Kata Melayu`,
+          `${baseTitle} Episod Penuh HD`,
+          'Drama Pendek HD',
+        ],
+        tl: [
+          `Panoorin ${baseTitle} Full Episodes`,
+          `${baseTitle} Tagalog Sub HD`,
+          'Vertical Short Dramas',
+        ],
+      };
+
+      const rawCandidates: string[] = [
+        baseTitle,
+        ...(localizedCore[lang] || localizedCore.en),
+        ...(epNum > 1 ? [`${baseTitle} Episode ${epNum}`] : []),
+        ...(epCount > 1
+          ? [
+              lang === 'id'
+                ? `${baseTitle} ${epCount} Episode`
+                : `${baseTitle} ${epCount} Episodes`,
+            ]
+          : []),
+        ...(providerLabel
+          ? [providerLabel, `${providerLabel} ${baseTitle}`]
+          : []),
+        ...cleanTags,
+        ...cleanTags.slice(0, 2).map((tg) =>
+          lang === 'id' ? `Drama ${tg} Sub Indo` : `${tg} Short Drama`
+        ),
+        ...(input.keywords || []).map((k) => sanitizeMetaText(k)),
+        'KanoDrama',
+        'kano-drama.live',
+      ];
+
+      const seen = new Set<string>();
+      const deduped: string[] = [];
+      for (const candidate of rawCandidates) {
+        if (!candidate) continue;
+        const norm = candidate.toLowerCase();
+        if (seen.has(norm)) continue;
+        seen.add(norm);
+        deduped.push(candidate);
+        if (deduped.length >= 18) break;
+      }
+      return deduped.join(', ');
+    }
+
+    return (
+      input.keywords && input.keywords.length > 0
+        ? input.keywords
+        : input.page === 'rewards'
+        ? lang === 'id'
+          ? [
+              'Nonton drama dapat poin',
+              'Nonton drama China dapat reward',
+              'Nonton drama dapat saldo DANA',
+              'Nonton short drama dapat hadiah',
+              'Reward KanoDrama',
+              'KanoDrama Poin dan Referral',
+              'KanoDrama',
+              'kano-drama.live',
+            ]
+          : [
+              'Watch short dramas earn points',
+              'KanoDrama Rewards',
+              'KanoDrama Referral Program',
+              'Earn PayPal Wise USDT watching dramas',
+              'KanoDrama',
+              'kano-drama.live',
+            ]
+        : input.page === 'providers'
         ? [
-            'Nonton drama dapat poin',
-            'Nonton drama China dapat reward',
-            'Nonton drama dapat saldo DANA',
-            'Nonton short drama dapat hadiah',
-            'Reward KanoDrama',
-            'KanoDrama Poin dan Referral',
-            'KanoDrama',
+            'KanoDrama Providers',
+            'DramaBox V2',
+            'MeloLo V2',
+            'NetShort',
+            'ReelShort V2',
+            lang === 'id'
+              ? 'Daftar Platform Drama Pendek Sub Indo'
+              : 'Short Drama Streaming Providers',
+            'kano-drama.live',
+          ]
+        : input.page === 'account' ||
+          input.page === 'dashboard' ||
+          input.page === 'watchlist'
+        ? [
+            'KanoDrama Account',
+            lang === 'id'
+              ? 'Riwayat Tontonan KanoDrama'
+              : 'Watch History & Watchlist',
+            'KanoDrama Points',
             'kano-drama.live',
           ]
         : [
-            'Watch short dramas earn points',
-            'KanoDrama Rewards',
-            'KanoDrama Referral Program',
-            'Earn PayPal Wise USDT watching dramas',
             'KanoDrama',
             'kano-drama.live',
+            lang === 'id' ? 'Nonton Drama Pendek' : 'Watch Short Dramas',
+            lang === 'id' ? 'Serial Asia Sub Indo HD' : 'Asian Series HD',
+            lang === 'id'
+              ? 'Drama China & Korea'
+              : 'Chinese & Korean Dramas',
+            lang === 'id'
+              ? 'Streaming Gratis Tanpa Iklan'
+              : 'Ad-Free Streaming',
+            'DramaBox V2',
+            'NetShort',
+            'MeloLo V2',
           ]
-      : input.page === 'providers'
-      ? [
-          'KanoDrama Providers',
-          'DramaBox V2',
-          'MeloLo V2',
-          'NetShort',
-          'ReelShort V2',
-          lang === 'id' ? 'Daftar Platform Drama Pendek Sub Indo' : 'Short Drama Streaming Providers',
-          'kano-drama.live',
-        ]
-      : input.page === 'account' || input.page === 'dashboard' || input.page === 'watchlist'
-      ? [
-          'KanoDrama Account',
-          lang === 'id' ? 'Riwayat Tontonan KanoDrama' : 'Watch History & Watchlist',
-          'KanoDrama Points',
-          'kano-drama.live',
-        ]
-      : [
-          'KanoDrama',
-          'kano-drama.live',
-          lang === 'id' ? 'Nonton Drama Pendek' : 'Watch Short Dramas',
-          lang === 'id' ? 'Serial Asia Sub Indo HD' : 'Asian Series HD',
-          lang === 'id' ? 'Drama China & Korea' : 'Chinese & Korean Dramas',
-          lang === 'id' ? 'Streaming Gratis Tanpa Iklan' : 'Ad-Free Streaming',
-          'DramaBox V2',
-          'NetShort',
-          'MeloLo V2',
-        ]
-  )
-    .filter(Boolean)
-    .join(', ');
+    )
+      .filter(Boolean)
+      .join(', ');
+  })();
 
   const isLocalOrigin = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/i.test(
     origin

@@ -419,6 +419,9 @@ export function buildDramaSeoMetadata(
       'KanoDrama',
       formatProviderDisplayName(drama.provider),
       ...drama.tags,
+      ...(drama.year ? [String(drama.year)] : []),
+      ...(drama.area ? [drama.area] : []),
+      ...(drama.director ? [drama.director] : []),
     ],
   });
 
@@ -1044,6 +1047,9 @@ export function syncDramaDocumentSeo(
       'KanoDrama',
       formatProviderDisplayName(drama.provider),
       ...drama.tags,
+      ...(drama.year ? [String(drama.year)] : []),
+      ...(drama.area ? [drama.area] : []),
+      ...(drama.director ? [drama.director] : []),
     ],
   });
   applyMetadataToDocument(meta);
@@ -1110,13 +1116,22 @@ export function syncEpisodePlayerSeo(
     episodeTitle: activeEp?.title,
     tags: drama.tags,
     image: toAbsoluteOgImage(drama.cover, origin),
-    keywords: [drama.title, 'KanoDrama', formatProviderDisplayName(drama.provider), ...drama.tags],
+    keywords: [
+      drama.title,
+      'KanoDrama',
+      formatProviderDisplayName(drama.provider),
+      ...drama.tags,
+      ...(drama.year ? [String(drama.year)] : []),
+      ...(drama.area ? [drama.area] : []),
+      ...(drama.director ? [drama.director] : []),
+    ],
   });
 
   const primaryImg = meta.openGraph.images[0];
   document.documentElement.lang = meta.htmlLang;
   document.title = meta.title;
   upsertMetaTag('name', 'description', meta.description);
+  upsertMetaTag('name', 'keywords', meta.keywords);
   upsertMetaTag('name', 'robots', 'index, follow, max-image-preview:large');
   upsertMetaTag('property', 'og:site_name', 'KanoDrama');
   upsertMetaTag('property', 'og:locale', meta.ogLocale);

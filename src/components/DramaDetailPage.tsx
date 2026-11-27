@@ -690,175 +690,226 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
           : 'https://schema.org/TVSeries'
       }
     >
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div className="flex flex-wrap items-center gap-3 min-w-0">
-          <a
-            href={`${DEFAULT_SITE_ORIGIN}${backHref}`}
-            onClick={(e) => {
-              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
-                return;
-              }
-              e.preventDefault();
-              onBackHome();
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-xs sm:text-sm font-medium text-white transition-colors shrink-0"
-          >
-            <ArrowLeft className="w-4 h-4 cd-accent-text" />
-            {t.sections.backToBrowse}
-          </a>
-
-          <nav
-            aria-label="Breadcrumb"
-            className="flex items-center gap-1.5 text-xs text-[#A1A1AA] min-w-0 overflow-hidden"
-          >
-            <a
-              href={`${DEFAULT_SITE_ORIGIN}/`}
-              onClick={(e) => {
-                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
-                  return;
-                }
-                e.preventDefault();
-                onBackHome();
-              }}
-              className="hover:text-white transition-colors"
-            >
-              {t.nav.home}
-            </a>
-            <ChevronRight className="w-3.5 h-3.5 opacity-60 shrink-0" />
-            <a
-              href={`${DEFAULT_SITE_ORIGIN}${sectionCrumbHref}`}
-              onClick={(e) => {
-                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
-                  return;
-                }
-                e.preventDefault();
-                window.dispatchEvent(
-                  new CustomEvent('kd:navigate-path', {
-                    detail: { path: sectionCrumbHref },
-                  })
-                );
-              }}
-              className="text-[#D4AF37] hover:underline whitespace-nowrap"
-            >
-              {sectionCrumbLabel}
-            </a>
-            <ChevronRight className="w-3.5 h-3.5 opacity-60 shrink-0" />
-            <span className="text-white font-medium truncate max-w-[260px]">
-              {detail.title}
-            </span>
-          </nav>
-        </div>
-
-        <button
-          type="button"
-          onClick={() =>
-            setShareModalState({
-              open: true,
-              episode: resumePoint?.episode ?? 1,
-              unlockMode: false,
-            })
-          }
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-xs font-semibold text-white transition-colors shrink-0"
+      {/* Top Action Bar */}
+      <div className="flex items-center justify-between gap-2.5 mb-3">
+        <a
+          href={`${DEFAULT_SITE_ORIGIN}${backHref}`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+              return;
+            }
+            e.preventDefault();
+            onBackHome();
+          }}
+          className="inline-flex items-center gap-2 px-4 py-2 min-h-[44px] sm:min-h-[38px] rounded-full bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-xs sm:text-sm font-medium text-white transition-colors shrink-0 whitespace-nowrap"
         >
-          <Share2 className="w-3.5 h-3.5 cd-accent-text" />
-          {t.engagement.generateSpoilerCard}
-        </button>
+          <ArrowLeft className="w-4 h-4 cd-accent-text shrink-0" />
+          <span>{t.sections.backToBrowse}</span>
+        </a>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => toggleMyList(detail)}
+            aria-label={isSaved ? t.hero.inList : t.hero.addToList}
+            className={`sm:hidden inline-flex items-center justify-center w-11 h-11 rounded-full border transition-colors ${
+              isSaved
+                ? 'bg-[var(--cd-accent-soft)] border-[var(--cd-accent)] text-[var(--cd-accent-text)]'
+                : 'bg-[var(--cd-surface)] border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-white'
+            }`}
+          >
+            {isSaved ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setShareModalState({
+                open: true,
+                episode: resumePoint?.episode ?? 1,
+                unlockMode: false,
+              })
+            }
+            className="inline-flex items-center gap-2 px-4 py-2 min-h-[44px] sm:min-h-[38px] rounded-full bg-[var(--cd-surface)] border border-[var(--cd-border)] hover:border-[var(--cd-accent)] text-xs font-semibold text-white transition-colors shrink-0 whitespace-nowrap"
+          >
+            <Share2 className="w-3.5 h-3.5 cd-accent-text shrink-0" />
+            <span>{t.engagement.generateSpoilerCard}</span>
+          </button>
+        </div>
       </div>
 
-      {/* Hero Detail Card */}
-      <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden bg-[#111115] border border-[var(--cd-border)] shadow-2xl mb-6 sm:mb-8">
-        {detail.cover && !coverFailed && (
+      {/* Subtle Single-Line Breadcrumb */}
+      <nav
+        aria-label="Breadcrumb"
+        className="flex items-center gap-1.5 text-xs text-[#A1A1AA] min-w-0 overflow-hidden mb-4 px-1"
+      >
+        <a
+          href={`${DEFAULT_SITE_ORIGIN}/`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+              return;
+            }
+            e.preventDefault();
+            onBackHome();
+          }}
+          className="hover:text-white transition-colors shrink-0 whitespace-nowrap"
+        >
+          {t.nav.home}
+        </a>
+        <ChevronRight className="w-3.5 h-3.5 opacity-60 shrink-0" />
+        <a
+          href={`${DEFAULT_SITE_ORIGIN}${sectionCrumbHref}`}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+              return;
+            }
+            e.preventDefault();
+            window.dispatchEvent(
+              new CustomEvent('kd:navigate-path', {
+                detail: { path: sectionCrumbHref },
+              })
+            );
+          }}
+          className="text-[#D4AF37] hover:underline whitespace-nowrap shrink-0"
+        >
+          {sectionCrumbLabel}
+        </a>
+        <ChevronRight className="w-3.5 h-3.5 opacity-60 shrink-0" />
+        <span className="text-white/90 font-medium truncate">
+          {detail.title}
+        </span>
+      </nav>
+
+      {/* Hero Detail Card with Centered Poster & Dynamic Poster Blur Backdrop */}
+      <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden bg-[#0C0C10] border border-white/12 shadow-[0_24px_70px_rgba(0,0,0,0.75)] mb-6 sm:mb-8">
+        {/* Ambient Blurred Backdrop Sourced Directly from the Drama Poster */}
+        {effectivePosterSrc && (
           <img
-            src={detail.cover}
+            src={effectivePosterSrc}
             alt=""
             aria-hidden="true"
             referrerPolicy="no-referrer"
-            className="absolute inset-0 w-full h-full object-cover scale-125 blur-3xl opacity-25 pointer-events-none"
+            className="absolute inset-0 w-full h-full object-cover object-center scale-150 blur-3xl opacity-60 saturate-150 pointer-events-none select-none transition-opacity duration-500"
           />
         )}
         <div
-          className="absolute inset-0 bg-gradient-to-t from-[#111115] via-[#111115]/80 to-[#111115]/60"
+          className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(12,12,16,0.12)_0%,rgba(12,12,16,0.72)_62%,rgba(12,12,16,0.97)_100%)] pointer-events-none"
+          aria-hidden="true"
+        />
+        <div
+          className="absolute inset-0 bg-gradient-to-b from-black/35 via-[#0C0C10]/65 to-[#0C0C10] pointer-events-none"
           aria-hidden="true"
         />
 
-        <div className="relative z-10 p-5 sm:p-8 lg:p-10 flex flex-col sm:flex-row gap-6 sm:gap-8 items-start">
-          <a
-            href={watchHref}
-            onClick={(e) => {
-              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
-                return;
-              }
-              e.preventDefault();
-              onPlayEpisode(
-                detail,
-                watchEp,
-                episodes,
-                resumePoint?.currentTime ?? 0
-              );
-            }}
-            aria-label={detail.title}
-            className="group relative w-40 sm:w-52 aspect-[9/16] rounded-2xl overflow-hidden bg-[#18181D] border border-white/15 shadow-2xl shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cd-accent)]"
-          >
-            <img
-              src={effectivePosterSrc}
-              alt={detail.title}
-              itemProp="image"
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover object-top transition-transform duration-300 group-hover:scale-105 bg-[#18181D]"
-            />
-            <span className="absolute inset-0 bg-black/25 group-hover:bg-black/40 transition-colors flex items-center justify-center">
-              <span className="w-12 h-12 rounded-full cd-accent-bg text-white flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform">
-                <Play className="w-5 h-5 fill-current ml-0.5" />
-              </span>
-            </span>
-          </a>
+        <div className="relative z-10 px-4 pt-7 pb-6 sm:px-8 sm:pt-10 sm:pb-9 lg:px-12">
+          <div className="max-w-3xl mx-auto flex flex-col items-center text-center">
+            {/* Centered Poster / Artwork with Ambient Glow Halo */}
+            <div className="relative mb-5 sm:mb-6 flex items-center justify-center">
+              {effectivePosterSrc && (
+                <img
+                  src={effectivePosterSrc}
+                  alt=""
+                  aria-hidden="true"
+                  referrerPolicy="no-referrer"
+                  className="absolute -inset-3 w-[calc(100%+24px)] h-[calc(100%+24px)] object-cover rounded-3xl blur-2xl opacity-50 saturate-150 pointer-events-none select-none"
+                />
+              )}
+              <a
+                href={watchHref}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+                    return;
+                  }
+                  e.preventDefault();
+                  onPlayEpisode(
+                    detail,
+                    watchEp,
+                    episodes,
+                    resumePoint?.currentTime ?? 0
+                  );
+                }}
+                aria-label={detail.title}
+                className="group relative block w-44 sm:w-52 md:w-56 aspect-[2/3] rounded-2xl overflow-hidden bg-[#18181D] ring-1 ring-white/25 shadow-[0_22px_54px_rgba(0,0,0,0.88)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cd-accent)]"
+              >
+                <img
+                  src={effectivePosterSrc}
+                  alt={detail.title}
+                  itemProp="image"
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-cover object-top transition-transform duration-300 group-hover:scale-105 bg-[#18181D]"
+                />
+                <span className="absolute inset-0 bg-black/20 group-hover:bg-black/35 transition-colors flex items-center justify-center">
+                  <span className="w-12 h-12 rounded-full bg-black/55 backdrop-blur-md border border-white/30 group-hover:bg-[var(--cd-accent)] group-hover:border-[var(--cd-accent)] text-white flex items-center justify-center shadow-xl group-hover:scale-110 transition-all">
+                    <Play className="w-5 h-5 fill-current ml-0.5" />
+                  </span>
+                </span>
+              </a>
+            </div>
 
-          <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold mb-3">
+            {/* Provider Badge + VIP + Views */}
+            <div className="flex flex-wrap items-center justify-center gap-2 text-xs font-semibold mb-3">
               <ProviderBadge provider={detail.provider} size="sm" />
               {detail.isVip && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded bg-[#D4AF37] text-[#09090B] text-[10px] font-bold">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#D4AF37] text-[#09090B] text-[10px] font-bold shadow-sm">
                   <Crown className="w-2.5 h-2.5" />
                   VIP
                 </span>
               )}
               {detail.playCount && (
-                <span className="inline-flex items-center gap-1 text-[#A1A1AA] tabular-nums">
-                  <Eye className="w-3.5 h-3.5" />
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-black/45 backdrop-blur-md border border-white/10 text-[#E4E4E7] tabular-nums">
+                  <Eye className="w-3.5 h-3.5 text-[#D4AF37]" />
                   {detail.playCount}
                 </span>
               )}
             </div>
 
+            {/* Drama Title */}
             <h1
               itemProp="name"
-              className="text-2xl sm:text-4xl font-bold text-white leading-tight mb-3"
+              className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white leading-tight tracking-tight mb-3 drop-shadow-sm max-w-2xl"
               style={{ textWrap: 'balance' }}
             >
               {detail.title}
             </h1>
 
-            {/* Clean Typographic Metadata Line */}
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[#D4D4D8] mb-4">
+            {/* Episode Count & Genre Pills */}
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
               <span
                 itemProp={isSingleMovie ? undefined : 'numberOfEpisodes'}
-                className="font-semibold cd-accent-text tabular-nums"
+                className="inline-flex items-center px-3 py-1 rounded-full bg-white/12 backdrop-blur-md border border-white/20 text-xs font-semibold text-white tabular-nums"
               >
                 {isSingleMovie
                   ? detail.quality || t.detail.hdMovie
                   : `${totalEpisodeCount} ${t.detail.episodeUnit}`}
               </span>
+              {detail.tags.slice(0, 5).map((tag) => (
+                <a
+                  key={tag}
+                  href={`${DEFAULT_SITE_ORIGIN}/tag/${encodeURIComponent(slugifyDramaTitle(tag))}`}
+                  itemProp="genre"
+                  onClick={(e) => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+                      return;
+                    }
+                    e.preventDefault();
+                    onSelectTag?.(tag);
+                  }}
+                  className="inline-flex items-center px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/15 hover:border-[var(--cd-accent)] hover:bg-white/15 text-xs font-medium text-[#F4F4F5] hover:text-white transition-colors"
+                >
+                  {tag}
+                </a>
+              ))}
+            </div>
+
+            {/* Clean Typographic Metadata Line */}
+            <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-[#D4D4D8] mb-6">
               {durationLabelText && (
                 <>
+                  <span>{durationLabelText}</span>
                   <span aria-hidden="true" className="text-[#71717A]">
                     ·
                   </span>
-                  <span>{durationLabelText}</span>
                 </>
               )}
-              <span aria-hidden="true" className="text-[#71717A]">
-                ·
-              </span>
               <span>{t.detail.subIndoLabel}</span>
               <span aria-hidden="true" className="text-[#71717A]">
                 ·
@@ -896,106 +947,10 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                   <span>{detail.area}</span>
                 </>
               )}
-              {detail.tags.map((tag) => (
-                <React.Fragment key={tag}>
-                  <span aria-hidden="true" className="text-[#71717A]">
-                    ·
-                  </span>
-                  <a
-                    href={`${DEFAULT_SITE_ORIGIN}/tag/${encodeURIComponent(slugifyDramaTitle(tag))}`}
-                    itemProp="genre"
-                    onClick={(e) => {
-                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
-                        return;
-                      }
-                      e.preventDefault();
-                      onSelectTag?.(tag);
-                    }}
-                    className="hover:text-[var(--cd-accent)] underline-offset-2 hover:underline transition-colors"
-                  >
-                    {tag}
-                  </a>
-                </React.Fragment>
-              ))}
             </div>
 
-            <div className="max-w-3xl mb-5">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#A1A1AA] mb-1">
-                {t.detail.synopsis}
-              </p>
-              <p
-                itemProp="description"
-                className="text-sm sm:text-base text-[#D4D4D8] leading-relaxed"
-              >
-                {cleanSeoDescription(detail.description) ||
-                  buildDramaFallbackDescription({
-                    title: detail.title,
-                    episodeCount: totalEpisodeCount,
-                    isMovie:
-                      detail.mediaType === 'movie' ||
-                      detail.provider === 'LK21' ||
-                      detail.provider === 'LookSeries',
-                    lang: language,
-                    tags: detail.tags,
-                  })}
-              </p>
-            </div>
-
-            {detail.director && (
-              <p className="text-xs sm:text-sm text-[#A1A1AA] mb-2">
-                <span className="text-white font-medium">{t.detail.director}: </span>
-                {detail.director}
-              </p>
-            )}
-
-            {detail.protagonist && (
-              <p className="text-xs sm:text-sm text-[#A1A1AA] mb-5">
-                <span className="text-white font-medium">{t.detail.cast}: </span>
-                {detail.protagonist}
-              </p>
-            )}
-
-            {/* 1–5 Star Rating Widget */}
-            <div className="flex flex-wrap items-center gap-3 mb-6 py-2.5 px-3.5 rounded-xl bg-black/35 border border-white/10 w-fit">
-              <span className="text-xs font-semibold text-white">
-                {t.engagement.rateTitle}:
-              </span>
-              <div
-                className="flex items-center gap-1"
-                onMouseLeave={() => setHoverStar(0)}
-              >
-                {[1, 2, 3, 4, 5].map((star) => {
-                  const filled = star <= (hoverStar || userRating);
-                  return (
-                    <button
-                      key={star}
-                      type="button"
-                      onMouseEnter={() => setHoverStar(star)}
-                      onClick={() =>
-                        setDramaRating(detail.bookId, detail.provider, star)
-                      }
-                      aria-label={`Rate ${star} stars`}
-                      className="p-1 transition-transform hover:scale-110"
-                    >
-                      <Star
-                        className={`w-4 h-4 ${
-                          filled
-                            ? 'text-[#D4AF37] fill-[#D4AF37]'
-                            : 'text-[#52525B]'
-                        }`}
-                      />
-                    </button>
-                  );
-                })}
-              </div>
-              <span className="text-xs text-[#A1A1AA] tabular-nums">
-                {userRating > 0
-                  ? `${userRating}/5 (${t.engagement.yourRating})`
-                  : t.engagement.tapToRate}
-              </span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
+            {/* Primary CTA Buttons: Mulai Menonton & Simpan (+ Like & Folder) */}
+            <div className="w-full flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 mb-6">
               {resumePoint ? (
                 <a
                   href={watchHref}
@@ -1013,13 +968,15 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                       resumePoint.currentTime
                     );
                   }}
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full cd-accent-bg text-white font-semibold text-sm shadow-lg transition-all whitespace-nowrap shrink-0"
+                  className="inline-flex items-center justify-center gap-2 px-7 py-3 min-h-[46px] rounded-full cd-accent-bg text-white font-semibold text-sm shadow-[0_10px_28px_rgba(225,29,72,0.35)] hover:brightness-110 transition-all whitespace-nowrap flex-1 sm:flex-initial"
                 >
-                  <Clock className="w-4 h-4" />
-                  {isSingleMovie ? t.hero.playNow : `${t.sections.resumeEp} ${resumePoint.episode}`}
-                  {resumePoint.currentTime > 2
-                    ? ` · ${formatPlaybackClock(resumePoint.currentTime)}`
-                    : ''}
+                  <Clock className="w-4 h-4 shrink-0" />
+                  <span>
+                    {isSingleMovie ? t.hero.playNow : `${t.sections.resumeEp} ${resumePoint.episode}`}
+                    {resumePoint.currentTime > 2
+                      ? ` · ${formatPlaybackClock(resumePoint.currentTime)}`
+                      : ''}
+                  </span>
                 </a>
               ) : (
                 <a
@@ -1035,27 +992,50 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                     if (loading && episodes.length === 0) return;
                     onPlayEpisode(detail, 1, episodes, 0);
                   }}
-                  className={`inline-flex items-center gap-2 px-6 py-3 rounded-full cd-accent-bg text-white font-semibold text-sm shadow-lg transition-all whitespace-nowrap shrink-0 ${
+                  className={`inline-flex items-center justify-center gap-2 px-7 py-3 min-h-[46px] rounded-full cd-accent-bg text-white font-semibold text-sm shadow-[0_10px_28px_rgba(225,29,72,0.35)] hover:brightness-110 transition-all whitespace-nowrap flex-1 sm:flex-initial ${
                     loading && episodes.length === 0 ? 'opacity-60 pointer-events-none' : ''
                   }`}
                 >
-                  <Play className="w-4 h-4 fill-current" />
-                  {t.hero.playNow}
+                  <Play className="w-4 h-4 fill-current shrink-0" />
+                  <span>{t.hero.playNow}</span>
                 </a>
               )}
 
               <button
                 type="button"
                 data-primary-action="true"
+                onClick={() => toggleMyList(detail)}
+                className={`inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[46px] rounded-full border text-sm font-semibold transition-all whitespace-nowrap shrink-0 backdrop-blur-md ${
+                  isSaved
+                    ? 'bg-[var(--cd-accent-soft)] border-[var(--cd-accent)] text-[var(--cd-accent-text)]'
+                    : 'bg-white/12 border-white/20 hover:bg-white/18 text-white'
+                }`}
+              >
+                {isSaved ? (
+                  <>
+                    <Check className="w-4 h-4 shrink-0" />
+                    <span>{t.hero.inList}</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4 shrink-0" />
+                    <span>{t.hero.addToList}</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                data-primary-action="true"
                 onClick={() => toggleLikeDrama(detail)}
-                className={`inline-flex items-center gap-2 px-5 py-3 rounded-full border text-sm font-medium transition-colors whitespace-nowrap shrink-0 ${
+                className={`inline-flex items-center justify-center gap-2 px-4 py-3 min-h-[46px] rounded-full border text-sm font-medium transition-colors whitespace-nowrap shrink-0 backdrop-blur-md ${
                   isLiked
                     ? 'bg-red-500/20 border-red-500 text-red-300'
                     : 'bg-white/10 border-white/15 hover:bg-white/15 text-white'
                 }`}
               >
                 <Heart
-                  className={`w-4 h-4 ${isLiked ? 'fill-current text-red-400' : ''}`}
+                  className={`w-4 h-4 shrink-0 ${isLiked ? 'fill-current text-red-400' : ''}`}
                 />
                 <span>{isLiked ? t.player.liked : t.player.like}</span>
                 {likesCount > 0 && (
@@ -1065,33 +1045,10 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                 )}
               </button>
 
-              <button
-                type="button"
-                data-primary-action="true"
-                onClick={() => toggleMyList(detail)}
-                className={`inline-flex items-center gap-2 px-5 py-3 rounded-full border text-sm font-medium transition-colors whitespace-nowrap shrink-0 ${
-                  isSaved
-                    ? 'bg-[var(--cd-accent-soft)] border-[var(--cd-accent)] text-[var(--cd-accent-text)]'
-                    : 'bg-white/10 border-white/15 hover:bg-white/15 text-white'
-                }`}
-              >
-                {isSaved ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    {t.hero.inList}
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4" />
-                    {t.hero.addToList}
-                  </>
-                )}
-              </button>
-
               {/* Watchlist Folder Selector */}
               {isSaved && (
-                <label className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-full bg-[#18181D] border border-white/15 text-xs text-white">
-                  <FolderOpen className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <label className="inline-flex items-center gap-1.5 px-3.5 py-2.5 min-h-[44px] rounded-full bg-[#18181D]/90 backdrop-blur-md border border-white/15 text-xs text-white">
+                  <FolderOpen className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
                   <select
                     value={currentFolderId}
                     onChange={(e) =>
@@ -1115,6 +1072,90 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                     ))}
                   </select>
                 </label>
+              )}
+            </div>
+
+            {/* Sinopsis, Credits & Interactive Rating Panel */}
+            <div className="w-full text-left rounded-2xl bg-black/45 backdrop-blur-md border border-white/10 p-4 sm:p-6 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-[11px] font-bold uppercase tracking-wider text-[#D4AF37]">
+                  {t.detail.synopsis}
+                </h2>
+
+                {/* 1–5 Star Rating Widget */}
+                <div className="flex flex-wrap items-center gap-2 py-1 px-2.5 rounded-full bg-white/5 border border-white/10">
+                  <span className="text-[11px] font-semibold text-white/90">
+                    {t.engagement.rateTitle}:
+                  </span>
+                  <div
+                    className="flex items-center gap-0.5"
+                    onMouseLeave={() => setHoverStar(0)}
+                  >
+                    {[1, 2, 3, 4, 5].map((star) => {
+                      const filled = star <= (hoverStar || userRating);
+                      return (
+                        <button
+                          key={star}
+                          type="button"
+                          onMouseEnter={() => setHoverStar(star)}
+                          onClick={() =>
+                            setDramaRating(detail.bookId, detail.provider, star)
+                          }
+                          aria-label={`Rate ${star} stars`}
+                          className="p-1 transition-transform hover:scale-110"
+                        >
+                          <Star
+                            className={`w-3.5 h-3.5 ${
+                              filled
+                                ? 'text-[#D4AF37] fill-[#D4AF37]'
+                                : 'text-[#71717A]'
+                            }`}
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <span className="text-[11px] text-[#A1A1AA] tabular-nums">
+                    {userRating > 0
+                      ? `${userRating}/5 (${t.engagement.yourRating})`
+                      : t.engagement.tapToRate}
+                  </span>
+                </div>
+              </div>
+
+              <p
+                itemProp="description"
+                className="text-sm sm:text-base text-[#E4E4E7] leading-relaxed"
+              >
+                {cleanSeoDescription(detail.description) ||
+                  buildDramaFallbackDescription({
+                    title: detail.title,
+                    providerName: detail.provider,
+                    episodeCount: totalEpisodeCount,
+                    isMovie:
+                      detail.mediaType === 'movie' ||
+                      detail.provider === 'LK21' ||
+                      detail.provider === 'LookSeries',
+                    lang: language,
+                    tags: detail.tags,
+                  })}
+              </p>
+
+              {(detail.director || detail.protagonist) && (
+                <div className="pt-2 border-t border-white/10 space-y-1.5 text-xs sm:text-sm text-[#A1A1AA]">
+                  {detail.director && (
+                    <p>
+                      <span className="text-white font-medium">{t.detail.director}: </span>
+                      {detail.director}
+                    </p>
+                  )}
+                  {detail.protagonist && (
+                    <p>
+                      <span className="text-white font-medium">{t.detail.cast}: </span>
+                      {detail.protagonist}
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           </div>
