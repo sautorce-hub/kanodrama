@@ -37,9 +37,11 @@ export const KanoDramaLogo: React.FC<LogoProps> = ({ className = '' }) => {
           className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-cover shrink-0 shadow-sm"
         />
       )}
-      <span className="text-[15px] sm:text-xl font-extrabold tracking-tight leading-none whitespace-nowrap shrink-0">
-        <span className="text-[#FF2442]">kano</span>
-        <span className="text-white">drama</span>
+      <span className="font-brand inline-flex items-baseline text-[15px] sm:text-[19px] leading-none tracking-[-0.03em] whitespace-nowrap shrink-0">
+        <span className="font-extrabold text-[#FAF7F0]">Kano</span>
+        <span className="font-bold bg-gradient-to-r from-[#FDE7B0] via-[#F2C767] to-[#DBA23A] bg-clip-text text-transparent">
+          Drama
+        </span>
       </span>
     </div>
   );
