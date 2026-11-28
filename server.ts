@@ -9563,7 +9563,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       );
   });
 
-  const SITEMAP_MAX_URLS_PER_FILE = 25000;
+  const SITEMAP_MAX_URLS_PER_FILE = 1200;
   const SITEMAP_CACHE_TTL_MS = 10 * 60 * 1000;
   const SITEMAP_COLD_CACHE_TTL_MS = 60 * 1000;
   const SITEMAP_STALE_TTL_MS = 60 * 60 * 1000;
@@ -9592,7 +9592,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
   const LEGACY_SITEMAP_BLOCK_RE = /(?:housedrama|house-drama|kano-drama\.xyz)/i;
   const LEGACY_ID_SUFFIX_SLUG_RE =
-    /(?:^|-)(?:dram|book|db|ns|ar|ml|rs|sm|gs|fr|dw|fl|vg|fx|dd|ff|sr|vs|ct|md|fd|fs|ts|hs|pd|id)-\d{3,}$/i;
+    /(?:^|-)(?:dram|book|db|ns|ar|ml|rs|sm|gs|fr|dw|fl|vg|fx|dd|ff|sr|vs|ct|md|fd|fs|ts|hs|pd|id)-\d{2,}$|-\d{5,}$/i;
 
   function formatSitemapLastmod(rawDate: unknown, fallbackIso: string): string {
     if (rawDate === null || rawDate === undefined || rawDate === '') {
@@ -9631,6 +9631,16 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       )
     ) {
       return null;
+    }
+    const dramaDetailMatch = afterOrigin.match(/^\/([^/]+)\/detail\/([^/]+)$/i);
+    if (dramaDetailMatch && dramaDetailMatch[1].toLowerCase() !== 'movie') {
+      const slugPart = dramaDetailMatch[2];
+      if (
+        LEGACY_ID_SUFFIX_SLUG_RE.test(slugPart) ||
+        hasStrictLegacyProviderIdSuffix(slugPart)
+      ) {
+        return null;
+      }
     }
     return trimmed;
   }

@@ -1287,3 +1287,107 @@ test('9. Sitemap /sitemap.xml and sub-sitemaps respond quickly with valid XML, c
   );
 });
 
+test('10. Multi-part sitemap splits large catalogs into lightweight parts (<= 1,200 URLs & < 500 KB each) registered in /sitemap.xml', async (t) => {
+  const totalMockDramas = 2650;
+  const mockCatalogRows = Array.from({ length: totalMockDramas }, (_, idx) => {
+    const n = idx + 1;
+    return {
+      slug: `secret-coffee-contract-${n}`,
+      drama_id: String(10000 + n),
+      provider: 'DramaBoxV2',
+      title: `Secret Coffee Contract ${n}`,
+      description: `Episode summary for Secret Coffee Contract ${n}.`,
+      cover: `https://img.kano-drama.live/poster-${n}.jpg`,
+      chapter_count: 50,
+      genres: ['Romance'],
+      updated_at: new Date('2026-11-28T05:00:00Z'),
+    };
+  });
+  // Inject a legacy ID-suffixed row and a legacy HouseDrama row that must be excluded/normalized
+  mockCatalogRows.push({
+    slug: 'forbidden-bride-dram-4429',
+    drama_id: '4429',
+    provider: 'DramaBoxV2',
+    title: 'Forbidden Bride',
+    description: 'Clean drama after ID strip.',
+    cover: 'https://img.kano-drama.live/4429.jpg',
+    chapter_count: 42,
+    genres: ['Romance'],
+    updated_at: new Date('2026-11-28T05:00:00Z'),
+  });
+
+  const mockPool: any = {
+    query: async (sql: string) => {
+      if (/CREATE TABLE|CREATE INDEX|ALTER TABLE|SELECT 1/i.test(sql)) {
+        return { rows: [{ '?column?': 1 }], rowCount: 1 };
+      }
+      if (sql.includes('FROM drama_catalog')) {
+        return { rows: mockCatalogRows, rowCount: mockCatalogRows.length };
+      }
+      if (sql.includes('FROM movies')) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes('FROM home_cache') || sql.includes('FROM api_response_cache')) {
+        return { rows: [], rowCount: 0 };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+  };
+
+  _setDbPoolForTest(mockPool);
+  t.after(() => {
+    _setDbPoolForTest(null);
+  });
+
+  await withTestServer(
+    () =>
+      new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    async (base) => {
+      const indexRes = await fetch(`${base}/sitemap.xml`);
+      assert.equal(indexRes.status, 200);
+      assert.match(indexRes.headers.get('content-type') || '', /^application\/xml;\s*charset=utf-8$/i);
+      const indexXml = await indexRes.text();
+
+      const partLocs = Array.from(indexXml.matchAll(/<loc>([^<]+)<\/loc>/g)).map((m) => m[1]);
+      assert.ok(partLocs.length >= 3, `Expected at least 3 sitemap parts, got ${partLocs.length}`);
+      assert.deepEqual(
+        partLocs,
+        partLocs.map((_, i) => `https://kano-drama.live/sitemap-part-${i + 1}.xml`)
+      );
+
+      const allPartUrls = new Set<string>();
+      for (let part = 1; part <= partLocs.length; part++) {
+        const partRes = await fetch(`${base}/sitemap-part-${part}.xml`);
+        assert.equal(partRes.status, 200, `sitemap-part-${part}.xml should return 200 OK`);
+        assert.match(partRes.headers.get('content-type') || '', /^application\/xml;\s*charset=utf-8$/i);
+        const xml = await partRes.text();
+        assert.ok(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
+        assert.ok(
+          Buffer.byteLength(xml, 'utf8') < 500 * 1024,
+          `sitemap-part-${part}.xml exceeds 500 KB (${Buffer.byteLength(xml, 'utf8')} bytes)`
+        );
+        assert.doesNotMatch(xml, /-dram-4429<\/loc>/i);
+        assert.doesNotMatch(xml, /HouseDrama|house-drama|kano-drama\.xyz/i);
+
+        const urls = Array.from(xml.matchAll(/<loc>([^<]+)<\/loc>/g)).map((m) => m[1]);
+        assert.ok(urls.length >= 1 && urls.length <= 1200, `Part ${part} URL count=${urls.length} out of bounds`);
+        for (const u of urls) {
+          assert.ok(u.startsWith('https://kano-drama.live/'), `Unexpected origin: ${u}`);
+          assert.equal(allPartUrls.has(u), false, `Duplicate URL across sitemap parts: ${u}`);
+          allPartUrls.add(u);
+        }
+      }
+
+      assert.ok(allPartUrls.has('https://kano-drama.live/dramaboxv2/detail/forbidden-bride'));
+      assert.ok(allPartUrls.size >= 2700, `Expected >= 2700 total URLs across parts, got ${allPartUrls.size}`);
+
+      // Next out-of-range part must return 404 XML
+      const overflowRes = await fetch(`${base}/sitemap-part-${partLocs.length + 1}.xml`);
+      assert.equal(overflowRes.status, 404);
+      assert.match(overflowRes.headers.get('content-type') || '', /^application\/xml;\s*charset=utf-8$/i);
+    }
+  );
+});
