@@ -2008,9 +2008,26 @@ const CACHEABLE_MOLA_LIST_SUFFIXES = [
   '/all_drama',
 ];
 
+export const API_DETAIL_CACHE_TTL_MS = 20 * 60 * 1000;
+
 export function isCacheableMolaListPath(rawPath: string): boolean {
   const pathname = rawPath.split('?')[0].toLowerCase();
   return CACHEABLE_MOLA_LIST_SUFFIXES.some((suffix) =>
+    pathname.endsWith(suffix)
+  );
+}
+
+const CACHEABLE_MOLA_DETAIL_SUFFIXES = [
+  '/detail',
+  '/allepisode',
+  '/episodes',
+  '/chapter',
+];
+
+export function isCacheableMolaDetailOrEpisodePath(rawPath: string): boolean {
+  const pathname = rawPath.split('?')[0].toLowerCase();
+  if (/^\/(lk21|lookseries)(\/|$)/.test(pathname)) return false;
+  return CACHEABLE_MOLA_DETAIL_SUFFIXES.some((suffix) =>
     pathname.endsWith(suffix)
   );
 }
@@ -2625,7 +2642,7 @@ export async function searchUpstreamDramaBySlug(
           const res = await fetch(searchUrl, {
             method: 'GET',
             headers: { Accept: 'application/json' },
-            signal: AbortSignal.timeout(4000),
+            signal: AbortSignal.timeout(2200),
           });
           if (!res.ok) continue;
           const json = (await res.json()) as unknown;
@@ -2823,6 +2840,7 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
         const updatedAt = Number(row.updated_at) || Date.now();
         const segMatch = cacheKey.match(/^mola:\/([^/?]+)/i);
         const segment = segMatch?.[1]?.toLowerCase() || '';
+        if (!segment || segment === 'lk21' || segment === 'lookseries') continue;
         const providerGuess =
           (segment ? resolveProviderFromMolaSegment(segment) : null) || 'DramaBoxV2';
         try {

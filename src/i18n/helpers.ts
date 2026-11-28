@@ -1755,28 +1755,28 @@ export function generateMetadata(
   } else if (input.page === 'tag') {
     const tag = sanitizeMetaText(input.tag) || 'Drama';
     const tagTitleMap: Record<LanguageCode, string> = {
-      id: `Nonton Drama Pendek Genre ${tag} Sub Indo HD | KanoDrama`,
-      en: `Watch Free ${tag} Short Dramas Ad-Free HD | KanoDrama`,
-      cn: `${tag} 热门短剧合集 — 免费高清在线观看 | KanoDrama`,
-      vi: `Xem Miễn Phí Phim Ngắn ${tag} — Danh Sách HD | KanoDrama`,
-      es: `Ver Gratis Dramas Cortos de ${tag} Online HD | KanoDrama`,
-      ko: `무료 감상 ${tag} 인기 숏드라마 — HD 모아보기 | KanoDrama`,
-      ja: `無料視聴 ${tag} ショートドラマ特集 — HD | KanoDrama`,
-      th: `ดูฟรีมินิซีรีส์แนว ${tag} — ออนไลน์ HD | KanoDrama`,
-      ms: `Tonton Percuma Drama Pendek ${tag} Dalam Talian HD | KanoDrama`,
-      tl: `Panoorin Nang Libre ${tag} Vertical Short Dramas sa HD | KanoDrama`,
+      id: `Topik & Tag #${tag} — Koleksi Drama Pendek Sub Indo HD | KanoDrama`,
+      en: `Topic & Tag #${tag} — Vertical Short Dramas Playlist HD | KanoDrama`,
+      cn: `#${tag} 标签话题 — 热门短剧精选合集 HD | KanoDrama`,
+      vi: `Chủ Đề & Thẻ #${tag} — Tuyển Tập Phim Ngắn HD | KanoDrama`,
+      es: `Tema y Etiqueta #${tag} — Dramas Cortos HD | KanoDrama`,
+      ko: `토픽 & 태그 #${tag} — 인기 숏드라마 모음 HD | KanoDrama`,
+      ja: `トピック＆タグ #${tag} — ショートドラマ特集 HD | KanoDrama`,
+      th: `หัวข้อ & แท็ก #${tag} — คอลเลกชันมินิซีรีส์ HD | KanoDrama`,
+      ms: `Topik & Tag #${tag} — Koleksi Drama Pendek HD | KanoDrama`,
+      tl: `Paksa at Tag #${tag} — Koleksyon ng Short Dramas HD | KanoDrama`,
     };
     const tagDescMap: Record<LanguageCode, string> = {
-      id: `Streaming drama pendek ${tag} terpopuler sub Indo HD dari 82+ platform gratis tanpa iklan di KanoDrama.`,
-      en: `Stream trending ${tag} vertical short dramas and Asian mini-series ad-free across 82+ platforms in HD on KanoDrama.`,
-      cn: `在 KanoDrama 免费高清观看热门 ${tag} 竖屏短剧合集。`,
-      vi: `Xem miễn phí tuyển tập phim ngắn ${tag} thịnh hành từ 82+ nền tảng chuẩn HD.`,
-      es: `Ver gratis los mejores dramas cortos verticales de ${tag} de 82+ plataformas en HD.`,
-      ko: `82개+ 플랫폼의 인기 ${tag} 세로형 숏드라마를 HD로 무료 감상하세요.`,
-      ja: `82以上の配信元から厳選された${tag}ショートドラマをHD画質で無料視聴。`,
-      th: `ดูฟรีมินิซีรีส์แนว ${tag} ยอดนิยมจากกว่า 82 แพลตฟอร์มในระดับ HD`,
-      ms: `Tonton percuma drama pendek ${tag} paling popular daripada 82+ platform dalam HD.`,
-      tl: `Panoorin nang libre ang sikat na ${tag} vertical short dramas mula 82+ platforms sa HD.`,
+      id: `Koleksi drama pendek bertema topik & tag #${tag} terbaru sub Indo HD dari 82+ platform resmi gratis tanpa iklan di KanoDrama.`,
+      en: `Curated #${tag} topic & tag playlist of vertical short dramas sorted by newest episodes across 82+ platforms in HD on KanoDrama.`,
+      cn: `在 KanoDrama 免费高清浏览 #${tag} 标签话题短剧精选合集。`,
+      vi: `Tuyển tập phim ngắn theo chủ đề & thẻ #${tag} cập nhật mới nhất từ 82+ nền tảng chuẩn HD.`,
+      es: `Colección por tema y etiqueta #${tag} con estrenos de dramas cortos verticales de 82+ plataformas en HD.`,
+      ko: `82개+ 플랫폼의 #${tag} 태그 토픽 기반 최신 세로형 숏드라마를 HD로 무료 감상하세요.`,
+      ja: `82以上の配信元から厳選された#${tag}トピック＆タグ特集のショートドラマをHD画質で無料視聴。`,
+      th: `รวมมินิซีรีส์แนวตั้งตามแท็ก #${tag} อัปเดตใหม่จากกว่า 82 แพลตฟอร์มในระดับ HD`,
+      ms: `Senarai main topik & tag #${tag} untuk drama pendek terkini daripada 82+ platform dalam HD.`,
+      tl: `Koleksyon ng paksa at tag #${tag} para sa bagong vertical short dramas mula 82+ platforms sa HD.`,
     };
     title = tagTitleMap[lang];
     description = composeRichMetaDescription(

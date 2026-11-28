@@ -5,6 +5,7 @@ export interface ProgrammaticFaqItem {
 
 export interface ProgrammaticLandingConfig {
   slug: string;
+  label: string;
   basePath: 'genre' | 'tag' | 'category';
   canonicalPath: string;
   routeKindLabel: string;
@@ -44,9 +45,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'ceo',
     label: 'CEO Dramas',
     h1: 'Best CEO Vertical Short Dramas Online in HD',
-    title: 'Watch Free Best CEO Short Dramas Online HD | KanoDrama',
+    title: 'Genre CEO Dramas — Watch Free Best Short Series HD | KanoDrama',
     description:
-      'Watch free trending CEO vertical short dramas, secret boss romances, and office power-couple mini-series in crisp HD on KanoDrama.',
+      'Explore the CEO genre catalog: trending boss romances, secret tycoons, and office power-couple vertical short dramas in HD on KanoDrama.',
     intro:
       'Discover binge-worthy CEO short dramas featuring dominant tech moguls, contract marriages, hidden identities, and unforgettable boardroom twists across 82+ global platforms.',
     genre: 'CEO',
@@ -58,11 +59,11 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'romance',
     label: 'Romance',
     h1: 'Top Romance Vertical Short Dramas & Love Stories',
-    title: 'Watch Free Top Romance Short Dramas Online HD | KanoDrama',
+    title: 'Genre Romance — Watch Free Top Love Stories HD | KanoDrama',
     description:
-      'Watch free sweet romance vertical short dramas, second-chance love stories, and flash marriage series in full HD on KanoDrama.',
+      'Browse the Romance genre directory featuring second-chance love stories, sweet crushes, and flash marriage vertical dramas in HD on KanoDrama.',
     intro:
-      'Explore heartwarming first loves, whirlwind flash marriages, and passionate reunion mini-series crafted in crisp 9:16 vertical cinema quality with English subtitles.',
+      'Explore heartwarming first loves, whirlwind flash marriages, and passionate reunion mini-series crafted in crisp 9:16 vertical cinema quality with English and Indonesian subtitles.',
     genre: 'Romance',
     sort: 'popular',
     searchFallbackQuery: 'Romance',
@@ -72,9 +73,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'billionaire',
     label: 'Billionaire',
     h1: 'Trending Billionaire Short Dramas & Secret Heir Series',
-    title: 'Watch Free Billionaire Short Dramas Online HD | KanoDrama',
+    title: 'Genre Billionaire — Watch Free Secret Heir Dramas HD | KanoDrama',
     description:
-      'Watch free viral billionaire vertical short dramas, undercover tycoon sagas, and luxury heiress twists in HD on KanoDrama.',
+      'Explore the Billionaire genre hub for undercover tycoon sagas, luxury heiress twists, and secret empire short dramas in HD on KanoDrama.',
     intro:
       'Watch underdog heroes reveal secret multi-billion empires and humble brides marry into the world’s wealthiest families—updated daily with fast episode streaming.',
     genre: 'Billionaire',
@@ -86,9 +87,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'revenge',
     label: 'Revenge',
     h1: 'Best Revenge & Rebirth Short Dramas Online',
-    title: 'Watch Free Revenge & Rebirth Short Dramas HD | KanoDrama',
+    title: 'Genre Revenge & Rebirth — Watch Free Short Dramas HD | KanoDrama',
     description:
-      'Watch free high-stakes revenge short dramas, betrayal payback arcs, and rebirth time-loop thrillers in HD on KanoDrama.',
+      'Stream the Revenge genre catalog packed with betrayal payback arcs, reborn heiresses, and high-stakes time-loop thrillers in HD on KanoDrama.',
     intro:
       'Experience gripping payback plots, reborn heiresses reclaiming their destiny, and poetic justice delivered minute-by-minute in sharp HD vertical episodes.',
     genre: 'Revenge',
@@ -100,9 +101,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'fantasy',
     label: 'Fantasy',
     h1: 'Fantasy, Cultivation & Supernatural Short Dramas',
-    title: 'Watch Free Fantasy & Cultivation Short Dramas HD | KanoDrama',
+    title: 'Genre Fantasy & Cultivation — Watch Free Dramas HD | KanoDrama',
     description:
-      'Watch free fantasy vertical short dramas featuring immortal cultivation, dragon gods, time travel, and magical realms in HD on KanoDrama.',
+      'Dive into the Fantasy genre catalog with immortal cultivation, dragon gods, time travel, and supernatural romance mini-series on KanoDrama.',
     intro:
       'Step into worlds of immortal masters, hidden dragon kings, mythical systems, and supernatural romance with seamless multi-provider HD playback.',
     genre: 'Fantasy',
@@ -114,9 +115,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'historical',
     label: 'Historical',
     h1: 'Historical Palace & Royal Dynasty Short Dramas',
-    title: 'Watch Free Historical Palace Short Dramas HD | KanoDrama',
+    title: 'Genre Historical Palace — Watch Free Costume Dramas | KanoDrama',
     description:
-      'Watch free royal palace intrigue, emperor romance, and ancient dynasty costume short dramas in crisp HD on KanoDrama.',
+      'Explore the Historical genre collection of royal palace intrigue, emperor romance, and ancient dynasty costume short dramas in HD on KanoDrama.',
     intro:
       'Immerse yourself in royal court rivalries, noble generals, and forbidden palace love stories rendered with rich period costumes and dramatic cliffhangers.',
     genre: 'Historical',
@@ -128,9 +129,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'action',
     label: 'Action',
     h1: 'Action, Martial Arts & Undercover Agent Short Dramas',
-    title: 'Watch Free Action & Martial Arts Short Dramas HD | KanoDrama',
+    title: 'Genre Action & Martial Arts — Watch Free Series HD | KanoDrama',
     description:
-      'Watch free high-octane martial arts, special forces hero, and undercover bodyguard vertical short dramas in HD on KanoDrama.',
+      'Watch the Action genre lineup of martial arts masters, special forces heroes, and undercover bodyguard vertical short dramas in HD on KanoDrama.',
     intro:
       'High-impact choreography, fearless lone warriors, and covert protectors defending those they love across explosive short-form episodes.',
     genre: 'Action',
@@ -142,9 +143,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'dubbed',
     label: 'Dubbed Series',
     h1: 'English & Multi-Language Dubbed Short Dramas',
-    title: 'Watch Free Dubbed Vertical Short Dramas Online HD | KanoDrama',
+    title: 'Genre Dubbed Series — Watch Free Voiceover Dramas HD | KanoDrama',
     description:
-      'Watch free dubbed vertical short dramas with clear voiceovers and synchronized subtitles across top Asian platforms on KanoDrama.',
+      'Browse the Dubbed genre catalog featuring clear voiceovers and synchronized subtitles across top Asian short-drama platforms on KanoDrama.',
     intro:
       'Prefer hands-free bingeing? Browse full-season dubbed short dramas ready for instant vertical playback without missing a single line of dialogue.',
     genre: 'Dubbed',
@@ -156,9 +157,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'ceo-romance',
     label: 'CEO Romance',
     h1: 'Best CEO Romance Short Dramas & Contract Marriage Hits',
-    title: 'Watch Free Best CEO Romance Short Dramas HD | KanoDrama',
+    title: 'Genre CEO Romance — Watch Free Boss Love Series HD | KanoDrama',
     description:
-      'Watch free top-rated CEO romance vertical short dramas, cold boss falls first tropes, and secret office love stories in HD on KanoDrama.',
+      'Watch top-rated CEO Romance genre vertical short dramas, cold boss falls first tropes, and secret office love stories in HD on KanoDrama.',
     intro:
       'From icy billionaires falling head-over-heels to whirlwind contract marriages turned real love, stream the most popular CEO romance short dramas in one curated hub.',
     genre: 'CEO',
@@ -171,9 +172,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'billionaire-revenge',
     label: 'Billionaire Revenge',
     h1: 'Billionaire Revenge & Hidden Identity Payback Dramas',
-    title: 'Watch Free Billionaire Revenge Short Dramas HD | KanoDrama',
+    title: 'Genre Billionaire Revenge — Watch Free Payback Hits | KanoDrama',
     description:
-      'Watch free explosive billionaire revenge short dramas where underestimated heirs expose traitors and reclaim their empire in HD on KanoDrama.',
+      'Watch explosive Billionaire Revenge genre short dramas where underestimated heirs expose traitors and reclaim their empire in HD on KanoDrama.',
     intro:
       'Nothing beats the moment a disguised tycoon drops the mask. Explore top billionaire revenge mini-series packed with high-society karma and fast-paced cliffhangers.',
     genre: 'Revenge',
@@ -186,9 +187,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'hidden-identity-ceo',
     label: 'Hidden Identity CEO',
     h1: 'Hidden Identity CEO & Undercover Tycoon Short Dramas',
-    title: 'Watch Free Hidden Identity CEO Short Dramas HD | KanoDrama',
+    title: 'Genre Hidden Identity CEO — Undercover Tycoon HD | KanoDrama',
     description:
-      'Watch free undercover billionaire and hidden identity CEO vertical short dramas in HD with instant episode streaming on KanoDrama.',
+      'Watch undercover billionaire and Hidden Identity CEO genre vertical short dramas in HD with instant episode streaming on KanoDrama.',
     intro:
       'Disguised as delivery drivers, interns, or humble spouses—discover fan-favorite hidden identity CEO dramas that deliver unforgettable reveal scenes.',
     genre: 'CEO',
@@ -201,9 +202,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'flash-marriage-romance',
     label: 'Flash Marriage Romance',
     h1: 'Flash Marriage & Instant Husband Romance Short Dramas',
-    title: 'Watch Free Flash Marriage Romance Short Dramas HD | KanoDrama',
+    title: 'Genre Flash Marriage — Instant Husband Romance HD | KanoDrama',
     description:
-      'Watch free trending flash marriage vertical short dramas where strangers wed overnight and discover unexpected love and wealth on KanoDrama.',
+      'Watch trending Flash Marriage Romance genre short dramas where strangers wed overnight and discover unexpected love and wealth on KanoDrama.',
     intro:
       'Spontaneous courthouse weddings, secret billionaire grooms, and heartwarming slow-burn affection—binge complete flash marriage short dramas in HD.',
     genre: 'Romance',
@@ -216,9 +217,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'completed-ceo-romance',
     label: 'Completed CEO Romance',
     h1: 'Completed CEO Romance Short Dramas (Full Seasons)',
-    title: 'Watch Free Completed CEO Romance Short Dramas | KanoDrama',
+    title: 'Genre Completed CEO Romance — Watch Full Seasons | KanoDrama',
     description:
-      'Watch free completed CEO romance short dramas from Episode 1 to the finale with zero waiting on KanoDrama.',
+      'Watch completed CEO Romance genre short dramas from Episode 1 to the finale with zero waiting on KanoDrama.',
     intro:
       'Binge finished CEO romance seasons start-to-finish without cliffhanger delays. Every series here includes full completed episode arcs ready to stream.',
     genre: 'CEO',
@@ -231,9 +232,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'completed-short-dramas',
     label: 'Completed Full Series',
     h1: 'Completed Vertical Short Dramas — Watch Free Full Seasons',
-    title: 'Watch Free Completed Short Dramas Full Seasons | KanoDrama',
+    title: 'Genre Completed Series — Watch Free Full Seasons | KanoDrama',
     description:
-      'Watch free 100% completed vertical short drama series from premiere to finale in crisp HD across 82+ platforms on KanoDrama.',
+      'Watch 100% completed vertical short drama series from premiere to finale in crisp HD across 82+ platforms on KanoDrama.',
     intro:
       'Skip the wait for weekly updates. Browse full-length completed short drama seasons sorted by top viewer ratings and ready for marathon streaming.',
     status: 'Completed',
@@ -245,9 +246,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'top-rated-romance',
     label: 'Top Rated Romance',
     h1: 'Highest Rated Romance Short Dramas of 2026',
-    title: 'Watch Free Top Rated Romance Short Dramas HD | KanoDrama',
+    title: 'Genre Top Rated Romance — Best Love Mini-Series | KanoDrama',
     description:
-      'Watch free the highest-rated romance short dramas loved by global viewers—handpicked emotional hits in crisp HD on KanoDrama.',
+      'Watch the highest-rated Romance genre short dramas loved by global viewers—handpicked emotional hits in crisp HD on KanoDrama.',
     intro:
       'Curated by viewer ratings and repeat replays, these top-rated romance short dramas deliver unforgettable chemistry, sharp pacing, and high production value.',
     genre: 'Romance',
@@ -259,9 +260,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'rebirth-revenge',
     label: 'Rebirth & Time-Loop',
     h1: 'Rebirth & Second-Chance Revenge Short Dramas',
-    title: 'Watch Free Rebirth & Second-Chance Revenge Dramas | KanoDrama',
+    title: 'Genre Rebirth & Time-Loop — Second-Chance Dramas | KanoDrama',
     description:
-      'Watch free reborn heiress and second-chance time-travel revenge short dramas where heroes rewrite fate in HD on KanoDrama.',
+      'Watch reborn heiress and second-chance time-travel Rebirth genre short dramas where heroes rewrite fate in HD on KanoDrama.',
     intro:
       'Sent back in time after a tragic betrayal, watch fierce protagonists outsmart schemers, protect loved ones, and rise to the top.',
     genre: 'Revenge',
@@ -274,9 +275,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'royal-palace-drama',
     label: 'Royal Palace & Empress',
     h1: 'Royal Palace, Empress & Court Intrigue Short Dramas',
-    title: 'Watch Free Royal Palace & Empress Short Dramas HD | KanoDrama',
+    title: 'Genre Royal Palace & Empress — Watch Free Dramas HD | KanoDrama',
     description:
-      'Watch free imperial palace intrigue, strong empress comebacks, and royal romance vertical short dramas in HD on KanoDrama.',
+      'Watch imperial palace intrigue, strong empress comebacks, and royal romance vertical short dramas in HD on KanoDrama.',
     intro:
       'Enter opulent imperial courts filled with strategic alliances, forbidden royal love, and dramatic throne room reversals.',
     genre: 'Historical',
@@ -289,9 +290,9 @@ export const CURATED_PROGRAMMATIC_PAGES: CuratedLandingPreset[] = [
     slug: 'best-vertical-short-dramas',
     label: 'Best Vertical Dramas',
     h1: 'Best Vertical Short Dramas & Viral Mini-Series Worldwide',
-    title: 'Watch Free Best Vertical Short Dramas Worldwide | KanoDrama',
+    title: 'Genre Best Vertical Dramas — Viral Short Series HD | KanoDrama',
     description:
-      'Watch free the most-watched vertical 9:16 short dramas trending globally across DramaBox V2, NetShort, ReelShort V2, and 79+ platforms on KanoDrama.',
+      'Watch the most-watched vertical 9:16 short dramas trending globally across DramaBox V2, NetShort, ReelShort V2, and 79+ platforms on KanoDrama.',
     intro:
       'Your global gateway to the top vertical micro-dramas taking over mobile screens—ranked by real-time views, completion rates, and audience ratings.',
     sort: 'popular',
@@ -337,32 +338,92 @@ function cleanSlugSegment(raw: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-function buildDynamicFaqs(topicTitle: string): ProgrammaticFaqItem[] {
-  return [
-    {
-      q: `Where can I watch free ${topicTitle} online in HD?`,
-      a: `You can watch free ${topicTitle} directly on KanoDrama in crisp 9:16 vertical theater or wide cinema mode across 82+ connected short-drama platforms with instant episode switching.`,
-    },
-    {
-      q: `Are ${topicTitle} updated with English subtitles?`,
-      a: `Yes. KanoDrama supports multi-language subtitles (including English, Indonesian, Mandarin, and Vietnamese) and automatically loads available subtitle tracks whenever provided by the source stream.`,
-    },
-    {
-      q: `Can I filter ${topicTitle} by completed seasons or top ratings?`,
-      a: `Yes. Use the status and sort toggles at the top of this page to filter between Completed full-season binges, Ongoing releases, Most Popular hits, and Highest Rated series.`,
-    },
-  ];
+function clampMeta(text: string, maxLen: number): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (clean.length <= maxLen) return clean;
+  return `${clean.slice(0, Math.max(0, maxLen - 3)).trim()}...`;
+}
+
+function buildDynamicFaqs(
+  topicTitle: string,
+  basePath: 'genre' | 'tag' | 'category',
+  lang: string = 'en'
+): ProgrammaticFaqItem[] {
+  const isId = lang === 'id';
+  if (basePath === 'tag') {
+    return isId
+      ? [
+          {
+            q: `Apa keunggulan koleksi topik / tag #${topicTitle} di KanoDrama?`,
+            a: `Halaman tag #${topicTitle} menghimpun serial pendek berfokus tema dan trope spesifik dari 82+ platform resmi, diurutkan dari rilisan terbaru hingga rating tertinggi.`,
+          },
+          {
+            q: `Apakah daftar drama pada topik #${topicTitle} tersedia dengan Sub Indo?`,
+            a: `Ya. Seluruh serial pada topik #${topicTitle} mendukung subtitle Bahasa Indonesia (Sub Indo) serta pilihan subtitle multibahasa langsung di pemutar HD KanoDrama.`,
+          },
+          {
+            q: `Apa perbedaan halaman Topik / Tag #${topicTitle} dengan halaman Genre?`,
+            a: `Halaman Genre mengelompokkan katalog utama berdasarkan kategori besar, sedangkan halaman Topik / Tag #${topicTitle} menyaring rilisan terbaru dan topik spesifik antar-genre.`,
+          },
+        ]
+      : [
+          {
+            q: `What makes the #${topicTitle} topic & tag collection unique on KanoDrama?`,
+            a: `The #${topicTitle} tag hub curates trope-focused vertical short dramas ranked by newest updates and viewer ratings across 82+ streaming platforms.`,
+          },
+          {
+            q: `Do #${topicTitle} tagged mini-series include English and Indonesian subtitles?`,
+            a: `Yes. Episodes in the #${topicTitle} topic playlist automatically load available subtitles including English, Indonesian (Sub Indo), and Mandarin.`,
+          },
+          {
+            q: `How does this #${topicTitle} tag hub differ from a Genre directory?`,
+            a: `Genre directories index flagship catalogs by overall popularity, whereas Topic & Tag hubs surface fresh updates and cross-genre storylines matching #${topicTitle}.`,
+          },
+        ];
+  }
+
+  return isId
+    ? [
+        {
+          q: `Di mana nonton drama pendek genre ${topicTitle} sub Indo HD gratis?`,
+          a: `Anda dapat menonton katalog lengkap genre ${topicTitle} secara gratis di KanoDrama dalam mode layar vertikal 9:16 maupun sinema penuh lintas 82+ platform.`,
+        },
+        {
+          q: `Apakah serial genre ${topicTitle} dilengkapi subtitle Indonesia?`,
+          a: `Ya. KanoDrama menyediakan subtitle Bahasa Indonesia (Sub Indo), Inggris, dan multibahasa otomatis untuk setiap judul genre ${topicTitle} yang tersedia.`,
+        },
+        {
+          q: `Bisakah menyaring genre ${topicTitle} berdasarkan status Tamat atau Rating?`,
+          a: `Bisa. Gunakan filter Status (Completed / Ongoing) dan Urutan (Popular / Top Rated / Newest) di bagian atas katalog genre ${topicTitle}.`,
+        },
+      ]
+    : [
+        {
+          q: `Where can I watch free ${topicTitle} genre short dramas online in HD?`,
+          a: `You can watch the complete ${topicTitle} genre catalog directly on KanoDrama in crisp 9:16 vertical theater or cinema mode across 82+ connected platforms.`,
+        },
+        {
+          q: `Are ${topicTitle} genre series updated with English and Indonesian subtitles?`,
+          a: `Yes. KanoDrama supports multi-language subtitles (including English, Indonesian, Mandarin, and Vietnamese) across available ${topicTitle} genre releases.`,
+        },
+        {
+          q: `Can I filter ${topicTitle} genre titles by completed seasons or top ratings?`,
+          a: `Yes. Use the status and sort toggles at the top of this genre hub to filter between Completed full-season binges, Ongoing updates, Most Popular hits, and Highest Rated series.`,
+        },
+      ];
 }
 
 export function resolveProgrammaticLanding(
   rawSlug: string,
   basePath: 'genre' | 'tag' | 'category' = 'genre',
-  rawModifier?: string
+  rawModifier?: string,
+  lang: string = 'en'
 ): ProgrammaticLandingConfig {
   const s1 = cleanSlugSegment(rawSlug) || 'romance';
   const s2 = rawModifier ? cleanSlugSegment(rawModifier) : '';
   const combinedSlug = s2 ? `${s1}-${s2}` : s1;
   const canonicalPath = s2 ? `/${basePath}/${s1}/${s2}` : `/${basePath}/${s1}`;
+  const isId = lang === 'id';
 
   const exactPreset = CURATED_MAP.get(combinedSlug) || (!s2 ? CURATED_MAP.get(s1) : undefined);
 
@@ -371,25 +432,123 @@ export function resolveProgrammaticLanding(
   )
     .slice(0, 8)
     .map((p) => ({
-      path: `/genre/${p.slug}`,
-      label: p.label,
+      path: `/${basePath}/${p.slug}`,
+      label: basePath === 'tag' ? `#${p.label}` : p.label,
     }));
 
   if (exactPreset) {
+    if (basePath === 'tag') {
+      const tagSort: 'popular' | 'rating' | 'newest' =
+        exactPreset.sort === 'newest' ? 'rating' : 'newest';
+      const title = isId
+        ? clampMeta(`Topik & Tag #${exactPreset.label}: Koleksi Drama Populer | KanoDrama`, 70)
+        : clampMeta(`Topic & Tag #${exactPreset.label}: Latest Vertical Dramas | KanoDrama`, 70);
+      const description = isId
+        ? clampMeta(
+            `Koleksi topik & tag #${exactPreset.label} terbaru sub Indo HD. Temukan daftar episode pilihan, trope favorit, dan update harian di KanoDrama.`,
+            160
+          )
+        : clampMeta(
+            `Explore the #${exactPreset.label} topic & tag playlist: fresh vertical short drama releases, trope spotlights, and top-rated picks on KanoDrama.`,
+            160
+          );
+      return {
+        slug: combinedSlug,
+        label: exactPreset.label,
+        basePath,
+        canonicalPath,
+        routeKindLabel: isId ? 'Topik & Tag Pilihan' : 'Topic & Tag Hub',
+        h1: isId
+          ? `Topik & Tag #${exactPreset.label} — Koleksi Drama Pendek Terbaru`
+          : `#${exactPreset.label} Topic & Tag Vertical Short Dramas`,
+        title,
+        description,
+        keywords: [
+          `#${exactPreset.label} tag`,
+          `${exactPreset.label} topic dramas`,
+          ...exactPreset.keywords,
+          'KanoDrama',
+          'Topik Drama Pendek',
+        ].join(', '),
+        intro: isId
+          ? `Jelajahi kurasi khusus bertema topik #${exactPreset.label} yang diurutkan dari episode dan judul paling baru across 82+ platform—lengkap dengan subtitle Indonesia dan progres tontonan tersimpan.`
+          : `Curated specifically around the #${exactPreset.label} tag and story tropes, this topic feed prioritizes recent updates and viewer-favorite episodes across 82+ streaming platforms.`,
+        filter: {
+          genre: exactPreset.genre,
+          status: exactPreset.status || 'all',
+          sort: tagSort,
+          q: exactPreset.q || exactPreset.searchFallbackQuery,
+        },
+        searchFallbackQuery: exactPreset.searchFallbackQuery,
+        relatedSlugs: related,
+        faqs: buildDynamicFaqs(exactPreset.label, 'tag', lang),
+      };
+    }
+
+    if (basePath === 'category') {
+      const title = isId
+        ? clampMeta(`Kategori ${exactPreset.label}: Katalog Drama Pendek HD | KanoDrama`, 70)
+        : clampMeta(`Category ${exactPreset.label}: Curated Drama Series HD | KanoDrama`, 70);
+      const description = isId
+        ? clampMeta(
+            `Katalog kategori ${exactPreset.label} sub Indo full episode HD. Streaming drama pendek vertikal gratis lintas 82+ platform hanya di KanoDrama.`,
+            160
+          )
+        : clampMeta(
+            `Browse the ${exactPreset.label} category hub with curated full-season short dramas and multi-language subtitles on KanoDrama.`,
+            160
+          );
+      return {
+        slug: combinedSlug,
+        label: exactPreset.label,
+        basePath,
+        canonicalPath,
+        routeKindLabel: isId ? 'Kategori Pilihan' : 'Curated Category',
+        h1: isId
+          ? `Kategori ${exactPreset.label} — Serial Drama Pendek HD`
+          : `${exactPreset.label} Category — Vertical Short Dramas`,
+        title,
+        description,
+        keywords: [
+          `${exactPreset.label} category`,
+          ...exactPreset.keywords,
+          'KanoDrama',
+          'Vertical Short Drama',
+        ].join(', '),
+        intro: exactPreset.intro,
+        filter: {
+          genre: exactPreset.genre,
+          status: exactPreset.status || 'all',
+          sort: exactPreset.sort || 'popular',
+          q: exactPreset.q,
+        },
+        searchFallbackQuery: exactPreset.searchFallbackQuery,
+        relatedSlugs: related,
+        faqs: buildDynamicFaqs(exactPreset.label, 'category', lang),
+      };
+    }
+
+    // Default: 'genre'
+    const genreTitle = isId
+      ? clampMeta(`Genre ${exactPreset.label}: Nonton Drama Pendek Sub Indo HD | KanoDrama`, 70)
+      : clampMeta(exactPreset.title, 70);
+    const genreDesc = isId
+      ? clampMeta(
+          `Nonton katalog genre ${exactPreset.label} terpopuler sub Indo full HD tanpa iklan. Pilihan serial vertikal terbaik dari 82+ platform di KanoDrama.`,
+          160
+        )
+      : clampMeta(exactPreset.description, 160);
     return {
       slug: combinedSlug,
+      label: exactPreset.label,
       basePath,
       canonicalPath,
-      routeKindLabel:
-        basePath === 'tag'
-          ? 'Curated Tag Collection'
-          : basePath === 'category'
-          ? 'Curated Category'
-          : 'Curated Genre Guide',
-      h1: exactPreset.h1,
-      title: exactPreset.title,
-      description: exactPreset.description,
+      routeKindLabel: isId ? 'Direktori Genre' : 'Curated Genre Guide',
+      h1: isId ? `Genre ${exactPreset.label} — ${exactPreset.h1}` : exactPreset.h1,
+      title: genreTitle,
+      description: genreDesc,
       keywords: [
+        `${exactPreset.label} genre`,
         ...exactPreset.keywords,
         'KanoDrama',
         'Vertical Short Drama',
@@ -404,14 +563,14 @@ export function resolveProgrammaticLanding(
       },
       searchFallbackQuery: exactPreset.searchFallbackQuery,
       relatedSlugs: related,
-      faqs: buildDynamicFaqs(exactPreset.label),
+      faqs: buildDynamicFaqs(exactPreset.label, 'genre', lang),
     };
   }
 
   // Dynamic programmatic parsing for arbitrary /genre/:genre/:modifier or /tag/:slug
   const tokens = combinedSlug.split('-').filter(Boolean);
   let status: 'all' | 'Ongoing' | 'Completed' = 'all';
-  let sort: 'popular' | 'rating' | 'newest' = 'popular';
+  let sort: 'popular' | 'rating' | 'newest' = basePath === 'tag' ? 'newest' : 'popular';
   let matchedGenre: string | undefined;
   const extraQueryTokens: string[] = [];
 
@@ -448,36 +607,129 @@ export function resolveProgrammaticLanding(
     matchedGenre || (extraQueryTokens.length > 0 ? toTitleCase(extraQueryTokens.join(' ')) : readableLabel);
   const queryTerm = extraQueryTokens.length > 0 ? toTitleCase(extraQueryTokens.join(' ')) : undefined;
 
-  const titleCandidate = `Watch Free ${readableLabel} Short Dramas HD | KanoDrama`;
-  const title =
-    titleCandidate.length > 70
-      ? `Watch Free ${readableLabel} Dramas HD | KanoDrama`
-      : titleCandidate;
-  const rawDesc = `Watch free top ${readableLabel.toLowerCase()} vertical short dramas and binge-worthy Asian mini-series in full HD across 82+ platforms on KanoDrama.`;
-  const description =
-    rawDesc.length > 158 ? `${rawDesc.slice(0, 155).trim()}...` : rawDesc;
+  if (basePath === 'tag') {
+    const title = isId
+      ? clampMeta(`Topik & Tag #${readableLabel} — Drama Pendek Sub Indo | KanoDrama`, 70)
+      : clampMeta(`Topic & Tag #${readableLabel} — Short Dramas HD | KanoDrama`, 70);
+    const description = isId
+      ? clampMeta(
+          `Daftar drama pendek bertema topik & tag #${readableLabel} sub Indo HD terbaru. Jelajahi episode pilihan lintas 82+ platform di KanoDrama.`,
+          160
+        )
+      : clampMeta(
+          `Watch #${readableLabel} topic & tag vertical short dramas sorted by latest updates and viewer ratings across 82+ platforms on KanoDrama.`,
+          160
+        );
+    return {
+      slug: combinedSlug,
+      label: readableLabel,
+      basePath,
+      canonicalPath,
+      routeKindLabel: isId ? 'Koleksi Topik & Tag' : 'Topic & Tag Collection',
+      h1: isId
+        ? `Topik & Tag #${readableLabel} — Koleksi Serial Pendek HD`
+        : `#${readableLabel} Topic & Tag Vertical Short Dramas`,
+      title,
+      description,
+      keywords: [
+        `#${readableLabel} tag drama`,
+        `${readableLabel} topic playlist`,
+        `${primarySubject} vertical mini series`,
+        'KanoDrama',
+        'Topik Drama Pendek',
+      ].join(', '),
+      intro: isId
+        ? `Kumpulan drama pendek bertopik #${readableLabel} dengan update episode terbaru, rating penonton tertinggi, dan subtitle Indonesia lengkap di KanoDrama.`
+        : `Discover vertical mini-series tagged #${readableLabel} featuring recent episode updates, trope highlights, and instant HD streaming on KanoDrama.`,
+      filter: {
+        genre: matchedGenre,
+        status,
+        sort: sort === 'popular' ? 'newest' : sort,
+        q: matchedGenre ? queryTerm || primarySubject : queryTerm || readableLabel,
+      },
+      searchFallbackQuery: queryTerm || matchedGenre || readableLabel,
+      relatedSlugs: related,
+      faqs: buildDynamicFaqs(readableLabel, 'tag', lang),
+    };
+  }
+
+  if (basePath === 'category') {
+    const title = isId
+      ? clampMeta(`Kategori ${readableLabel} — Koleksi Drama Pendek HD | KanoDrama`, 70)
+      : clampMeta(`Category ${readableLabel} — Vertical Short Dramas HD | KanoDrama`, 70);
+    const description = isId
+      ? clampMeta(
+          `Katalog kategori ${readableLabel} sub Indo HD di KanoDrama. Tonton serial pendek gratis dari 82+ platform resmi tanpa iklan.`,
+          160
+        )
+      : clampMeta(
+          `Explore the ${readableLabel} category catalog of vertical short dramas and Asian mini-series in HD on KanoDrama.`,
+          160
+        );
+    return {
+      slug: combinedSlug,
+      label: readableLabel,
+      basePath,
+      canonicalPath,
+      routeKindLabel: isId ? 'Kategori Katalog' : 'Curated Category',
+      h1: isId
+        ? `Kategori ${readableLabel} — Serial Drama Pendek HD`
+        : `${readableLabel} Category — Vertical Short Dramas`,
+      title,
+      description,
+      keywords: [
+        `${readableLabel} category drama`,
+        `Watch Free ${readableLabel} online`,
+        `${primarySubject} mini series`,
+        'KanoDrama',
+      ].join(', '),
+      intro: `Browse our curated ${readableLabel} category featuring crisp vertical HD playback, episode-by-episode cloud progress sync, and live popularity rankings across top global streaming providers.`,
+      filter: {
+        genre: matchedGenre,
+        status,
+        sort,
+        q: matchedGenre ? queryTerm : queryTerm || readableLabel,
+      },
+      searchFallbackQuery: queryTerm || matchedGenre || readableLabel,
+      relatedSlugs: related,
+      faqs: buildDynamicFaqs(`${readableLabel}`, 'category', lang),
+    };
+  }
+
+  const genreTitle = isId
+    ? clampMeta(`Genre ${readableLabel} — Nonton Drama Pendek Sub Indo HD | KanoDrama`, 70)
+    : clampMeta(`Genre ${readableLabel} — Watch Free Short Dramas HD | KanoDrama`, 70);
+  const genreDesc = isId
+    ? clampMeta(
+        `Nonton serial drama pendek genre ${readableLabel} terpopuler sub Indo full HD. Katalog resmi lintas 82+ platform streaming di KanoDrama.`,
+        160
+      )
+    : clampMeta(
+        `Explore the ${readableLabel} genre catalog featuring top vertical short dramas and Asian mini-series in full HD across 82+ platforms on KanoDrama.`,
+        160
+      );
 
   return {
     slug: combinedSlug,
+    label: readableLabel,
     basePath,
     canonicalPath,
-    routeKindLabel:
-      basePath === 'tag'
-        ? 'Curated Tag Collection'
-        : basePath === 'category'
-        ? 'Curated Category'
-        : 'Programmatic Genre Hub',
-    h1: `${readableLabel} Vertical Short Dramas & Mini-Series`,
-    title,
-    description,
+    routeKindLabel: isId ? 'Direktori Genre' : 'Programmatic Genre Hub',
+    h1: isId
+      ? `Genre ${readableLabel} — Drama Pendek & Serial Vertikal HD`
+      : `${readableLabel} Genre Vertical Short Dramas & Mini-Series`,
+    title: genreTitle,
+    description: genreDesc,
     keywords: [
-      `${readableLabel} short drama`,
+      `${readableLabel} genre short drama`,
       `Watch Free ${readableLabel} online`,
       `${primarySubject} mini series`,
       'KanoDrama',
       'Vertical Drama HD',
     ].join(', '),
-    intro: `Browse our curated ${readableLabel} catalog featuring crisp vertical HD playback, episode-by-episode cloud progress sync, and live popularity rankings across top global streaming providers.`,
+    intro: isId
+      ? `Jelajahi direktori genre ${readableLabel} terpopuler di KanoDrama dengan pemutaran HD vertikal, sinkronisasi riwayat tontonan, dan peringkat popularitas langsung.`
+      : `Browse our curated ${readableLabel} genre catalog featuring crisp vertical HD playback, episode-by-episode cloud progress sync, and live popularity rankings across top global streaming providers.`,
     filter: {
       genre: matchedGenre,
       status,
@@ -486,6 +738,6 @@ export function resolveProgrammaticLanding(
     },
     searchFallbackQuery: queryTerm || matchedGenre || readableLabel,
     relatedSlugs: related,
-    faqs: buildDynamicFaqs(`${readableLabel} Short Dramas`),
+    faqs: buildDynamicFaqs(readableLabel, 'genre', lang),
   };
 }

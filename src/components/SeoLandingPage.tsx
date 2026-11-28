@@ -48,8 +48,8 @@ export const SeoLandingPage: React.FC<SeoLandingPageProps> = ({
 }) => {
   const { language, t } = useDramaContext();
   const landing = useMemo(
-    () => resolveProgrammaticLanding(slug, basePath, modifier),
-    [slug, basePath, modifier]
+    () => resolveProgrammaticLanding(slug, basePath, modifier, language),
+    [slug, basePath, modifier, language]
   );
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'Completed' | 'Ongoing'>(
@@ -269,11 +269,13 @@ export const SeoLandingPage: React.FC<SeoLandingPageProps> = ({
         {/* Cross-Linked Programmatic SEO Collections (Single-Line Scrollable Strip) */}
         <div className="space-y-2">
           <p className="text-[11px] font-bold uppercase tracking-wider text-[#A1A1AA]">
-            Explore Related Collections &amp; Keyword Hubs
+            {basePath === 'tag'
+              ? 'Explore Related Topics & Tag Playlists'
+              : 'Explore Related Genre Directories'}
           </p>
           <div className="flex flex-nowrap items-center gap-2 overflow-x-auto scrollbar-none pb-1">
             {CURATED_PROGRAMMATIC_PAGES.map((preset) => {
-              const targetPath = `/genre/${preset.slug}`;
+              const targetPath = `/${basePath}/${preset.slug}`;
               const isCurrent = landing.canonicalPath === targetPath;
               return (
                 <a
@@ -290,7 +292,7 @@ export const SeoLandingPage: React.FC<SeoLandingPageProps> = ({
                       : 'bg-[var(--cd-surface)] border-[var(--cd-border)] text-[#E4E4E7] hover:border-[var(--cd-accent)]'
                   }`}
                 >
-                  {preset.label}
+                  {basePath === 'tag' ? `#${preset.label}` : preset.label}
                 </a>
               );
             })}

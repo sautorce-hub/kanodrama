@@ -353,7 +353,10 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
       setLoading(false);
       return;
     }
-    const silentRefresh = isSameItem && Boolean(detailRef.current);
+    const silentRefresh = Boolean(
+      (isSameItem && detailRef.current) ||
+        (activeDrama && initialEpisodes.length > 0)
+    );
     void loadDetailAndEpisodes(
       bookId,
       resolvedProvider,
@@ -796,6 +799,8 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
             src={activePosterUrl}
             alt=""
             aria-hidden="true"
+            loading="lazy"
+            decoding="async"
             referrerPolicy="no-referrer"
             onError={handlePosterError}
             className="absolute inset-0 w-full h-full object-cover object-center scale-[1.65] blur-[54px] opacity-65 saturate-[1.5] pointer-events-none select-none transition-opacity duration-500"
@@ -824,6 +829,8 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                   src={activePosterUrl}
                   alt=""
                   aria-hidden="true"
+                  loading="lazy"
+                  decoding="async"
                   referrerPolicy="no-referrer"
                   className="absolute -inset-4 w-[calc(100%+32px)] h-[calc(100%+32px)] object-cover rounded-[28px] blur-2xl opacity-65 saturate-150 pointer-events-none select-none"
                 />
@@ -849,6 +856,11 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                   <img
                     src={activePosterUrl}
                     alt={detail.title}
+                    width={224}
+                    height={336}
+                    loading="eager"
+                    decoding="async"
+                    fetchPriority="high"
                     itemProp="image"
                     referrerPolicy="no-referrer"
                     onError={handlePosterError}
@@ -1462,7 +1474,10 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                       <img
                         src={recSrc}
                         alt={rec.title}
+                        width={200}
+                        height={300}
                         loading="lazy"
+                        decoding="async"
                         referrerPolicy="no-referrer"
                         onError={() =>
                           setFailedRecCovers((prev) => ({

@@ -1,6 +1,9 @@
 import {
   getLk21CacheFromDb,
   getTrendingStatsMapFromDb,
+  isMovieMarkedUnavailable,
+  markMovieAvailability,
+  markMovieAvailabilityInDb,
   setLk21CacheInDb,
   upsertMoviesBatchInDb,
   type LiveDramaBadgeStat,
@@ -164,10 +167,13 @@ async function persistLookSeriesMovies(
       recommendations: (detail.recommendations || []) as unknown as Array<Record<string, unknown>>,
       movieJson: detail as unknown as Record<string, unknown>,
       popularityScore: Number.isFinite(ratingNum) && ratingNum > 0 ? Math.round(ratingNum * 1000) : 2500,
+      isAvailable: true,
+      detailVerified: true,
     });
   }
   cards.forEach((c, idx) => {
-    if (!c?.slug || !c?.title || dedup.has(c.slug)) return;
+    if (!c?.slug || !c?.title || dedup.has(c.slug) || isMovieMarkedUnavailable(c.slug)) return;
+    if (!c.cover && !c.coverHz && !c.coverVt) return;
     dedup.set(c.slug, toMovieUpsertFromLookSeries(c, Math.max(500, 4500 - idx * 25)));
   });
   if (dedup.size > 0) {
@@ -510,7 +516,10 @@ export async function getLookSeriesFeed(
     const records = extractRecordsArray(raw);
     const items = records
       .map((r) => normalizeLookSeriesCard(r, section))
-      .filter((it): it is LookSeriesCard => Boolean(it));
+      .filter(
+        (it): it is LookSeriesCard =>
+          Boolean(it && !isMovieMarkedUnavailable(it.slug))
+      );
 
     const payload: LookSeriesListPayload = {
       ok: true,
@@ -536,9 +545,13 @@ export async function getLookSeriesFeed(
       void runDeduplicated(cacheKey, refresh).catch(() => {});
     }
     const statsMap = await getTrendingStatsMapFromDb(250).catch(() => ({}));
+    const filteredItems = cached.payload.items.filter(
+      (it) => !isMovieMarkedUnavailable(it.slug)
+    );
     return {
       ...cached.payload,
-      items: attachStatsToCards(cached.payload.items, statsMap),
+      count: filteredItems.length,
+      items: attachStatsToCards(filteredItems, statsMap),
     };
   }
 
@@ -588,7 +601,10 @@ export async function getLookSeriesCategory(
     const records = extractRecordsArray(raw);
     const items = records
       .map((r) => normalizeLookSeriesCard(r, cleanTopic === 'anime' ? 'kartun' : undefined))
-      .filter((it): it is LookSeriesCard => Boolean(it));
+      .filter(
+        (it): it is LookSeriesCard =>
+          Boolean(it && !isMovieMarkedUnavailable(it.slug))
+      );
 
     const payload: LookSeriesListPayload = {
       ok: true,
@@ -614,9 +630,13 @@ export async function getLookSeriesCategory(
       void runDeduplicated(cacheKey, refresh).catch(() => {});
     }
     const statsMap = await getTrendingStatsMapFromDb(250).catch(() => ({}));
+    const filteredItems = cached.payload.items.filter(
+      (it) => !isMovieMarkedUnavailable(it.slug)
+    );
     return {
       ...cached.payload,
-      items: attachStatsToCards(cached.payload.items, statsMap),
+      count: filteredItems.length,
+      items: attachStatsToCards(filteredItems, statsMap),
     };
   }
 
@@ -674,7 +694,10 @@ export async function getLookSeriesSearch(
     const records = extractRecordsArray(raw);
     const items = records
       .map((r) => normalizeLookSeriesCard(r))
-      .filter((it): it is LookSeriesCard => Boolean(it));
+      .filter(
+        (it): it is LookSeriesCard =>
+          Boolean(it && !isMovieMarkedUnavailable(it.slug))
+      );
     const payload: LookSeriesListPayload = {
       ok: true,
       app: 'lookseries',
@@ -692,7 +715,14 @@ export async function getLookSeriesSearch(
     if (cached.stale) {
       void runDeduplicated(cacheKey, refresh).catch(() => {});
     }
-    return cached.payload;
+    const filteredItems = cached.payload.items.filter(
+      (it) => !isMovieMarkedUnavailable(it.slug)
+    );
+    return {
+      ...cached.payload,
+      count: filteredItems.length,
+      items: filteredItems,
+    };
   }
 
   try {
@@ -710,29 +740,65 @@ export async function getLookSeriesSearch(
   }
 }
 
+function isPlaceholderLookSeriesDetail(detail: {
+  cover?: string;
+  poster?: string;
+  coverHz?: string;
+  title?: string;
+}): boolean {
+  if (!cleanStr(detail.title)) return true;
+  return !cleanStr(detail.cover) && !cleanStr(detail.poster) && !cleanStr(detail.coverHz);
+}
+
 export async function getLookSeriesDetail(
   getToken: () => string,
   rawBookId: string
 ): Promise<LookSeriesDetailPayload | null> {
+  const cleanRaw = cleanStr(rawBookId).toLowerCase();
   const bookId = extractLookSeriesBookId(rawBookId);
-  if (!bookId) return null;
+  const baseLsSlug = bookId ? buildLookSeriesSlug(bookId) : '';
+  if (
+    !bookId ||
+    isMovieMarkedUnavailable(cleanRaw) ||
+    isMovieMarkedUnavailable(baseLsSlug)
+  ) {
+    return null;
+  }
 
   const cacheKey = `lookseries:detail:${bookId}`;
   const cached = await readCache<LookSeriesDetailPayload>(cacheKey);
 
+  const markUnavailableEverywhere = (resolvedSlug?: string) => {
+    memoryCache.delete(cacheKey);
+    const targets = new Set<string>(
+      [cleanRaw, baseLsSlug, resolvedSlug ? resolvedSlug.toLowerCase() : ''].filter(
+        Boolean
+      )
+    );
+    for (const s of targets) {
+      void markMovieAvailabilityInDb(s, false, true).catch(() => {});
+    }
+  };
+
   const refresh = async (): Promise<LookSeriesDetailPayload | null> => {
     const token = getToken();
     if (!token) throw new Error('Server MOLA_API_TOKEN is not configured');
-    const raw = await fetchUpstreamLookSeriesJson(token, '/detail', {
-      book_id: bookId,
-    });
+    const raw = await fetchUpstreamLookSeriesJson(
+      token,
+      '/detail',
+      { book_id: bookId },
+      5000
+    );
     const d =
       raw.data && typeof raw.data === 'object'
         ? (raw.data as Record<string, unknown>)
         : raw;
 
     const title = cleanStr(d.title ?? d.bookName ?? d.name);
-    if (!title) return null;
+    if (!title) {
+      markUnavailableEverywhere();
+      return null;
+    }
 
     const cover = sanitizeImageUrl(
       d.cover ?? d.coverUrl ?? d.poster ?? d.coverVt
@@ -769,7 +835,14 @@ export async function getLookSeriesDetail(
       : [];
     const recommendations = recsRaw
       .map((r) => normalizeLookSeriesCard(r))
-      .filter((r): r is LookSeriesCard => Boolean(r));
+      .filter(
+        (r): r is LookSeriesCard =>
+          Boolean(
+            r &&
+              !isMovieMarkedUnavailable(r.slug) &&
+              (r.cover || r.coverHz || r.coverVt)
+          )
+      );
 
     const detail: LookSeriesDetailPayload = {
       ok: true,
@@ -797,23 +870,46 @@ export async function getLookSeriesDetail(
       recommendations,
     };
 
+    if (isPlaceholderLookSeriesDetail(detail)) {
+      markUnavailableEverywhere(slug);
+      return null;
+    }
+
+    markMovieAvailability(slug, true, true);
     await writeCache(cacheKey, 'lookseries-detail', detail, DETAIL_TTL_MS);
-    void persistLookSeriesMovies(recommendations, detail).catch(() => {});
+    void persistLookSeriesMovies([], detail).catch(() => {});
     return detail;
   };
 
-  if (cached && cached.payload && cached.payload.title) {
+  if (
+    cached &&
+    cached.payload &&
+    cached.payload.title &&
+    !isPlaceholderLookSeriesDetail(cached.payload) &&
+    !isMovieMarkedUnavailable(cached.payload.slug)
+  ) {
     if (cached.stale) {
       void runDeduplicated(cacheKey, refresh).catch(() => {});
     }
-    return cached.payload;
+    return {
+      ...cached.payload,
+      recommendations: (cached.payload.recommendations || []).filter(
+        (r) =>
+          Boolean(
+            r?.slug &&
+              !isMovieMarkedUnavailable(r.slug) &&
+              (r.cover || r.coverHz || r.coverVt)
+          )
+      ),
+    };
   }
 
   try {
     return await runDeduplicated(cacheKey, refresh);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err || '');
-    if (/\bHTTP 404\b/i.test(msg)) {
+    if (/\bHTTP (?:404|410)\b/i.test(msg)) {
+      markUnavailableEverywhere();
       return null;
     }
     throw err;
@@ -824,8 +920,13 @@ export async function getLookSeriesEpisodes(
   getToken: () => string,
   rawBookId: string
 ): Promise<LookSeriesEpisodesPayload> {
+  const cleanRaw = cleanStr(rawBookId).toLowerCase();
   const bookId = extractLookSeriesBookId(rawBookId);
-  if (!bookId) {
+  if (
+    !bookId ||
+    isMovieMarkedUnavailable(cleanRaw) ||
+    isMovieMarkedUnavailable(buildLookSeriesSlug(bookId))
+  ) {
     return {
       ok: true,
       app: 'lookseries',
@@ -844,9 +945,12 @@ export async function getLookSeriesEpisodes(
   const refresh = async (): Promise<LookSeriesEpisodesPayload> => {
     const token = getToken();
     if (!token) throw new Error('Server MOLA_API_TOKEN is not configured');
-    const raw = await fetchUpstreamLookSeriesJson(token, '/allepisode', {
-      book_id: bookId,
-    });
+    const raw = await fetchUpstreamLookSeriesJson(
+      token,
+      '/allepisode',
+      { book_id: bookId },
+      5000
+    );
 
     const dataObj =
       raw.data && typeof raw.data === 'object'

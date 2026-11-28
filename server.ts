@@ -40,6 +40,7 @@ import {
   grantFirstLoginBonusIfEligibleInDb,
   hasBlockingAntiCheatRiskFlag,
   isDatabaseEnabled,
+  isMovieMarkedUnavailable,
   listAdminPayoutRequestsFromDb,
   listCatalogForSitemapFromDb,
   listCommentsFromDb,
@@ -72,6 +73,7 @@ import {
   type PayoutMethod,
 } from './server/db.ts';
 import {
+  API_DETAIL_CACHE_TTL_MS,
   attachLiveBadgesToItems,
   type CachedDramaItem,
   clearHomeCatalogCache,
@@ -82,6 +84,7 @@ import {
   getCachedMolaApiResponse,
   getHomeCacheStatus,
   indexMolaPayloadToCatalog,
+  isCacheableMolaDetailOrEpisodePath,
   isCacheableMolaListPath,
   markApiRevalidating,
   peekCachedHomeDataForSsr,
@@ -205,9 +208,21 @@ interface SsrEpisode {
   isVipLocked: boolean;
 }
 
+const SSR_CACHE_FRESH_TTL_MS = 10 * 60 * 1000;
+const SSR_CACHE_STALE_TTL_MS = 60 * 60 * 1000;
+
 const ssrCache = new Map<
   string,
-  { expiresAt: number; drama: SsrDrama | null; episodes: SsrEpisode[] }
+  {
+    staleAt: number;
+    expiresAt: number;
+    drama: SsrDrama | null;
+    episodes: SsrEpisode[];
+  }
+>();
+const ssrDramaInFlight = new Map<
+  string,
+  Promise<{ drama: SsrDrama | null; episodes: SsrEpisode[] }>
 >();
 
 // In-memory fallback with local disk snapshot when PostgreSQL is unavailable (starts strictly from 0)
@@ -1633,6 +1648,33 @@ function getProviderConfigForSsr(providerHint: SsrProviderName): {
   }
 }
 
+function writeSsrDramaCache(
+  cacheKey: string,
+  drama: SsrDrama | null,
+  episodes: SsrEpisode[]
+): void {
+  const now = Date.now();
+  if (ssrCache.size > 600) {
+    const firstKey = ssrCache.keys().next().value;
+    if (firstKey) ssrCache.delete(firstKey);
+  }
+  const hasPayload = Boolean(drama || episodes.length > 0);
+  ssrCache.set(cacheKey, {
+    staleAt: now + (hasPayload ? SSR_CACHE_FRESH_TTL_MS : 60_000),
+    expiresAt: now + (hasPayload ? SSR_CACHE_STALE_TTL_MS : 90_000),
+    drama,
+    episodes,
+  });
+  if (hasPayload && drama) {
+    setCachedMolaApiResponse(
+      `ssr:drama:${cacheKey}`,
+      200,
+      JSON.stringify({ drama, episodes }),
+      SSR_CACHE_FRESH_TTL_MS
+    );
+  }
+}
+
 async function fetchDramaForSsr(
   bookId: string,
   providerHint: SsrProviderName = 'DramaBoxV2'
@@ -1640,216 +1682,298 @@ async function fetchDramaForSsr(
   drama: SsrDrama | null;
   episodes: SsrEpisode[];
 }> {
-  const token = getMolaToken();
-  if (!token) {
-    return { drama: null, episodes: [] };
-  }
-
   const canonicalProvider = parseSsrProviderName(providerHint);
   const cacheKey = `${canonicalProvider}:${bookId}`;
-  const cached = ssrCache.get(cacheKey);
-  if (cached && Date.now() < cached.expiresAt) {
-    return { drama: cached.drama, episodes: cached.episodes };
-  }
+  const now = Date.now();
 
-  let drama: SsrDrama | null = null;
-  let episodes: SsrEpisode[] = [];
+  const refreshFromUpstream = async (): Promise<{
+    drama: SsrDrama | null;
+    episodes: SsrEpisode[];
+  }> => {
+    const existing = ssrDramaInFlight.get(cacheKey);
+    if (existing) return existing;
 
-  const { baseUrl, langParam, idParam, epPath } = getProviderConfigForSsr(canonicalProvider);
-  const langSuffix = langParam ? `&lang=${encodeURIComponent(langParam)}` : '';
+    const promise = (async (): Promise<{
+      drama: SsrDrama | null;
+      episodes: SsrEpisode[];
+    }> => {
+      const token = getMolaToken();
+      if (!token) {
+        return { drama: null, episodes: [] };
+      }
 
-  try {
-    const parseEpisodesArray = (
-      jsonObj: Record<string, unknown>,
-      rawObj?: Record<string, unknown>
-    ): SsrEpisode[] => {
-      const dataObj =
-        jsonObj.data && !Array.isArray(jsonObj.data) && typeof jsonObj.data === 'object'
-          ? (jsonObj.data as Record<string, unknown>)
-          : null;
-      const rawEps = Array.isArray(jsonObj.episodes)
-        ? (jsonObj.episodes as Record<string, unknown>[])
-        : Array.isArray(jsonObj.chapterList)
-        ? (jsonObj.chapterList as Record<string, unknown>[])
-        : Array.isArray(jsonObj.video_list)
-        ? (jsonObj.video_list as Record<string, unknown>[])
-        : Array.isArray(jsonObj.videos)
-        ? (jsonObj.videos as Record<string, unknown>[])
-        : Array.isArray(dataObj?.chapterList)
-        ? (dataObj.chapterList as Record<string, unknown>[])
-        : Array.isArray(dataObj?.episodes)
-        ? (dataObj.episodes as Record<string, unknown>[])
-        : Array.isArray(dataObj?.video_list)
-        ? (dataObj.video_list as Record<string, unknown>[])
-        : Array.isArray(dataObj?.videos)
-        ? (dataObj.videos as Record<string, unknown>[])
-        : Array.isArray(dataObj?.data)
-        ? (dataObj.data as Record<string, unknown>[])
-        : Array.isArray(jsonObj.data)
-        ? (jsonObj.data as Record<string, unknown>[])
-        : rawObj && Array.isArray(rawObj.episodes)
-        ? (rawObj.episodes as Record<string, unknown>[])
-        : rawObj && Array.isArray(rawObj.chapterList)
-        ? (rawObj.chapterList as Record<string, unknown>[])
-        : rawObj && Array.isArray(rawObj.video_list)
-        ? (rawObj.video_list as Record<string, unknown>[])
-        : [];
-      if (rawEps.length === 0) return [];
+      let drama: SsrDrama | null = null;
+      let episodes: SsrEpisode[] = [];
 
-      const rawIndices = rawEps
-        .map((ep) => {
-          const rawVal = ep.chapterIndex ?? ep.episodeIndex ?? ep.episode;
-          if (rawVal === null || rawVal === undefined || rawVal === '') return -1;
-          const n = Number(rawVal);
-          return Number.isFinite(n) && n >= 0 ? Math.floor(n) : -1;
-        })
-        .filter((n) => n >= 0);
-      const hasZeroBased = rawIndices.length > 0 && Math.min(...rawIndices) === 0;
-      const seenNums = new Set<number>();
+      const { baseUrl, langParam, idParam, epPath } =
+        getProviderConfigForSsr(canonicalProvider);
+      const langSuffix = langParam ? `&lang=${encodeURIComponent(langParam)}` : '';
 
-      return rawEps
-        .map((ep, idx) => {
-          const rawVal = ep.chapterIndex ?? ep.episodeIndex ?? ep.episode;
-          const parsedVal =
-            rawVal !== null && rawVal !== undefined && rawVal !== ''
-              ? Number(rawVal)
-              : NaN;
-          let num =
-            Number.isFinite(parsedVal) && parsedVal >= 0
-              ? hasZeroBased
-                ? Math.floor(parsedVal) + 1
-                : Math.max(1, Math.floor(parsedVal))
-              : idx + 1;
-          while (seenNums.has(num)) num += 1;
-          seenNums.add(num);
-          return {
-            chapterId: cleanText(
-              String(
-                ep.chapterId ??
-                  ep.episodeId ??
-                  ep.episode_id ??
-                  ep.chapter_id ??
-                  `ep-${num}`
-              )
-            ),
-            episodeNumber: num,
-            title: cleanText(ep.chapterName ?? ep.title, `EP ${num}`),
-            isVipLocked: false,
-          };
-        })
-        .sort((a, b) => a.episodeNumber - b.episodeNumber);
-    };
-
-    const idCandidates = Array.from(
-      new Set([idParam, 'book_id', 'drama_id', 'playlet_id', 'album_id', 'vid', 'bookId', 'id'])
-    );
-    const primaryDetailPath = canonicalProvider === 'iQIYI' ? '/allepisode' : '/detail';
-    const primaryEpPath = epPath || '/allepisode';
-
-    for (const candidateIdParam of idCandidates.slice(0, 3)) {
-      const detailUrl = `${baseUrl}${primaryDetailPath}?${candidateIdParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`;
-      const epUrl = `${baseUrl}${primaryEpPath}?${candidateIdParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`;
-      const [detailRes, epRes] = await Promise.allSettled([
-        fetch(detailUrl, { signal: AbortSignal.timeout(7000) }),
-        epUrl === detailUrl
-          ? Promise.resolve(null)
-          : fetch(epUrl, { signal: AbortSignal.timeout(7000) }),
-      ]);
-
-      if (detailRes.status === 'fulfilled' && detailRes.value.ok) {
-        const json = (await detailRes.value.json()) as Record<string, unknown>;
-        const raw =
-          json?.data && typeof json.data === 'object'
-            ? (json.data as Record<string, unknown>)
-            : json;
-        const title = cleanText(raw.bookName ?? raw.title ?? raw.name ?? raw.dramaName ?? raw.book_name);
-        if (title) {
-          const tags = Array.isArray(raw.tags)
-            ? raw.tags
-                .map((t) => cleanText(t))
-                .filter((t): t is string => Boolean(t))
+      try {
+        const parseEpisodesArray = (
+          jsonObj: Record<string, unknown>,
+          rawObj?: Record<string, unknown>
+        ): SsrEpisode[] => {
+          const dataObj =
+            jsonObj.data &&
+            !Array.isArray(jsonObj.data) &&
+            typeof jsonObj.data === 'object'
+              ? (jsonObj.data as Record<string, unknown>)
+              : null;
+          const rawEps = Array.isArray(jsonObj.episodes)
+            ? (jsonObj.episodes as Record<string, unknown>[])
+            : Array.isArray(jsonObj.chapterList)
+            ? (jsonObj.chapterList as Record<string, unknown>[])
+            : Array.isArray(jsonObj.video_list)
+            ? (jsonObj.video_list as Record<string, unknown>[])
+            : Array.isArray(jsonObj.videos)
+            ? (jsonObj.videos as Record<string, unknown>[])
+            : Array.isArray(dataObj?.chapterList)
+            ? (dataObj.chapterList as Record<string, unknown>[])
+            : Array.isArray(dataObj?.episodes)
+            ? (dataObj.episodes as Record<string, unknown>[])
+            : Array.isArray(dataObj?.video_list)
+            ? (dataObj.video_list as Record<string, unknown>[])
+            : Array.isArray(dataObj?.videos)
+            ? (dataObj.videos as Record<string, unknown>[])
+            : Array.isArray(dataObj?.data)
+            ? (dataObj.data as Record<string, unknown>[])
+            : Array.isArray(jsonObj.data)
+            ? (jsonObj.data as Record<string, unknown>[])
+            : rawObj && Array.isArray(rawObj.episodes)
+            ? (rawObj.episodes as Record<string, unknown>[])
+            : rawObj && Array.isArray(rawObj.chapterList)
+            ? (rawObj.chapterList as Record<string, unknown>[])
+            : rawObj && Array.isArray(rawObj.video_list)
+            ? (rawObj.video_list as Record<string, unknown>[])
             : [];
-          const rawCover = cleanText(
-            raw.cover ?? raw.coverUrl ?? raw.bookCover ?? raw.book_cover ?? raw.coverWap ?? raw.poster ?? raw.image
-          );
-          const normalizedCover =
-            rawCover &&
-            (rawCover.startsWith('http://') ||
-              (canonicalProvider === 'MeloLoV2' &&
-                (rawCover.toLowerCase().includes('.heic') ||
-                  rawCover.toLowerCase().includes('fizzopic.org'))))
-              ? `/api/proxy?url=${encodeURIComponent(rawCover)}`
-              : rawCover;
-          const rawUpdatedAt =
-            raw.updatedAt ?? raw.updateTime ?? raw.utime ?? raw.createdAt;
-          drama = {
-            bookId,
-            title,
-            cover: normalizedCover,
-            description: cleanText(
-              raw.description ?? raw.introduction ?? raw.synopsis ?? raw.intro ?? raw.summary
-            ),
-            chapterCount:
-              Number(raw.chapterCount ?? raw.totalEpisodes ?? raw.episodeCount ?? 1) || 1,
-            tags,
-            playCount: cleanText(raw.playCount) || undefined,
-            protagonist: cleanText(raw.protagonist) || undefined,
-            isVip: Boolean(raw.isVip),
-            provider: canonicalProvider,
-            updatedAt:
-              typeof rawUpdatedAt === 'number' || typeof rawUpdatedAt === 'string'
-                ? rawUpdatedAt
-                : undefined,
-          };
-        }
-        if (epUrl === detailUrl) {
-          episodes = parseEpisodesArray(json, raw);
-        }
-      }
+          if (rawEps.length === 0) return [];
 
-      if (epRes.status === 'fulfilled' && epRes.value && epRes.value.ok) {
-        const json = (await epRes.value.json()) as Record<string, unknown>;
-        const parsedEps = parseEpisodesArray(json);
-        if (parsedEps.length > 0) {
-          episodes = parsedEps;
-        }
-      }
+          const rawIndices = rawEps
+            .map((ep) => {
+              const rawVal = ep.chapterIndex ?? ep.episodeIndex ?? ep.episode;
+              if (rawVal === null || rawVal === undefined || rawVal === '') return -1;
+              const n = Number(rawVal);
+              return Number.isFinite(n) && n >= 0 ? Math.floor(n) : -1;
+            })
+            .filter((n) => n >= 0);
+          const hasZeroBased = rawIndices.length > 0 && Math.min(...rawIndices) === 0;
+          const seenNums = new Set<number>();
 
-      if (drama && episodes.length === 0) {
-        for (const altEpPath of ['/episodes', '/allepisode', '/detail']) {
-          if (altEpPath === primaryEpPath) continue;
-          const altRes = await fetch(
-            `${baseUrl}${altEpPath}?${candidateIdParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`,
-            { signal: AbortSignal.timeout(5000) }
-          ).catch(() => null);
-          if (altRes && altRes.ok) {
-            const altJson = (await altRes.json().catch(() => null)) as Record<string, unknown> | null;
-            if (altJson) {
-              const parsedEps = parseEpisodesArray(altJson);
-              if (parsedEps.length > 0) {
-                episodes = parsedEps;
-                break;
+          return rawEps
+            .map((ep, idx) => {
+              const rawVal = ep.chapterIndex ?? ep.episodeIndex ?? ep.episode;
+              const parsedVal =
+                rawVal !== null && rawVal !== undefined && rawVal !== ''
+                  ? Number(rawVal)
+                  : NaN;
+              let num =
+                Number.isFinite(parsedVal) && parsedVal >= 0
+                  ? hasZeroBased
+                    ? Math.floor(parsedVal) + 1
+                    : Math.max(1, Math.floor(parsedVal))
+                  : idx + 1;
+              while (seenNums.has(num)) num += 1;
+              seenNums.add(num);
+              return {
+                chapterId: cleanText(
+                  String(
+                    ep.chapterId ??
+                      ep.episodeId ??
+                      ep.episode_id ??
+                      ep.chapter_id ??
+                      `ep-${num}`
+                  )
+                ),
+                episodeNumber: num,
+                title: cleanText(ep.chapterName ?? ep.title, `EP ${num}`),
+                isVipLocked: false,
+              };
+            })
+            .sort((a, b) => a.episodeNumber - b.episodeNumber);
+        };
+
+        const idCandidates = Array.from(
+          new Set([idParam, 'book_id', 'drama_id', 'playlet_id', 'id'])
+        ).slice(0, 2);
+        const primaryDetailPath = canonicalProvider === 'iQIYI' ? '/allepisode' : '/detail';
+        const primaryEpPath = epPath || '/allepisode';
+
+        for (const candidateIdParam of idCandidates) {
+          const detailUrl = `${baseUrl}${primaryDetailPath}?${candidateIdParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`;
+          const epUrl = `${baseUrl}${primaryEpPath}?${candidateIdParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`;
+          const [detailRes, epRes] = await Promise.allSettled([
+            fetch(detailUrl, { signal: AbortSignal.timeout(2800) }),
+            epUrl === detailUrl
+              ? Promise.resolve(null)
+              : fetch(epUrl, { signal: AbortSignal.timeout(2800) }),
+          ]);
+
+          if (detailRes.status === 'fulfilled' && detailRes.value.ok) {
+            const json = (await detailRes.value.json()) as Record<string, unknown>;
+            const raw =
+              json?.data && typeof json.data === 'object'
+                ? (json.data as Record<string, unknown>)
+                : json;
+            const title = cleanText(
+              raw.bookName ?? raw.title ?? raw.name ?? raw.dramaName ?? raw.book_name
+            );
+            if (title) {
+              const tags = Array.isArray(raw.tags)
+                ? raw.tags
+                    .map((t) => cleanText(t))
+                    .filter((t): t is string => Boolean(t))
+                : [];
+              const rawCover = cleanText(
+                raw.cover ??
+                  raw.coverUrl ??
+                  raw.bookCover ??
+                  raw.book_cover ??
+                  raw.coverWap ??
+                  raw.poster ??
+                  raw.image
+              );
+              const normalizedCover =
+                rawCover &&
+                (rawCover.startsWith('http://') ||
+                  (canonicalProvider === 'MeloLoV2' &&
+                    (rawCover.toLowerCase().includes('.heic') ||
+                      rawCover.toLowerCase().includes('fizzopic.org'))))
+                  ? `/api/proxy?url=${encodeURIComponent(rawCover)}`
+                  : rawCover;
+              const rawUpdatedAt =
+                raw.updatedAt ?? raw.updateTime ?? raw.utime ?? raw.createdAt;
+              drama = {
+                bookId,
+                title,
+                cover: normalizedCover,
+                description: cleanText(
+                  raw.description ??
+                    raw.introduction ??
+                    raw.synopsis ??
+                    raw.intro ??
+                    raw.summary
+                ),
+                chapterCount:
+                  Number(
+                    raw.chapterCount ?? raw.totalEpisodes ?? raw.episodeCount ?? 1
+                  ) || 1,
+                tags,
+                playCount: cleanText(raw.playCount) || undefined,
+                protagonist: cleanText(raw.protagonist) || undefined,
+                isVip: Boolean(raw.isVip),
+                provider: canonicalProvider,
+                updatedAt:
+                  typeof rawUpdatedAt === 'number' ||
+                  typeof rawUpdatedAt === 'string'
+                    ? rawUpdatedAt
+                    : undefined,
+              };
+            }
+            if (epUrl === detailUrl) {
+              episodes = parseEpisodesArray(json, raw);
+            }
+          }
+
+          if (epRes.status === 'fulfilled' && epRes.value && epRes.value.ok) {
+            const json = (await epRes.value.json()) as Record<string, unknown>;
+            const parsedEps = parseEpisodesArray(json);
+            if (parsedEps.length > 0) {
+              episodes = parsedEps;
+            }
+          }
+
+          if (drama && episodes.length === 0) {
+            const altPaths = ['/episodes', '/allepisode', '/detail'].filter(
+              (p) => p !== primaryEpPath
+            );
+            const altResults = await Promise.allSettled(
+              altPaths.map((altEpPath) =>
+                fetch(
+                  `${baseUrl}${altEpPath}?${candidateIdParam}=${encodeURIComponent(bookId)}${langSuffix}&token=${token}`,
+                  { signal: AbortSignal.timeout(2200) }
+                ).then(async (r) => (r.ok ? ((await r.json()) as Record<string, unknown>) : null))
+              )
+            );
+            for (const resItem of altResults) {
+              if (resItem.status === 'fulfilled' && resItem.value) {
+                const parsedEps = parseEpisodesArray(resItem.value);
+                if (parsedEps.length > 0) {
+                  episodes = parsedEps;
+                  break;
+                }
               }
             }
           }
+
+          if (drama || episodes.length > 0) break;
+          const detailStatus =
+            detailRes.status === 'fulfilled' ? detailRes.value.status : 0;
+          if (
+            detailStatus === 401 ||
+            detailStatus === 403 ||
+            detailStatus === 404 ||
+            detailStatus === 503
+          ) {
+            break;
+          }
         }
+      } catch {
+        // Graceful SSR fallback
       }
 
-      if (drama || episodes.length > 0) break;
-      const detailStatus = detailRes.status === 'fulfilled' ? detailRes.value.status : 0;
-      if (detailStatus === 401 || detailStatus === 403 || detailStatus === 503) break;
+      writeSsrDramaCache(cacheKey, drama, episodes);
+      return { drama, episodes };
+    })().finally(() => {
+      ssrDramaInFlight.delete(cacheKey);
+    });
+
+    ssrDramaInFlight.set(cacheKey, promise);
+    return promise;
+  };
+
+  // L1 memory SSR cache (fresh or stale-while-revalidate)
+  const memCached = ssrCache.get(cacheKey);
+  if (memCached && now < memCached.expiresAt) {
+    if (now >= memCached.staleAt) {
+      void refreshFromUpstream().catch(() => {});
     }
-  } catch {
-    // Graceful SSR fallback
+    return { drama: memCached.drama, episodes: memCached.episodes };
   }
 
-  ssrCache.set(cacheKey, {
-    expiresAt: Date.now() + 5 * 60 * 1000,
-    drama,
-    episodes,
-  });
+  // L2 persistent DB/API cache (`api_response_cache`)
+  const dbCached = await getCachedMolaApiResponse(`ssr:drama:${cacheKey}`).catch(
+    () => null
+  );
+  if (dbCached && dbCached.statusCode === 200) {
+    try {
+      const parsed = JSON.parse(dbCached.payloadJson) as {
+        drama?: SsrDrama | null;
+        episodes?: SsrEpisode[];
+      };
+      if (parsed?.drama) {
+        const eps = Array.isArray(parsed.episodes) ? parsed.episodes : [];
+        ssrCache.set(cacheKey, {
+          staleAt: now + (dbCached.stale ? 0 : SSR_CACHE_FRESH_TTL_MS),
+          expiresAt: now + SSR_CACHE_STALE_TTL_MS,
+          drama: parsed.drama,
+          episodes: eps,
+        });
+        if (dbCached.stale) {
+          void refreshFromUpstream().catch(() => {});
+        }
+        return { drama: parsed.drama, episodes: eps };
+      }
+    } catch {
+      // Ignore malformed cache payload
+    }
+  }
 
-  return { drama, episodes };
+  if (!getMolaToken()) {
+    return { drama: null, episodes: [] };
+  }
+
+  return refreshFromUpstream();
 }
 
 const IP_COUNTRY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -2025,7 +2149,12 @@ async function detectIpGeoForRequest(req: Request): Promise<{
   if (isPrivateOrLocalIp(ip)) {
     return syncGeo;
   }
-  const lookedUp = await lookupPublicIpCountryCode(ip);
+  // Never block HTML SSR for up to 1.3s on external IP geo providers:
+  // race a 120ms budget while warming ipCountryCache in the background.
+  const lookedUp = await Promise.race([
+    lookupPublicIpCountryCode(ip),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 120)),
+  ]);
   if (lookedUp) {
     return {
       lang: mapCountryCodeToLanguage(lookedUp),
@@ -3309,7 +3438,7 @@ function injectProgrammaticSeoIntoHtml(
   const ogLocale = getOgLocaleTag(ssrLang);
 
   const itemListElements = items.slice(0, 12).map((item, idx) => {
-    const title = cleanText(item.title, 'Short Drama');
+    const title = cleanText(item.title ?? item.bookName, 'Short Drama');
     const slug = cleanText(item.slug) || slugifyTitle(title);
     const provSlug = getProviderRouteSlug(cleanText(item.provider, 'DramaBoxV2'));
     return {
@@ -3320,20 +3449,44 @@ function injectProgrammaticSeoIntoHtml(
     };
   });
 
+  const sampleTitles = itemListElements
+    .slice(0, 2)
+    .map((el) => el.name)
+    .filter(Boolean)
+    .join(', ');
+  const isId = ssrLang === 'id';
+  const enrichedDescription = (() => {
+    if (!sampleTitles) return landing.description;
+    const prefix =
+      landing.basePath === 'tag'
+        ? isId
+          ? `Topik #${landing.label} (${itemListElements.length}+ pilihan: ${sampleTitles}). `
+          : `#${landing.label} tag picks (${itemListElements.length}+ titles: ${sampleTitles}). `
+        : landing.basePath === 'category'
+        ? isId
+          ? `Kategori ${landing.label} (${itemListElements.length}+ judul: ${sampleTitles}). `
+          : `${landing.label} category (${itemListElements.length}+ titles: ${sampleTitles}). `
+        : isId
+        ? `Genre ${landing.label} (${itemListElements.length}+ seri: ${sampleTitles}). `
+        : `${landing.label} genre (${itemListElements.length}+ series: ${sampleTitles}). `;
+    const combined = `${prefix}${landing.description}`.replace(/\s+/g, ' ').trim();
+    return combined.length > 165 ? `${combined.slice(0, 162).trim()}...` : combined;
+  })();
+
   const programmaticLabels: Record<
     LanguageCode,
     { home: string; tags: string; genres: string; explore: string }
   > = {
-    id: { home: 'Beranda', tags: 'Tag', genres: 'Genre', explore: 'Jelajahi' },
-    en: { home: 'Home', tags: 'Tags', genres: 'Genres', explore: 'Explore' },
-    cn: { home: '首页', tags: '标签', genres: '类型', explore: '探索' },
-    vi: { home: 'Trang chủ', tags: 'Thẻ', genres: 'Thể loại', explore: 'Khám phá' },
-    es: { home: 'Inicio', tags: 'Etiquetas', genres: 'Géneros', explore: 'Explorar' },
-    ko: { home: '홈', tags: '태그', genres: '장르', explore: '탐색' },
-    ja: { home: 'ホーム', tags: 'タグ', genres: 'ジャンル', explore: '探す' },
-    th: { home: 'หน้าแรก', tags: 'แท็ก', genres: 'หมวดหมู่', explore: 'สำรวจ' },
-    ms: { home: 'Utama', tags: 'Tag', genres: 'Genre', explore: 'Teroka' },
-    tl: { home: 'Tahanan', tags: 'Mga Tag', genres: 'Mga Genre', explore: 'Mag-explore' },
+    id: { home: 'Beranda', tags: 'Topik & Tag', genres: 'Genre', explore: 'Jelajahi' },
+    en: { home: 'Home', tags: 'Topic & Tags', genres: 'Genres', explore: 'Explore' },
+    cn: { home: '首页', tags: '标签话题', genres: '类型', explore: '探索' },
+    vi: { home: 'Trang chủ', tags: 'Chủ đề & Thẻ', genres: 'Thể loại', explore: 'Khám phá' },
+    es: { home: 'Inicio', tags: 'Temas y Etiquetas', genres: 'Géneros', explore: 'Explorar' },
+    ko: { home: '홈', tags: '토픽 & 태그', genres: '장르', explore: '탐색' },
+    ja: { home: 'ホーム', tags: 'トピック＆タグ', genres: 'ジャンル', explore: '探す' },
+    th: { home: 'หน้าแรก', tags: 'หัวข้อและแท็ก', genres: 'หมวดหมู่', explore: 'สำรวจ' },
+    ms: { home: 'Utama', tags: 'Topik & Tag', genres: 'Genre', explore: 'Teroka' },
+    tl: { home: 'Tahanan', tags: 'Paksa at Tag', genres: 'Mga Genre', explore: 'Mag-explore' },
   };
   const progLabels = programmaticLabels[ssrLang] || programmaticLabels.en;
 
@@ -3343,7 +3496,7 @@ function injectProgrammaticSeoIntoHtml(
       {
         '@type': 'CollectionPage',
         name: landing.title,
-        description: landing.description,
+        description: enrichedDescription,
         url: canonicalUrl,
         inLanguage: htmlLang,
         isPartOf: {
@@ -3386,7 +3539,7 @@ function injectProgrammaticSeoIntoHtml(
 
   const seoHeadBlock = `
     <title>${escapeHtmlAttr(landing.title)}</title>
-    <meta name="description" content="${escapeHtmlAttr(landing.description)}" />
+    <meta name="description" content="${escapeHtmlAttr(enrichedDescription)}" />
     <meta name="keywords" content="${escapeHtmlAttr(landing.keywords)}" />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <link rel="canonical" href="${escapeHtmlAttr(canonicalUrl)}" />
@@ -3395,7 +3548,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
     <meta property="og:locale" content="${escapeHtmlAttr(ogLocale)}" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="${escapeHtmlAttr(landing.title)}" />
-    <meta property="og:description" content="${escapeHtmlAttr(landing.description)}" />
+    <meta property="og:description" content="${escapeHtmlAttr(enrichedDescription)}" />
     <meta property="og:url" content="${escapeHtmlAttr(canonicalUrl)}" />
     <meta property="og:image" content="${escapeHtmlAttr(ogImage)}" />
     <meta property="og:image:secure_url" content="${escapeHtmlAttr(ogSecureUrl)}" />
@@ -3405,7 +3558,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
     <meta property="og:image:alt" content="${escapeHtmlAttr(landing.title)}" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtmlAttr(landing.title)}" />
-    <meta name="twitter:description" content="${escapeHtmlAttr(landing.description)}" />
+    <meta name="twitter:description" content="${escapeHtmlAttr(enrichedDescription)}" />
     <meta name="twitter:image" content="${escapeHtmlAttr(ogImage)}" />
     <script type="application/ld+json" id="kano-drama-jsonld">${JSON.stringify(
       jsonLd
@@ -3421,11 +3574,21 @@ ${buildHreflangLinksHtml(canonicalUrl)}
           )
           .join('')}</ul>`
       : '';
+  const relatedStripHtml =
+    landing.relatedSlugs.length > 0
+      ? `<nav aria-label="${escapeHtmlAttr(landing.routeKindLabel)}">${landing.relatedSlugs
+          .map(
+            (r) =>
+              `<a href="${brandOrigin}${escapeHtmlAttr(r.path)}">${escapeHtmlAttr(r.label)}</a>`
+          )
+          .join(' · ')}</nav>`
+      : '';
   const ssrLandingHtml = `<main class="max-w-5xl mx-auto px-4 py-8 text-[#FAFAFA]">
-    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${escapeHtmlAttr(progLabels.home)}</a> / <a href="${brandOrigin}/explore">${escapeHtmlAttr(progLabels.explore)}</a> / <span>${escapeHtmlAttr(landing.h1)}</span></nav>
+    <nav aria-label="Breadcrumb"><a href="${brandOrigin}/">${escapeHtmlAttr(progLabels.home)}</a> / <a href="${brandOrigin}/explore">${escapeHtmlAttr(landing.basePath === 'tag' ? progLabels.tags : progLabels.genres)}</a> / <span>${escapeHtmlAttr(landing.h1)}</span></nav>
     <h1>${escapeHtmlAttr(landing.h1)}</h1>
-    <p>${escapeHtmlAttr(landing.description)}</p>
+    <p><strong>${escapeHtmlAttr(landing.routeKindLabel)}</strong> — ${escapeHtmlAttr(landing.intro)}</p>
     ${ssrLinksHtml}
+    ${relatedStripHtml}
   </main>`;
 
   const withHead = applyHtmlLangTag(stripStaticSeoHeadTags(html), ssrLang).replace(
@@ -4818,9 +4981,13 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
     const cacheableListGet =
       req.method === 'GET' && isCacheableMolaListPath(rawPath);
+    const cacheableDetailGet =
+      req.method === 'GET' && isCacheableMolaDetailOrEpisodePath(rawPath);
+    const isCacheableGet = cacheableListGet || cacheableDetailGet;
     const molaCacheKey = `mola:${rawPath}`;
+    const cacheTtlMs = cacheableDetailGet ? API_DETAIL_CACHE_TTL_MS : undefined;
 
-    if (cacheableListGet) {
+    if (isCacheableGet) {
       const cached = await getCachedMolaApiResponse(molaCacheKey);
       if (cached) {
         res.status(cached.statusCode);
@@ -4834,13 +5001,18 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               const refreshRes = await fetch(upstreamUrl.toString(), {
                 method: 'GET',
                 headers: { Accept: 'application/json' },
-                signal: AbortSignal.timeout(12000),
+                signal: AbortSignal.timeout(8000),
               });
               if (refreshRes.ok) {
                 const refreshText = await refreshRes.text();
                 const parsed = JSON.parse(refreshText);
                 const sanitized = JSON.stringify(sanitizeMolaPayload(parsed));
-                setCachedMolaApiResponse(molaCacheKey, refreshRes.status, sanitized);
+                setCachedMolaApiResponse(
+                  molaCacheKey,
+                  refreshRes.status,
+                  sanitized,
+                  cacheTtlMs
+                );
               }
             } catch {
               // Preserve existing cache on background refresh failure
@@ -4860,10 +5032,11 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         upstreamHeaders.Range = rangeHeader;
       }
 
+      const isDecryptRoute = upstreamUrl.pathname.toLowerCase().endsWith('/decrypt');
       const upstream = await fetch(upstreamUrl.toString(), {
         method: req.method === 'HEAD' ? 'HEAD' : 'GET',
         headers: upstreamHeaders,
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(isDecryptRoute ? 15000 : 8000),
       });
 
       const contentType =
@@ -4877,7 +5050,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           const acceptHeader = (req.get('accept') || '').toLowerCase();
           if (
             upstream.ok &&
-            upstreamUrl.pathname.toLowerCase().endsWith('/decrypt') &&
+            isDecryptRoute &&
             !acceptHeader.includes('application/json')
           ) {
             const pObj =
@@ -4939,8 +5112,13 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           res.status(upstream.status);
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
           const sanitized = JSON.stringify(sanitizeMolaPayload(parsed));
-          if (cacheableListGet && upstream.ok) {
-            setCachedMolaApiResponse(molaCacheKey, upstream.status, sanitized);
+          if (isCacheableGet && upstream.ok) {
+            setCachedMolaApiResponse(
+              molaCacheKey,
+              upstream.status,
+              sanitized,
+              cacheTtlMs
+            );
             res.setHeader('X-Mola-Cache', 'MISS');
           } else if (
             upstream.ok &&
@@ -8098,7 +8276,8 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       const basePathRaw = cleanText(req.query.basePath, 'genre');
       const basePath: 'genre' | 'tag' | 'category' =
         basePathRaw === 'tag' || basePathRaw === 'category' ? basePathRaw : 'genre';
-      const landing = resolveProgrammaticLanding(slug, basePath, modifier);
+      const reqLang = resolveRequestLanguage(req).lang;
+      const landing = resolveProgrammaticLanding(slug, basePath, modifier, reqLang);
 
       const overrideStatus = cleanText(req.query.status) || landing.filter.status || 'all';
       const overrideSort = cleanText(req.query.sort) || landing.filter.sort || 'popular';
@@ -8110,7 +8289,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         sort: overrideSort,
         q: landing.filter.q,
         limit,
-        offset: 0,
+        offset: basePath === 'tag' && !req.query.sort ? 4 : 0,
       });
 
       if (result.items.length === 0 && (landing.filter.genre || landing.filter.q)) {
@@ -8132,6 +8311,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           limit,
           offset: 0,
         });
+      }
+
+      if (basePath === 'tag' && !req.query.sort && result.items.length > 1) {
+        result = { ...result, items: [...result.items].reverse() };
       }
 
       const statsMap = await getTrendingStatsMapFromDb(250);
@@ -9153,7 +9336,16 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         for (const item of flat) {
           const slug = cleanText(item.slug).toLowerCase();
           const title = cleanText(item.title);
-          if (!slug || !title || seenSlug.has(slug)) continue;
+          const hasCover = Boolean(cleanText(item.cover || item.coverHz || item.coverVt));
+          if (
+            !slug ||
+            !title ||
+            !hasCover ||
+            isMovieMarkedUnavailable(slug) ||
+            seenSlug.has(slug)
+          ) {
+            continue;
+          }
           seenSlug.add(slug);
           movieEntries.push({
             id: slug,
@@ -9396,6 +9588,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           !cleanTitle ||
           cleanTitle.length < 2 ||
           !isValidSitemapSlug(cleanSlug) ||
+          isMovieMarkedUnavailable(cleanSlug) ||
           !cleanText(m.cover)
         ) {
           continue;
@@ -9426,6 +9619,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               !cleanTitle ||
               cleanTitle.length < 2 ||
               !isValidSitemapSlug(cleanSlug) ||
+              isMovieMarkedUnavailable(cleanSlug) ||
               !cleanText(m.cover || m.coverHz || m.coverVt)
             ) {
               continue;
@@ -9770,6 +9964,10 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       title?: string;
       slug?: string;
       app?: string;
+      cover?: string;
+      coverHz?: string;
+      coverVt?: string;
+      poster?: string;
     }> = []
   ): Promise<SsrRelatedLink[]> => {
     const out: SsrRelatedLink[] = [];
@@ -9778,7 +9976,19 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     for (const rec of detailRecommendations) {
       const title = cleanText(rec?.title);
       const slug = cleanText(rec?.slug).toLowerCase();
-      if (!title || !slug || seen.has(slug)) continue;
+      const hasCover = Boolean(
+        cleanText(rec?.cover || rec?.coverHz || rec?.coverVt || rec?.poster)
+      );
+      if (
+        !title ||
+        !slug ||
+        !hasCover ||
+        !isValidSitemapSlug(slug) ||
+        isMovieMarkedUnavailable(slug) ||
+        seen.has(slug)
+      ) {
+        continue;
+      }
       seen.add(slug);
       out.push({
         title,
@@ -9793,7 +10003,15 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       for (const m of movies) {
         const slug = cleanText(m.slug).toLowerCase();
         const title = cleanText(m.title);
-        if (!slug || !title || seen.has(slug)) continue;
+        if (
+          !slug ||
+          !title ||
+          !isValidSitemapSlug(slug) ||
+          isMovieMarkedUnavailable(slug) ||
+          seen.has(slug)
+        ) {
+          continue;
+        }
         seen.add(slug);
         out.push({
           title,
@@ -10013,10 +10231,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               res.redirect(301, buildCanonicalRedirectUrl(req, targetPath));
               return;
             }
-            const related = await loadRelatedMovieLinks(
-              canonicalSlug,
-              movieDetail.recommendations
-            );
+            const related = isBotOrAutomatedRequest(req)
+              ? await loadRelatedMovieLinks(
+                  canonicalSlug,
+                  movieDetail.recommendations
+                )
+              : [];
             html = injectMovieSeoIntoHtml(
               html,
               origin,
@@ -10041,6 +10261,24 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
             );
           }
         } else {
+          const isBot = isBotOrAutomatedRequest(req);
+          const raceLiveFetchWithBudget = async (
+            dramaId: string,
+            prov: SsrProviderName
+          ): Promise<{ drama: SsrDrama | null; episodes: SsrEpisode[] }> => {
+            const budgetMs = isBot ? 1000 : 350;
+            const livePromise = fetchDramaForSsr(dramaId, prov).catch(() => ({
+              drama: null,
+              episodes: [],
+            }));
+            return Promise.race([
+              livePromise,
+              new Promise<{ drama: null; episodes: SsrEpisode[] }>((resolve) =>
+                setTimeout(() => resolve({ drama: null, episodes: [] }), budgetMs)
+              ),
+            ]);
+          };
+
           const mappedProv = parseProviderFromRouteSlug(routeProvSlug, segment);
           const providerHint = mappedProv
             ? parseSsrProviderName(mappedProv)
@@ -10054,7 +10292,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
 
           if (dbResolved) {
             const dbProv = parseSsrProviderName(dbResolved.provider);
-            const live = await fetchDramaForSsr(dbResolved.dramaId, dbProv);
+            const live = await raceLiveFetchWithBudget(dbResolved.dramaId, dbProv);
             episodes = live.episodes;
             const cached = dbResolved.drama;
             resolvedDrama = live.drama
@@ -10090,7 +10328,7 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               ));
             if (homeItem) {
               const itemProv = parseSsrProviderName(homeItem.provider);
-              const live = await fetchDramaForSsr(homeItem.bookId, itemProv);
+              const live = await raceLiveFetchWithBudget(homeItem.bookId, itemProv);
               episodes = live.episodes;
               resolvedDrama = live.drama
                 ? {
@@ -10136,10 +10374,9 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               res.redirect(301, buildCanonicalRedirectUrl(req, targetPath));
               return;
             }
-            const related = await loadRelatedDramaLinks(
-              resolvedDrama.tags,
-              finalSlug
-            );
+            const related = isBot
+              ? await loadRelatedDramaLinks(resolvedDrama.tags, finalSlug)
+              : [];
             html = injectDramaSeoIntoHtml(
               html,
               origin,
@@ -10564,15 +10801,28 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
             ssrLang
           );
         } else {
-          const landing = resolveProgrammaticLanding(slugSeg, baseKind, modSeg);
-          const filtered = await filterCatalogFromDb({
+          const landing = resolveProgrammaticLanding(slugSeg, baseKind, modSeg, ssrLang);
+          let filtered = await filterCatalogFromDb({
             genre: landing.filter.genre,
             status: landing.filter.status,
             sort: landing.filter.sort,
             q: landing.filter.q,
             limit: 12,
-            offset: 0,
+            offset: baseKind === 'tag' ? 4 : 0,
           });
+          if (baseKind === 'tag' && filtered.items.length === 0) {
+            filtered = await filterCatalogFromDb({
+              genre: landing.filter.genre,
+              status: landing.filter.status,
+              sort: landing.filter.sort,
+              q: landing.filter.q,
+              limit: 12,
+              offset: 0,
+            });
+          }
+          if (baseKind === 'tag' && filtered.items.length > 1) {
+            filtered = { ...filtered, items: [...filtered.items].reverse() };
+          }
           html = injectProgrammaticSeoIntoHtml(
             html,
             origin,
@@ -10664,7 +10914,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               provider: d.provider,
             }));
           const movieLinks: SsrRelatedLink[] = cachedMoviesRes
-            .filter((m) => cleanText(m.title) && isValidSitemapSlug(m.slug))
+            .filter(
+              (m) =>
+                cleanText(m.title) &&
+                isValidSitemapSlug(m.slug) &&
+                !isMovieMarkedUnavailable(m.slug)
+            )
             .slice(0, 6)
             .map((m) => ({
               title: cleanText(m.title),

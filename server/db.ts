@@ -498,7 +498,10 @@ const SCHEMA_STATEMENTS: string[] = [
     popularity_score BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`,
+  `ALTER TABLE movies ADD COLUMN IF NOT EXISTS is_available BOOLEAN NOT NULL DEFAULT TRUE`,
+  `ALTER TABLE movies ADD COLUMN IF NOT EXISTS detail_verified BOOLEAN NOT NULL DEFAULT FALSE`,
   `CREATE INDEX IF NOT EXISTS idx_movies_popularity ON movies (popularity_score DESC, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_movies_available_sitemap ON movies (is_available, detail_verified DESC, popularity_score DESC, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_movies_genres_gin ON movies USING GIN (genres)`,
   `CREATE INDEX IF NOT EXISTS idx_movies_type ON movies (movie_type, updated_at DESC)`,
 
@@ -3721,6 +3724,68 @@ export interface MovieUpsertInput {
   recommendations?: Array<Record<string, unknown>>;
   movieJson?: Record<string, unknown>;
   popularityScore?: number;
+  isAvailable?: boolean;
+  detailVerified?: boolean;
+}
+
+const unavailableMovieSlugs = new Set<string>();
+const verifiedMovieSlugs = new Set<string>();
+
+export function isMovieMarkedUnavailable(slug: string | undefined | null): boolean {
+  const clean = (slug || '').trim().toLowerCase();
+  return clean ? unavailableMovieSlugs.has(clean) : false;
+}
+
+export function markMovieAvailability(
+  slug: string,
+  available: boolean,
+  detailVerified = false
+): void {
+  const clean = (slug || '').trim().toLowerCase();
+  if (!clean) return;
+  if (available) {
+    unavailableMovieSlugs.delete(clean);
+    if (detailVerified) {
+      verifiedMovieSlugs.add(clean);
+    }
+  } else {
+    unavailableMovieSlugs.add(clean);
+    verifiedMovieSlugs.delete(clean);
+  }
+  bumpSitemapCatalogVersion();
+}
+
+export async function markMovieAvailabilityInDb(
+  slug: string,
+  available: boolean,
+  detailVerified = true
+): Promise<void> {
+  const clean = (slug || '').trim().toLowerCase().slice(0, 180);
+  if (!clean) return;
+  markMovieAvailability(clean, available, detailVerified);
+
+  const activePool = getPool();
+  if (!activePool || !dbAvailable || testPoolOverride) return;
+
+  try {
+    await activePool.query(
+      `UPDATE movies
+       SET is_available = $2,
+           detail_verified = $3,
+           updated_at = NOW()
+       WHERE slug = $1`,
+      [clean, available, detailVerified]
+    );
+    if (!available) {
+      await activePool.query(
+        `DELETE FROM lk21_cache
+         WHERE cache_key = $1 OR cache_key = $2`,
+        [`lk21:detail:${clean}`, `lookseries:detail:${clean}`]
+      );
+    }
+  } catch {
+    // Non-fatal DB update
+  }
 }
 
 export interface MovieEpisodeUpsertInput {
@@ -3802,6 +3867,17 @@ export async function upsertMoviesBatchInDb(
   for (const item of items) {
     const cleanSlug = (item.slug || '').trim().toLowerCase().slice(0, 180);
     if (!cleanSlug || !item.title) continue;
+    const isDetailVerified = Boolean(item.detailVerified);
+    const isAvailable = item.isAvailable !== false;
+    const hasImage = Boolean(
+      (item.cover || '').trim() ||
+        (item.coverHz || '').trim() ||
+        (item.poster || '').trim()
+    );
+    if (!hasImage && !isDetailVerified) continue;
+    if (unavailableMovieSlugs.has(cleanSlug) && !(isDetailVerified && isAvailable)) {
+      continue;
+    }
     try {
       const existing = await activePool.query<{ slug: string }>(
         `SELECT slug FROM movies WHERE slug = $1 LIMIT 1`,
@@ -3813,12 +3889,14 @@ export async function upsertMoviesBatchInDb(
         `INSERT INTO movies (
            slug, movie_id, title, cover, cover_hz, poster, synopsis, year, area, director,
            actors, genres, rating, quality, badge, movie_type, update_info,
-           providers_json, recommendations_json, movie_json, popularity_score, updated_at
+           providers_json, recommendations_json, movie_json, popularity_score,
+           is_available, detail_verified, updated_at
          )
          VALUES (
            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
            $11::text[], $12::text[], $13, $14, $15, $16, $17,
-           $18::jsonb, $19::jsonb, $20::jsonb, $21, NOW()
+           $18::jsonb, $19::jsonb, $20::jsonb, $21,
+           $22, $23, NOW()
          )
          ON CONFLICT (slug) DO UPDATE SET
            movie_id = COALESCE(NULLIF(EXCLUDED.movie_id, ''), movies.movie_id),
@@ -3841,6 +3919,8 @@ export async function upsertMoviesBatchInDb(
            recommendations_json = CASE WHEN EXCLUDED.recommendations_json <> '[]'::jsonb THEN EXCLUDED.recommendations_json ELSE movies.recommendations_json END,
            movie_json = movies.movie_json || EXCLUDED.movie_json,
            popularity_score = GREATEST(movies.popularity_score, EXCLUDED.popularity_score),
+           is_available = CASE WHEN EXCLUDED.detail_verified = TRUE THEN EXCLUDED.is_available ELSE movies.is_available END,
+           detail_verified = movies.detail_verified OR EXCLUDED.detail_verified,
            updated_at = NOW()`,
         [
           cleanSlug,
@@ -3864,6 +3944,8 @@ export async function upsertMoviesBatchInDb(
           JSON.stringify(item.recommendations || []),
           JSON.stringify(item.movieJson || {}),
           Math.max(0, Math.floor(item.popularityScore || 0)),
+          isAvailable,
+          isDetailVerified,
         ]
       );
 
@@ -3911,7 +3993,7 @@ export async function getMovieBySlugFromDb(slug: string): Promise<{
   updatedAt: number;
 } | null> {
   const clean = slug.trim().toLowerCase();
-  if (!clean) return null;
+  if (!clean || isMovieMarkedUnavailable(clean)) return null;
   const res = await dbQuery<{
     slug: string;
     movie_id: string;
@@ -3939,7 +4021,7 @@ export async function getMovieBySlugFromDb(slug: string): Promise<{
             actors, genres, rating, quality, badge, movie_type, update_info,
             providers_json, recommendations_json, movie_json, updated_at
      FROM movies
-     WHERE slug = $1
+     WHERE slug = $1 AND is_available = TRUE
      LIMIT 1`,
     [clean]
   );
@@ -4132,15 +4214,22 @@ export async function listMoviesForSitemapFromDb(limit = 2000): Promise<
   }>(
     `SELECT slug, title, synopsis, cover, cover_hz, poster, movie_type, genres, updated_at
      FROM movies
-     WHERE COALESCE(TRIM(slug), '') <> ''
+     WHERE is_available = TRUE
+       AND COALESCE(TRIM(slug), '') <> ''
        AND COALESCE(TRIM(title), '') <> ''
        AND (
          COALESCE(TRIM(poster), '') <> ''
          OR COALESCE(TRIM(cover), '') <> ''
          OR COALESCE(TRIM(cover_hz), '') <> ''
-         OR COALESCE(TRIM(synopsis), '') <> ''
        )
-     ORDER BY popularity_score DESC, updated_at DESC
+       AND (
+         detail_verified = TRUE
+         OR popularity_score >= 2500
+         OR COALESCE(TRIM(director), '') <> ''
+         OR COALESCE(array_length(actors, 1), 0) > 0
+         OR providers_json <> '[]'::jsonb
+       )
+     ORDER BY detail_verified DESC, popularity_score DESC, updated_at DESC
      LIMIT $1`,
     [safeLimit]
   );
@@ -4150,7 +4239,10 @@ export async function listMoviesForSitemapFromDb(limit = 2000): Promise<
     .filter((r) => {
       const s = String(r.slug || '').trim().toLowerCase();
       const t = String(r.title || '').trim();
-      return Boolean(s && t && !invalidSlugs.has(s));
+      const hasCover = Boolean(
+        String(r.poster || r.cover || r.cover_hz || '').trim()
+      );
+      return Boolean(s && t && hasCover && !invalidSlugs.has(s) && !isMovieMarkedUnavailable(s));
     })
     .map((r) => ({
       slug: r.slug,
@@ -4161,6 +4253,25 @@ export async function listMoviesForSitemapFromDb(limit = 2000): Promise<
       genres: Array.isArray(r.genres) ? r.genres : [],
       updatedAt: r.updated_at instanceof Date ? r.updated_at.getTime() : Date.now(),
     }));
+}
+
+export async function listUnverifiedMoviesFromDb(limit = 40): Promise<
+  Array<{ slug: string; popularityScore: number }>
+> {
+  const safeLimit = Math.min(100, Math.max(1, Math.floor(limit || 40)));
+  const res = await dbQuery<{ slug: string; popularity_score: string | number }>(
+    `SELECT slug, popularity_score
+     FROM movies
+     WHERE is_available = TRUE AND detail_verified = FALSE
+     ORDER BY popularity_score DESC, updated_at DESC
+     LIMIT $1`,
+    [safeLimit]
+  );
+  if (!res) return [];
+  return res.rows.map((r) => ({
+    slug: String(r.slug || '').trim().toLowerCase(),
+    popularityScore: Number(r.popularity_score) || 0,
+  }));
 }
 export interface MovieSourceUpsertInput {
   slug: string;
@@ -4261,8 +4372,14 @@ export async function listMoviesFallbackFromDb(
       }>(
         `SELECT movie_id, slug, title, cover, cover_hz, poster, rating, quality, badge, synopsis, genres, update_info, movie_type
          FROM movies
-         WHERE title ILIKE $1 OR synopsis ILIKE $1 OR EXISTS (SELECT 1 FROM unnest(genres) AS g WHERE g ILIKE $1)
-         ORDER BY popularity_score DESC, updated_at DESC
+         WHERE is_available = TRUE
+           AND (
+             COALESCE(TRIM(poster), '') <> ''
+             OR COALESCE(TRIM(cover), '') <> ''
+             OR COALESCE(TRIM(cover_hz), '') <> ''
+           )
+           AND (title ILIKE $1 OR synopsis ILIKE $1 OR EXISTS (SELECT 1 FROM unnest(genres) AS g WHERE g ILIKE $1))
+         ORDER BY detail_verified DESC, popularity_score DESC, updated_at DESC
          LIMIT $2`,
         [`%${cleanQ}%`, safeLimit]
       )
@@ -4283,27 +4400,35 @@ export async function listMoviesFallbackFromDb(
       }>(
         `SELECT movie_id, slug, title, cover, cover_hz, poster, rating, quality, badge, synopsis, genres, update_info, movie_type
          FROM movies
-         ORDER BY popularity_score DESC, updated_at DESC
+         WHERE is_available = TRUE
+           AND (
+             COALESCE(TRIM(poster), '') <> ''
+             OR COALESCE(TRIM(cover), '') <> ''
+             OR COALESCE(TRIM(cover_hz), '') <> ''
+           )
+         ORDER BY detail_verified DESC, popularity_score DESC, updated_at DESC
          LIMIT $1`,
         [safeLimit]
       );
 
   if (!res) return [];
-  return res.rows.map((r) => ({
-    id: r.movie_id || r.slug,
-    slug: r.slug,
-    title: r.title,
-    cover: r.cover || r.poster,
-    coverHz: r.cover_hz || r.cover,
-    coverVt: r.poster || r.cover,
-    rating: r.rating || '',
-    quality: r.quality || 'HD',
-    badge: r.badge || '',
-    description: r.synopsis || '',
-    genres: Array.isArray(r.genres) ? r.genres : [],
-    updateInfo: r.update_info || '',
-    movieType: r.movie_type || 'movie',
-  }));
+  return res.rows
+    .filter((r) => !isMovieMarkedUnavailable(r.slug))
+    .map((r) => ({
+      id: r.movie_id || r.slug,
+      slug: r.slug,
+      title: r.title,
+      cover: r.cover || r.poster,
+      coverHz: r.cover_hz || r.cover,
+      coverVt: r.poster || r.cover,
+      rating: r.rating || '',
+      quality: r.quality || 'HD',
+      badge: r.badge || '',
+      description: r.synopsis || '',
+      genres: Array.isArray(r.genres) ? r.genres : [],
+      updateInfo: r.update_info || '',
+      movieType: r.movie_type || 'movie',
+    }));
 }
 
 export async function getMovieSourcesFromDb(

@@ -5,7 +5,11 @@ import {
   getMovieEpisodesFromDb,
   getMovieSourcesFromDb,
   getTrendingStatsMapFromDb,
+  isMovieMarkedUnavailable,
   listMoviesFallbackFromDb,
+  listUnverifiedMoviesFromDb,
+  markMovieAvailability,
+  markMovieAvailabilityInDb,
   setLk21CacheInDb,
   upsertMovieEpisodesInDb,
   upsertMovieSourcesInDb,
@@ -336,7 +340,8 @@ async function persistDiscoveredMovies(
   if (!cards || cards.length === 0) return;
   const dedup = new Map<string, MovieUpsertInput>();
   cards.forEach((c, idx) => {
-    if (!c.slug || dedup.has(c.slug)) return;
+    if (!c.slug || dedup.has(c.slug) || isMovieMarkedUnavailable(c.slug)) return;
+    if (!c.cover && !c.coverHz && !c.coverVt) return;
     dedup.set(c.slug, toMovieUpsert(c, Math.max(500, 5000 - idx * 25)));
   });
   const inserted = await upsertMoviesBatchInDb(Array.from(dedup.values()));
@@ -389,7 +394,8 @@ function dbFallbackRowToLk21Card(
 async function fetchUpstreamLk21Json(
   token: string,
   endpoint: string,
-  params?: Record<string, string | number>
+  params?: Record<string, string | number>,
+  timeoutMs = 12000
 ): Promise<Record<string, unknown>> {
   const url = new URL(`${LK21_UPSTREAM_BASE}${endpoint}`);
   if (params) {
@@ -406,7 +412,7 @@ async function fetchUpstreamLk21Json(
         Accept: 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) {
       throw new Error(`LK21 upstream error HTTP ${res.status}`);
@@ -456,7 +462,10 @@ export async function getLk21Home(
         : [];
       const items = itemsRaw
         .map((it) => normalizeLk21Card(it))
-        .filter((it): it is Lk21MovieCard => Boolean(it));
+        .filter(
+          (it): it is Lk21MovieCard =>
+            Boolean(it && !isMovieMarkedUnavailable(it.slug))
+        );
       if (key && items.length > 0) {
         rows.push({ key, label, items });
         allCards.push(...items);
@@ -487,7 +496,10 @@ export async function getLk21Home(
       ...cached.payload,
       rows: cached.payload.rows.map((r) => ({
         ...r,
-        items: attachStatsToMovies(r.items, statsMap),
+        items: attachStatsToMovies(
+          r.items.filter((it) => !isMovieMarkedUnavailable(it.slug)),
+          statsMap
+        ),
       })),
       cached: true,
       stale: cached.stale,
@@ -607,7 +619,10 @@ export async function getLk21Latest(
       : [];
     const items = itemsRaw
       .map((it) => normalizeLk21Card(it))
-      .filter((it): it is Lk21MovieCard => Boolean(it));
+      .filter(
+        (it): it is Lk21MovieCard =>
+          Boolean(it && !isMovieMarkedUnavailable(it.slug))
+      );
     const payload: Lk21ListPayload = {
       ok: true,
       label: cleanStr(raw.label, 'Latest Movies & Series'),
@@ -628,9 +643,13 @@ export async function getLk21Latest(
       void runDeduplicated(cacheKey, refresh).catch(() => {});
     }
     const statsMap = await getTrendingStatsMapFromDb(250).catch(() => ({}));
+    const filteredItems = cached.payload.items.filter(
+      (it) => !isMovieMarkedUnavailable(it.slug)
+    );
     return {
       ...cached.payload,
-      items: attachStatsToMovies(cached.payload.items, statsMap),
+      count: filteredItems.length,
+      items: attachStatsToMovies(filteredItems, statsMap),
     };
   }
 
@@ -679,7 +698,10 @@ export async function getLk21Category(
       : [];
     const items = itemsRaw
       .map((it) => normalizeLk21Card(it))
-      .filter((it): it is Lk21MovieCard => Boolean(it));
+      .filter(
+        (it): it is Lk21MovieCard =>
+          Boolean(it && !isMovieMarkedUnavailable(it.slug))
+      );
     const payload: Lk21ListPayload = {
       ok: true,
       label: cleanStr(raw.label, cleanKey),
@@ -701,9 +723,13 @@ export async function getLk21Category(
       void runDeduplicated(cacheKey, refresh).catch(() => {});
     }
     const statsMap = await getTrendingStatsMapFromDb(250).catch(() => ({}));
+    const filteredItems = cached.payload.items.filter(
+      (it) => !isMovieMarkedUnavailable(it.slug)
+    );
     return {
       ...cached.payload,
-      items: attachStatsToMovies(cached.payload.items, statsMap),
+      count: filteredItems.length,
+      items: attachStatsToMovies(filteredItems, statsMap),
     };
   }
 
@@ -757,7 +783,10 @@ export async function getLk21Search(
       : [];
     const items = itemsRaw
       .map((it) => normalizeLk21Card(it))
-      .filter((it): it is Lk21MovieCard => Boolean(it));
+      .filter(
+        (it): it is Lk21MovieCard =>
+          Boolean(it && !isMovieMarkedUnavailable(it.slug))
+      );
     const payload: Lk21ListPayload = {
       ok: true,
       q: cleanQ,
@@ -777,7 +806,14 @@ export async function getLk21Search(
     if (cached.stale) {
       void runDeduplicated(cacheKey, refresh).catch(() => {});
     }
-    return cached.payload;
+    const filteredItems = cached.payload.items.filter(
+      (it) => !isMovieMarkedUnavailable(it.slug)
+    );
+    return {
+      ...cached.payload,
+      count: filteredItems.length,
+      items: filteredItems,
+    };
   }
 
   try {
@@ -831,7 +867,7 @@ export async function getLk21Detail(
   fallbackOrigin?: string
 ): Promise<Lk21DetailPayload | null> {
   const cleanSlug = cleanStr(slug).toLowerCase();
-  if (!cleanSlug) return null;
+  if (!cleanSlug || isMovieMarkedUnavailable(cleanSlug)) return null;
 
   const cacheKey = `lk21:detail:${cleanSlug}`;
   const cached = await readCache<Lk21DetailPayload>(cacheKey);
@@ -839,9 +875,13 @@ export async function getLk21Detail(
   const refresh = async (): Promise<Lk21DetailPayload | null> => {
     const token = getToken();
     if (!token) throw new Error('Server MOLA_API_TOKEN is not configured');
-    const raw = await fetchUpstreamLk21Json(token, '/detail', { slug: cleanSlug });
+    const raw = await fetchUpstreamLk21Json(token, '/detail', { slug: cleanSlug }, 5000);
     const title = cleanStr(raw.title);
-    if (!title) return null;
+    if (!title) {
+      memoryLk21Cache.delete(cacheKey);
+      void markMovieAvailabilityInDb(cleanSlug, false, true).catch(() => {});
+      return null;
+    }
 
     const genresRaw = Array.isArray(raw.genres)
       ? raw.genres
@@ -859,7 +899,14 @@ export async function getLk21Detail(
       : [];
     const recommendations = recsRaw
       .map((r) => normalizeLk21Card(r))
-      .filter((r): r is Lk21MovieCard => Boolean(r));
+      .filter(
+        (r): r is Lk21MovieCard =>
+          Boolean(
+            r &&
+              !isMovieMarkedUnavailable(r.slug) &&
+              (r.cover || r.coverHz || r.coverVt)
+          )
+      );
 
     const providers = Array.isArray(raw.providers)
       ? (raw.providers as Array<Record<string, unknown>>)
@@ -908,9 +955,12 @@ export async function getLk21Detail(
     };
 
     if (isPlaceholderLk21Detail(detail)) {
+      memoryLk21Cache.delete(cacheKey);
+      void markMovieAvailabilityInDb(cleanSlug, false, true).catch(() => {});
       return null;
     }
 
+    markMovieAvailability(detail.slug, true, true);
     await writeCache(cacheKey, 'detail', detail, DETAIL_TTL_MS);
 
     const inserted = await upsertMoviesBatchInDb([
@@ -937,8 +987,9 @@ export async function getLk21Detail(
         >,
         movieJson: detail as unknown as Record<string, unknown>,
         popularityScore: 5500,
+        isAvailable: true,
+        detailVerified: true,
       },
-      ...detail.recommendations.map((r, i) => toMovieUpsert(r, 2000 - i * 20)),
     ]);
 
     if (detail.providers.length > 0) {
@@ -966,18 +1017,26 @@ export async function getLk21Detail(
     cached &&
     cached.payload &&
     cached.payload.title &&
+    !isMovieMarkedUnavailable(cleanSlug) &&
     !isPlaceholderLk21Detail(cached.payload)
   ) {
     if (cached.stale) {
       void runDeduplicated(cacheKey, refresh).catch(() => {});
     }
-    return cached.payload;
+    return {
+      ...cached.payload,
+      recommendations: (cached.payload.recommendations || []).filter(
+        (r) =>
+          Boolean(r?.slug && !isMovieMarkedUnavailable(r.slug) && (r.cover || r.coverHz || r.coverVt))
+      ),
+    };
   }
 
   // Fallback check on rich `movies` row before hitting upstream
   const dbMovie = await getMovieBySlugFromDb(cleanSlug);
   if (
     dbMovie &&
+    !isMovieMarkedUnavailable(cleanSlug) &&
     dbMovie.synopsis &&
     (dbMovie.actors.length > 0 || dbMovie.director) &&
     !isPlaceholderLk21Detail(dbMovie)
@@ -988,7 +1047,14 @@ export async function getLk21Detail(
     }
     const recs = (dbMovie.recommendations || [])
       .map((r) => normalizeLk21Card(r))
-      .filter((r): r is Lk21MovieCard => Boolean(r));
+      .filter(
+        (r): r is Lk21MovieCard =>
+          Boolean(
+            r &&
+              !isMovieMarkedUnavailable(r.slug) &&
+              (r.cover || r.coverHz || r.coverVt)
+          )
+      );
     return {
       ok: true,
       id: dbMovie.movieId,
@@ -1017,10 +1083,22 @@ export async function getLk21Detail(
   try {
     return await runDeduplicated(cacheKey, refresh);
   } catch (err) {
-    if (dbMovie && dbMovie.title && !isPlaceholderLk21Detail(dbMovie)) {
+    if (
+      dbMovie &&
+      dbMovie.title &&
+      !isMovieMarkedUnavailable(cleanSlug) &&
+      !isPlaceholderLk21Detail(dbMovie)
+    ) {
       const recs = (dbMovie.recommendations || [])
         .map((r) => normalizeLk21Card(r))
-        .filter((r): r is Lk21MovieCard => Boolean(r));
+        .filter(
+          (r): r is Lk21MovieCard =>
+            Boolean(
+              r &&
+                !isMovieMarkedUnavailable(r.slug) &&
+                (r.cover || r.coverHz || r.coverVt)
+            )
+        );
       return {
         ok: true,
         id: dbMovie.movieId || cleanSlug,
@@ -1050,7 +1128,9 @@ export async function getLk21Detail(
       };
     }
     const msg = err instanceof Error ? err.message : String(err || '');
-    if (/\bHTTP 404\b/i.test(msg)) {
+    if (/\bHTTP (?:404|410)\b/i.test(msg)) {
+      memoryLk21Cache.delete(cacheKey);
+      void markMovieAvailabilityInDb(cleanSlug, false, true).catch(() => {});
       return null;
     }
     throw err;
@@ -1062,8 +1142,8 @@ export async function getLk21Episodes(
   slug: string
 ): Promise<Lk21EpisodesPayload> {
   const cleanSlug = cleanStr(slug).toLowerCase();
-  if (!cleanSlug) {
-    return { ok: true, app: 'lk21', id: '', slug: '', title: '', count: 0, episodes: [] };
+  if (!cleanSlug || isMovieMarkedUnavailable(cleanSlug)) {
+    return { ok: true, app: 'lk21', id: '', slug: cleanSlug, title: '', count: 0, episodes: [] };
   }
 
   const cacheKey = `lk21:episodes:${cleanSlug}`;
@@ -1072,7 +1152,7 @@ export async function getLk21Episodes(
   const refresh = async (): Promise<Lk21EpisodesPayload> => {
     const token = getToken();
     if (!token) throw new Error('Server MOLA_API_TOKEN is not configured');
-    const raw = await fetchUpstreamLk21Json(token, '/episodes', { slug: cleanSlug });
+    const raw = await fetchUpstreamLk21Json(token, '/episodes', { slug: cleanSlug }, 5000);
     const epsRaw = Array.isArray(raw.episodes)
       ? (raw.episodes as Record<string, unknown>[])
       : [];
@@ -2090,7 +2170,17 @@ export function startLk21Prewarm(getToken: () => string): void {
       getLk21Home(getToken),
       getLk21Menu(getToken),
       getLk21Latest(getToken, 1),
-    ]);
+    ]).finally(async () => {
+      try {
+        const unverified = await listUnverifiedMoviesFromDb(15);
+        for (const row of unverified) {
+          if (!row.slug || /^ls-/i.test(row.slug)) continue;
+          await getLk21Detail(getToken, row.slug).catch(() => null);
+        }
+      } catch {
+        // Non-fatal background verification sweep
+      }
+    });
   }, 2200);
   if (typeof timer.unref === 'function') {
     timer.unref();
