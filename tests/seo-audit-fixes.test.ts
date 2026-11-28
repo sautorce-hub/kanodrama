@@ -31,6 +31,7 @@ import {
 import { resolveProgrammaticLanding } from '../src/utils/programmaticSeo';
 import {
   buildDramaSeoMetadata,
+  generateMetadata,
   generateSitemapXml,
   getDramaPath,
   getWatchPath,
@@ -866,3 +867,210 @@ test('6. Genuine identical-title collision gets -2 only on conflict while legacy
   assert.equal(resolvedFromLegacy?.dramaId, '4429');
   assert.equal(resolvedFromLegacy?.slug, 'the-mafia-boss-s-unexpected-bride');
 });
+
+test('7. Drama detail title-first SEO, OpenGraph/Twitter tags, and /genre vs /tag keyword differentiation', async () => {
+  const idDetail = generateMetadata({
+    page: 'drama',
+    lang: 'id',
+    pathname: '/dramaboxv2/detail/pewaris-kopi-malam',
+    title: 'Pewaris Kopi Malam',
+    description:
+      'Pewaris muda menyamar sebagai barista demi mengungkap pengkhianatan keluarga.',
+    providerName: 'DramaBoxV2',
+    episodeCount: 68,
+    tags: ['Romance', 'CEO'],
+    image: 'https://img.kano-drama.live/pewaris-kopi.jpg',
+  });
+  assert.ok(idDetail.title.startsWith('Pewaris Kopi Malam'));
+  assert.match(idDetail.title, /\(68 (?:Ep|Episode)\)/);
+  assert.match(idDetail.title, /Romance/);
+  assert.match(idDetail.title, /Drama Pendek Sub Indo/i);
+  assert.ok(!idDetail.title.includes('...'));
+  assert.ok(idDetail.description.startsWith('Pewaris Kopi Malam'));
+  assert.match(idDetail.description, /68 (?:Ep|Episode)/i);
+  assert.match(idDetail.description, /Romance/i);
+  assert.match(idDetail.description, /drama pendek/i);
+  assert.ok(idDetail.description.length <= 160);
+  assert.match(idDetail.keywords, /Pewaris Kopi Malam Sub Indo/i);
+  assert.match(idDetail.keywords, /Drama Pendek Romance Sub Indo/i);
+  assert.equal(
+    idDetail.canonicalUrl,
+    'https://kano-drama.live/dramaboxv2/detail/pewaris-kopi-malam'
+  );
+  assert.equal(idDetail.openGraph.url, idDetail.canonicalUrl);
+  assert.ok(idDetail.openGraph.image.includes('pewaris-kopi.jpg'));
+
+  const enDetail = buildDramaSeoMetadata(
+    {
+      bookId: '4429',
+      title: "The Mafia Boss's Unexpected Bride",
+      slug: 'the-mafia-boss-s-unexpected-bride',
+      cover: 'https://img.kano-drama.live/mafia-bride.jpg',
+      description: 'An unexpected contract marriage with a powerful mafia boss.',
+      chapterCount: 55,
+      tags: ['Romance', 'CEO'],
+      isVip: false,
+      provider: 'DramaBoxV2',
+    },
+    'https://kano-drama.live',
+    'en'
+  );
+  assert.ok(enDetail.title.startsWith("The Mafia Boss's Unexpected Bride"));
+  assert.match(enDetail.title, /\(55 Eps\)/);
+  assert.match(enDetail.title, /Short Drama/i);
+  assert.ok(!enDetail.title.includes('...'));
+  assert.ok(enDetail.description.startsWith("The Mafia Boss's Unexpected Bride"));
+  assert.match(enDetail.description, /55 (?:Eps|Episodes)/i);
+  assert.match(enDetail.description, /Romance/i);
+  assert.match(enDetail.description, /short drama/i);
+  assert.ok(enDetail.description.length <= 160);
+  assert.match(enDetail.keywords, /Short Drama/i);
+
+  // /genre/* vs /tag/* differentiation across ID & EN
+  for (const lang of ['id', 'en'] as const) {
+    const g = resolveProgrammaticLanding('ceo', 'genre', undefined, lang);
+    const tg = resolveProgrammaticLanding('ceo', 'tag', undefined, lang);
+    assert.notEqual(g.keywords, tg.keywords);
+    assert.notEqual(g.title, tg.title);
+    assert.notEqual(g.description, tg.description);
+    assert.notEqual(g.h1, tg.h1);
+    assert.notEqual(g.intro, tg.intro);
+    assert.ok(!g.description.endsWith('...') || g.description.length <= 160);
+    assert.ok(!tg.description.endsWith('...') || tg.description.length <= 160);
+    if (lang === 'id') {
+      assert.doesNotMatch(tg.intro, /\bacross\b/i);
+      assert.doesNotMatch(g.h1, /\bBest CEO Vertical\b/i);
+      assert.match(g.keywords, /genre CEO/i);
+      assert.match(tg.keywords, /trope|topik/i);
+    } else {
+      assert.match(g.keywords, /genre/i);
+      assert.match(tg.keywords, /trope|tag/i);
+    }
+  }
+
+  // Full SSR detail & programmatic HTML check
+  await withTestServer(
+    (url) => {
+      if (url.includes('/dramaboxv2/detail')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              bookId: '8821',
+              bookName: 'Rahasia Pewaris Restoran',
+              coverWap: 'https://img.kano-drama.live/rahasia-pewaris.jpg',
+              introduction: 'Koki jenius menyembunyikan identitas aslinya dari keluarga.',
+              chapterCount: 48,
+              tags: ['Romance', 'Family'],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.includes('/dramaboxv2/allepisode')) {
+        return new Response(
+          JSON.stringify({
+            data: [{ chapterIndex: 0, chapterId: 'ep-rp-1', title: 'Episode 1' }],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.includes('/dramaboxv2/')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              list: [
+                {
+                  bookId: '8821',
+                  bookName: 'Rahasia Pewaris Restoran',
+                  coverWap: 'https://img.kano-drama.live/rahasia-pewaris.jpg',
+                  introduction: 'Koki jenius menyembunyikan identitas aslinya dari keluarga.',
+                  chapterCount: 48,
+                  tags: ['Romance', 'Family'],
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(JSON.stringify({ data: { list: [] } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+    async (base) => {
+      await fetch(`${base}/api/home?lang=id&provider=All`);
+      const [detailRes, genreRes, tagRes] = await Promise.all([
+        fetch(`${base}/dramaboxv2/detail/rahasia-pewaris-restoran?lang=id`, {
+          headers: { 'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)' },
+        }),
+        fetch(`${base}/genre/romance?lang=id`, {
+          headers: { 'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)' },
+        }),
+        fetch(`${base}/tag/romance?lang=id`, {
+          headers: { 'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)' },
+        }),
+      ]);
+
+      assert.equal(detailRes.status, 200);
+      const detailHtml = await detailRes.text();
+      const ssrTitle = extractTagContent(detailHtml, /<title>([^<]+)<\/title>/i);
+      const ssrDesc = extractTagContent(
+        detailHtml,
+        /<meta\s+name="description"\s+content="([^"]+)"/i
+      );
+      const ssrKeywords = extractTagContent(
+        detailHtml,
+        /<meta\s+name="keywords"\s+content="([^"]+)"/i
+      );
+      const ssrOgImage = extractTagContent(
+        detailHtml,
+        /<meta\s+property="og:image"\s+content="([^"]+)"/i
+      );
+      const ssrOgUrl = extractTagContent(
+        detailHtml,
+        /<meta\s+property="og:url"\s+content="([^"]+)"/i
+      );
+      const ssrCanonical = extractTagContent(
+        detailHtml,
+        /<link\s+rel="canonical"\s+href="([^"]+)"/i
+      );
+
+      assert.ok(ssrTitle.startsWith('Rahasia Pewaris Restoran'));
+      assert.match(ssrTitle, /48 (?:Ep|Episode)/i);
+      assert.match(ssrTitle, /Drama Pendek Sub Indo/i);
+      assert.ok(ssrDesc.startsWith('Rahasia Pewaris Restoran'));
+      assert.match(ssrKeywords, /Sub Indo/i);
+      assert.equal(
+        ssrCanonical,
+        'https://kano-drama.live/dramaboxv2/detail/rahasia-pewaris-restoran'
+      );
+      assert.equal(ssrOgUrl, ssrCanonical);
+      assert.ok(ssrOgImage.includes('rahasia-pewaris.jpg'));
+      assert.doesNotMatch(detailHtml, /HouseDrama|house-drama/i);
+
+      const genreHtml = await genreRes.text();
+      const tagHtml = await tagRes.text();
+      assert.match(
+        genreHtml,
+        /<meta\s+name="twitter:url"\s+content="https:\/\/kano-drama\.live\/genre\/romance"/i
+      );
+      assert.match(
+        tagHtml,
+        /<meta\s+name="twitter:url"\s+content="https:\/\/kano-drama\.live\/tag\/romance"/i
+      );
+      const genreKeywords = extractTagContent(
+        genreHtml,
+        /<meta\s+name="keywords"\s+content="([^"]+)"/i
+      );
+      const tagKeywords = extractTagContent(
+        tagHtml,
+        /<meta\s+name="keywords"\s+content="([^"]+)"/i
+      );
+      assert.notEqual(genreKeywords, tagKeywords);
+      assert.doesNotMatch(genreHtml, /HouseDrama|house-drama/i);
+      assert.doesNotMatch(tagHtml, /HouseDrama|house-drama/i);
+    }
+  );
+});
+

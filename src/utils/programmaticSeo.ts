@@ -341,7 +341,74 @@ function cleanSlugSegment(raw: string): string {
 function clampMeta(text: string, maxLen: number): string {
   const clean = text.replace(/\s+/g, ' ').trim();
   if (clean.length <= maxLen) return clean;
-  return `${clean.slice(0, Math.max(0, maxLen - 3)).trim()}...`;
+  const slice = clean.slice(0, Math.max(0, maxLen - 3));
+  const lastSentenceEnd = Math.max(
+    slice.lastIndexOf('. '),
+    slice.lastIndexOf('! '),
+    slice.lastIndexOf('? ')
+  );
+  if (lastSentenceEnd >= Math.floor(maxLen * 0.68)) {
+    return slice.slice(0, lastSentenceEnd + 1).trim();
+  }
+  const lastSpace = slice.lastIndexOf(' ');
+  const boundary =
+    lastSpace >= Math.floor((maxLen - 3) * 0.55)
+      ? slice.slice(0, lastSpace)
+      : slice;
+  return `${boundary.replace(/[,:;.\-–—\s]+$/, '').trim()}...`;
+}
+
+function buildGenreKeywords(
+  label: string,
+  subject: string,
+  isId: boolean,
+  extraSeed: string[] = []
+): string {
+  const candidates = isId
+    ? [
+        `genre ${label}`,
+        `nonton drama pendek genre ${label}`,
+        `katalog ${label} sub Indo HD`,
+        `serial ${subject} terpopuler`,
+        `drama China ${subject} sub Indo`,
+        'KanoDrama',
+      ]
+    : [
+        `${label} genre`,
+        `watch ${label} genre short dramas`,
+        `${subject} series catalog HD`,
+        `best ${subject} vertical dramas`,
+        `completed ${subject} mini series`,
+        ...extraSeed,
+        'KanoDrama',
+      ];
+  return Array.from(new Set(candidates.map((c) => c.trim()).filter(Boolean))).join(', ');
+}
+
+function buildTagKeywords(
+  label: string,
+  subject: string,
+  isId: boolean
+): string {
+  const candidates = isId
+    ? [
+        `tag #${label}`,
+        `topik drama ${label}`,
+        `trope ${subject} sub Indo`,
+        `tema cerita ${label}`,
+        `update episode ${label} terbaru`,
+        `kompilasi drama pendek ${subject}`,
+        'KanoDrama',
+      ]
+    : [
+        `#${label} tag`,
+        `${label} drama trope`,
+        `${subject} story theme playlist`,
+        `cross-genre ${subject} mini series`,
+        `fresh ${label} episode drops`,
+        'KanoDrama',
+      ];
+  return Array.from(new Set(candidates.map((c) => c.trim()).filter(Boolean))).join(', ');
 }
 
 function buildDynamicFaqs(
@@ -354,22 +421,22 @@ function buildDynamicFaqs(
     return isId
       ? [
           {
-            q: `Apa keunggulan koleksi topik / tag #${topicTitle} di KanoDrama?`,
-            a: `Halaman tag #${topicTitle} menghimpun serial pendek berfokus tema dan trope spesifik dari 82+ platform resmi, diurutkan dari rilisan terbaru hingga rating tertinggi.`,
+            q: `Apa keunggulan koleksi topik & trope #${topicTitle} di KanoDrama?`,
+            a: `Halaman tag #${topicTitle} menghimpun serial pendek berfokus alur cerita dan trope spesifik dari 82+ platform resmi, diurutkan dari update episode terbaru.`,
           },
           {
-            q: `Apakah daftar drama pada topik #${topicTitle} tersedia dengan Sub Indo?`,
-            a: `Ya. Seluruh serial pada topik #${topicTitle} mendukung subtitle Bahasa Indonesia (Sub Indo) serta pilihan subtitle multibahasa langsung di pemutar HD KanoDrama.`,
+            q: `Apakah daftar drama pada tema #${topicTitle} tersedia dengan Sub Indo?`,
+            a: `Ya. Seluruh serial pada playlist topik #${topicTitle} mendukung subtitle Bahasa Indonesia (Sub Indo) serta subtitle multibahasa langsung di pemutar HD KanoDrama.`,
           },
           {
             q: `Apa perbedaan halaman Topik / Tag #${topicTitle} dengan halaman Genre?`,
-            a: `Halaman Genre mengelompokkan katalog utama berdasarkan kategori besar, sedangkan halaman Topik / Tag #${topicTitle} menyaring rilisan terbaru dan topik spesifik antar-genre.`,
+            a: `Halaman Genre mengelompokkan katalog utama berdasarkan kategori besar, sedangkan halaman Topik / Tag #${topicTitle} menyaring trope spesifik dan episode terbaru lintas genre.`,
           },
         ]
       : [
           {
-            q: `What makes the #${topicTitle} topic & tag collection unique on KanoDrama?`,
-            a: `The #${topicTitle} tag hub curates trope-focused vertical short dramas ranked by newest updates and viewer ratings across 82+ streaming platforms.`,
+            q: `What makes the #${topicTitle} trope & tag playlist unique on KanoDrama?`,
+            a: `The #${topicTitle} tag hub curates trope-focused vertical short dramas ranked by newest episode drops and cross-genre storylines across 82+ streaming platforms.`,
           },
           {
             q: `Do #${topicTitle} tagged mini-series include English and Indonesian subtitles?`,
@@ -377,7 +444,7 @@ function buildDynamicFaqs(
           },
           {
             q: `How does this #${topicTitle} tag hub differ from a Genre directory?`,
-            a: `Genre directories index flagship catalogs by overall popularity, whereas Topic & Tag hubs surface fresh updates and cross-genre storylines matching #${topicTitle}.`,
+            a: `Genre directories index flagship catalogs by overall category popularity, whereas Topic & Tag hubs surface fresh updates and cross-genre tropes matching #${topicTitle}.`,
           },
         ];
   }
@@ -441,15 +508,15 @@ export function resolveProgrammaticLanding(
       const tagSort: 'popular' | 'rating' | 'newest' =
         exactPreset.sort === 'newest' ? 'rating' : 'newest';
       const title = isId
-        ? clampMeta(`Topik & Tag #${exactPreset.label}: Koleksi Drama Populer | KanoDrama`, 70)
-        : clampMeta(`Topic & Tag #${exactPreset.label}: Latest Vertical Dramas | KanoDrama`, 70);
+        ? clampMeta(`Tema #${exactPreset.label}: Trope & Episode Terbaru | KanoDrama`, 72)
+        : clampMeta(`#${exactPreset.label} Tag: Trope Playlist & Fresh Dramas | KanoDrama`, 72);
       const description = isId
         ? clampMeta(
-            `Koleksi topik & tag #${exactPreset.label} terbaru sub Indo HD. Temukan daftar episode pilihan, trope favorit, dan update harian di KanoDrama.`,
+            `Kurasi tema & trope #${exactPreset.label} lintas genre dengan update episode drama pendek sub Indo HD terbaru tanpa iklan di KanoDrama.`,
             160
           )
         : clampMeta(
-            `Explore the #${exactPreset.label} topic & tag playlist: fresh vertical short drama releases, trope spotlights, and top-rated picks on KanoDrama.`,
+            `Curated #${exactPreset.label} trope & story theme playlist featuring fresh vertical short drama episodes and plot twists on KanoDrama.`,
             160
           );
       return {
@@ -457,22 +524,20 @@ export function resolveProgrammaticLanding(
         label: exactPreset.label,
         basePath,
         canonicalPath,
-        routeKindLabel: isId ? 'Topik & Tag Pilihan' : 'Topic & Tag Hub',
+        routeKindLabel: isId ? 'Tema & Trope Pilihan' : 'Topic & Trope Playlist',
         h1: isId
-          ? `Topik & Tag #${exactPreset.label} — Koleksi Drama Pendek Terbaru`
-          : `#${exactPreset.label} Topic & Tag Vertical Short Dramas`,
+          ? `Tema & Trope #${exactPreset.label} — Episode Drama Pendek Terbaru`
+          : `#${exactPreset.label} Trope & Story Theme Short Dramas`,
         title,
         description,
-        keywords: [
-          `#${exactPreset.label} tag`,
-          `${exactPreset.label} topic dramas`,
-          ...exactPreset.keywords,
-          'KanoDrama',
-          'Topik Drama Pendek',
-        ].join(', '),
+        keywords: buildTagKeywords(
+          exactPreset.label,
+          exactPreset.genre || exactPreset.label,
+          isId
+        ),
         intro: isId
-          ? `Jelajahi kurasi khusus bertema topik #${exactPreset.label} yang diurutkan dari episode dan judul paling baru across 82+ platform—lengkap dengan subtitle Indonesia dan progres tontonan tersimpan.`
-          : `Curated specifically around the #${exactPreset.label} tag and story tropes, this topic feed prioritizes recent updates and viewer-favorite episodes across 82+ streaming platforms.`,
+          ? `Jelajahi kurasi tema cerita & trope #${exactPreset.label} lintas genre yang disusun dari update episode terbaru di 82+ platform resmi—lengkap dengan Sub Indo dan sinkronisasi riwayat tontonan.`
+          : `Curated specifically around the #${exactPreset.label} tag and cross-genre story tropes, this topic feed prioritizes fresh episode updates and viewer-favorite twists across 82+ platforms.`,
         filter: {
           genre: exactPreset.genre,
           status: exactPreset.status || 'all',
@@ -487,8 +552,8 @@ export function resolveProgrammaticLanding(
 
     if (basePath === 'category') {
       const title = isId
-        ? clampMeta(`Kategori ${exactPreset.label}: Katalog Drama Pendek HD | KanoDrama`, 70)
-        : clampMeta(`Category ${exactPreset.label}: Curated Drama Series HD | KanoDrama`, 70);
+        ? clampMeta(`Kategori ${exactPreset.label}: Koleksi Serial Pendek HD | KanoDrama`, 72)
+        : clampMeta(`Category ${exactPreset.label}: Curated Drama Series HD | KanoDrama`, 72);
       const description = isId
         ? clampMeta(
             `Katalog kategori ${exactPreset.label} sub Indo full episode HD. Streaming drama pendek vertikal gratis lintas 82+ platform hanya di KanoDrama.`,
@@ -509,13 +574,15 @@ export function resolveProgrammaticLanding(
           : `${exactPreset.label} Category — Vertical Short Dramas`,
         title,
         description,
-        keywords: [
-          `${exactPreset.label} category`,
-          ...exactPreset.keywords,
-          'KanoDrama',
-          'Vertical Short Drama',
-        ].join(', '),
-        intro: exactPreset.intro,
+        keywords: buildGenreKeywords(
+          exactPreset.label,
+          exactPreset.genre || exactPreset.label,
+          isId,
+          exactPreset.keywords
+        ),
+        intro: isId
+          ? `Telusuri koleksi kategori ${exactPreset.label} dengan episode penuh Sub Indo HD, sinkronisasi progres tontonan, dan peringkat popularitas lintas 82+ platform resmi.`
+          : exactPreset.intro,
         filter: {
           genre: exactPreset.genre,
           status: exactPreset.status || 'all',
@@ -530,11 +597,11 @@ export function resolveProgrammaticLanding(
 
     // Default: 'genre'
     const genreTitle = isId
-      ? clampMeta(`Genre ${exactPreset.label}: Nonton Drama Pendek Sub Indo HD | KanoDrama`, 70)
-      : clampMeta(exactPreset.title, 70);
+      ? clampMeta(`Genre ${exactPreset.label}: Katalog Drama Pendek Sub Indo HD | KanoDrama`, 72)
+      : clampMeta(exactPreset.title, 72);
     const genreDesc = isId
       ? clampMeta(
-          `Nonton katalog genre ${exactPreset.label} terpopuler sub Indo full HD tanpa iklan. Pilihan serial vertikal terbaik dari 82+ platform di KanoDrama.`,
+          `Jelajahi katalog utama genre ${exactPreset.label} terpopuler sub Indo HD. Tonton serial lengkap, rating tertinggi & rekomendasi 82+ platform di KanoDrama.`,
           160
         )
       : clampMeta(exactPreset.description, 160);
@@ -543,18 +610,21 @@ export function resolveProgrammaticLanding(
       label: exactPreset.label,
       basePath,
       canonicalPath,
-      routeKindLabel: isId ? 'Direktori Genre' : 'Curated Genre Guide',
-      h1: isId ? `Genre ${exactPreset.label} — ${exactPreset.h1}` : exactPreset.h1,
+      routeKindLabel: isId ? 'Direktori Genre' : 'Curated Genre Directory',
+      h1: isId
+        ? `Genre ${exactPreset.label} — Katalog Drama Pendek Sub Indo HD`
+        : exactPreset.h1,
       title: genreTitle,
       description: genreDesc,
-      keywords: [
-        `${exactPreset.label} genre`,
-        ...exactPreset.keywords,
-        'KanoDrama',
-        'Vertical Short Drama',
-        'Watch Free Online HD',
-      ].join(', '),
-      intro: exactPreset.intro,
+      keywords: buildGenreKeywords(
+        exactPreset.label,
+        exactPreset.genre || exactPreset.label,
+        isId,
+        exactPreset.keywords
+      ),
+      intro: isId
+        ? `Jelajahi katalog utama genre ${exactPreset.label} terpopuler di KanoDrama dalam kualitas HD vertikal 9:16, dilengkapi episode penuh Sub Indo, filter status tamat, dan peringkat rating penonton.`
+        : exactPreset.intro,
       filter: {
         genre: exactPreset.genre,
         status: exactPreset.status || 'all',
@@ -609,15 +679,15 @@ export function resolveProgrammaticLanding(
 
   if (basePath === 'tag') {
     const title = isId
-      ? clampMeta(`Topik & Tag #${readableLabel} — Drama Pendek Sub Indo | KanoDrama`, 70)
-      : clampMeta(`Topic & Tag #${readableLabel} — Short Dramas HD | KanoDrama`, 70);
+      ? clampMeta(`Tema #${readableLabel} — Trope & Episode Terbaru | KanoDrama`, 72)
+      : clampMeta(`#${readableLabel} Tag — Trope Playlist & Short Dramas | KanoDrama`, 72);
     const description = isId
       ? clampMeta(
-          `Daftar drama pendek bertema topik & tag #${readableLabel} sub Indo HD terbaru. Jelajahi episode pilihan lintas 82+ platform di KanoDrama.`,
+          `Kurasi tema & trope #${readableLabel} dengan update episode drama pendek sub Indo HD terbaru lintas 82+ platform di KanoDrama.`,
           160
         )
       : clampMeta(
-          `Watch #${readableLabel} topic & tag vertical short dramas sorted by latest updates and viewer ratings across 82+ platforms on KanoDrama.`,
+          `Curated #${readableLabel} trope & story theme playlist sorted by latest episode updates and viewer picks across 82+ platforms on KanoDrama.`,
           160
         );
     return {
@@ -625,22 +695,16 @@ export function resolveProgrammaticLanding(
       label: readableLabel,
       basePath,
       canonicalPath,
-      routeKindLabel: isId ? 'Koleksi Topik & Tag' : 'Topic & Tag Collection',
+      routeKindLabel: isId ? 'Tema & Trope Pilihan' : 'Topic & Trope Collection',
       h1: isId
-        ? `Topik & Tag #${readableLabel} — Koleksi Serial Pendek HD`
-        : `#${readableLabel} Topic & Tag Vertical Short Dramas`,
+        ? `Tema & Trope #${readableLabel} — Episode Drama Pendek Terbaru`
+        : `#${readableLabel} Trope & Story Theme Short Dramas`,
       title,
       description,
-      keywords: [
-        `#${readableLabel} tag drama`,
-        `${readableLabel} topic playlist`,
-        `${primarySubject} vertical mini series`,
-        'KanoDrama',
-        'Topik Drama Pendek',
-      ].join(', '),
+      keywords: buildTagKeywords(readableLabel, primarySubject, isId),
       intro: isId
-        ? `Kumpulan drama pendek bertopik #${readableLabel} dengan update episode terbaru, rating penonton tertinggi, dan subtitle Indonesia lengkap di KanoDrama.`
-        : `Discover vertical mini-series tagged #${readableLabel} featuring recent episode updates, trope highlights, and instant HD streaming on KanoDrama.`,
+        ? `Kumpulan serial pendek bertema & trope #${readableLabel} lintas genre dengan update episode terbaru, alur cerita seru, dan subtitle Indonesia lengkap di KanoDrama.`
+        : `Discover vertical mini-series tagged #${readableLabel} featuring recent episode updates, cross-genre trope highlights, and instant HD streaming on KanoDrama.`,
       filter: {
         genre: matchedGenre,
         status,
@@ -655,8 +719,8 @@ export function resolveProgrammaticLanding(
 
   if (basePath === 'category') {
     const title = isId
-      ? clampMeta(`Kategori ${readableLabel} — Koleksi Drama Pendek HD | KanoDrama`, 70)
-      : clampMeta(`Category ${readableLabel} — Vertical Short Dramas HD | KanoDrama`, 70);
+      ? clampMeta(`Kategori ${readableLabel} — Koleksi Drama Pendek HD | KanoDrama`, 72)
+      : clampMeta(`Category ${readableLabel} — Vertical Short Dramas HD | KanoDrama`, 72);
     const description = isId
       ? clampMeta(
           `Katalog kategori ${readableLabel} sub Indo HD di KanoDrama. Tonton serial pendek gratis dari 82+ platform resmi tanpa iklan.`,
@@ -677,13 +741,10 @@ export function resolveProgrammaticLanding(
         : `${readableLabel} Category — Vertical Short Dramas`,
       title,
       description,
-      keywords: [
-        `${readableLabel} category drama`,
-        `Watch Free ${readableLabel} online`,
-        `${primarySubject} mini series`,
-        'KanoDrama',
-      ].join(', '),
-      intro: `Browse our curated ${readableLabel} category featuring crisp vertical HD playback, episode-by-episode cloud progress sync, and live popularity rankings across top global streaming providers.`,
+      keywords: buildGenreKeywords(readableLabel, primarySubject, isId),
+      intro: isId
+        ? `Telusuri katalog kategori ${readableLabel} di KanoDrama dengan pemutaran HD vertikal, subtitle Indonesia lengkap, dan peringkat popularitas langsung.`
+        : `Browse our curated ${readableLabel} category featuring crisp vertical HD playback, episode-by-episode cloud progress sync, and live popularity rankings across top global streaming providers.`,
       filter: {
         genre: matchedGenre,
         status,
@@ -697,15 +758,15 @@ export function resolveProgrammaticLanding(
   }
 
   const genreTitle = isId
-    ? clampMeta(`Genre ${readableLabel} — Nonton Drama Pendek Sub Indo HD | KanoDrama`, 70)
-    : clampMeta(`Genre ${readableLabel} — Watch Free Short Dramas HD | KanoDrama`, 70);
+    ? clampMeta(`Genre ${readableLabel} — Katalog Drama Pendek Sub Indo HD | KanoDrama`, 72)
+    : clampMeta(`${readableLabel} Genre — Best Vertical Short Dramas HD | KanoDrama`, 72);
   const genreDesc = isId
     ? clampMeta(
-        `Nonton serial drama pendek genre ${readableLabel} terpopuler sub Indo full HD. Katalog resmi lintas 82+ platform streaming di KanoDrama.`,
+        `Nonton katalog utama genre ${readableLabel} terpopuler sub Indo full HD. Pilihan serial lengkap & rating tertinggi di KanoDrama.`,
         160
       )
     : clampMeta(
-        `Explore the ${readableLabel} genre catalog featuring top vertical short dramas and Asian mini-series in full HD across 82+ platforms on KanoDrama.`,
+        `Explore the ${readableLabel} genre catalog featuring top-ranked vertical short dramas and completed mini-series in full HD on KanoDrama.`,
         160
       );
 
@@ -714,19 +775,13 @@ export function resolveProgrammaticLanding(
     label: readableLabel,
     basePath,
     canonicalPath,
-    routeKindLabel: isId ? 'Direktori Genre' : 'Programmatic Genre Hub',
+    routeKindLabel: isId ? 'Direktori Genre' : 'Programmatic Genre Directory',
     h1: isId
-      ? `Genre ${readableLabel} — Drama Pendek & Serial Vertikal HD`
-      : `${readableLabel} Genre Vertical Short Dramas & Mini-Series`,
+      ? `Genre ${readableLabel} — Katalog Drama Pendek & Serial Vertikal HD`
+      : `${readableLabel} Genre Directory — Short Dramas & Mini-Series`,
     title: genreTitle,
     description: genreDesc,
-    keywords: [
-      `${readableLabel} genre short drama`,
-      `Watch Free ${readableLabel} online`,
-      `${primarySubject} mini series`,
-      'KanoDrama',
-      'Vertical Drama HD',
-    ].join(', '),
+    keywords: buildGenreKeywords(readableLabel, primarySubject, isId),
     intro: isId
       ? `Jelajahi direktori genre ${readableLabel} terpopuler di KanoDrama dengan pemutaran HD vertikal, sinkronisasi riwayat tontonan, dan peringkat popularitas langsung.`
       : `Browse our curated ${readableLabel} genre catalog featuring crisp vertical HD playback, episode-by-episode cloud progress sync, and live popularity rankings across top global streaming providers.`,

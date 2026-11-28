@@ -4041,8 +4041,8 @@ test('KanoDrama Points, Anti-Cheat, Referral, Withdrawal & SEO Full Audit', asyn
       providerName: 'DramaBoxV2',
       episodeCount: 68,
     });
-    assert.match(detailId.title, /Nonton Pewaris Kopi Malam Sub Indo Full Episode \(68 Eps\) HD \| KanoDrama/);
-    assert.match(detailId.description, /Sinopsis & nonton Pewaris Kopi Malam.*68 episode.*DramaBox V2.*tanpa iklan/);
+    assert.match(detailId.title, /^Pewaris Kopi Malam \(68 Episode\) — Drama Pendek Sub Indo \| KanoDrama$/);
+    assert.match(detailId.description, /^Pewaris Kopi Malam \(68 Episode\) — Nonton drama pendek Sub Indo.*DramaBox V2.*tanpa iklan/);
     assert.equal(detailId.canonicalUrl, 'https://kano-drama.live/dramaboxv2/detail/pewaris-kopi-malam');
 
     const watchEn = generateMetadata({

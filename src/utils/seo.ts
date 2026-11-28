@@ -481,6 +481,18 @@ export function buildDramaFallbackDescription(
         ? ` 类型：${cleanTags.join('、')}。`
         : ` Genre: ${cleanTags.join(', ')}.`
       : '';
+  const epMetaId = [
+    epCount > 1 ? `${epCount} Episode` : '',
+    ...cleanTags,
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const epMetaEn = [
+    epCount > 1 ? `${epCount} Episodes` : '',
+    ...cleanTags,
+  ]
+    .filter(Boolean)
+    .join(', ');
 
   if (input.isMovie && epCount <= 1 && (!hasSpecificEpisode || epNum <= 1)) {
     const movieTemplates: Record<LanguageCode, string> = {
@@ -515,16 +527,16 @@ export function buildDramaFallbackDescription(
   }
 
   const seriesTemplates: Record<LanguageCode, string> = {
-    id: `Sinopsis & nonton ${title} full ${epCount} episode sub Indo HD${providerPhraseId} gratis tanpa iklan di KanoDrama.${tagsSuffix}`,
-    en: `Read synopsis & watch ${title} (${epCount} episodes) ad-free in crisp HD${providerPhraseEn} with subtitles on KanoDrama.${tagsSuffix}`,
-    cn: `在 KanoDrama 免费无广告高清观看 ${title} 全集（共${epCount}集）。${tagsSuffix}`,
-    vi: `Xem miễn phí trọn bộ ${title} (${epCount} tập) chất lượng HD tại KanoDrama.${tagsSuffix}`,
-    es: `Ver gratis todos los episodios de ${title} (${epCount} episodios) en calidad HD en KanoDrama.${tagsSuffix}`,
-    ko: `KanoDrama에서 ${title} 전편 (${epCount}부작)을 선명한 HD로 무료 시청하세요.${tagsSuffix}`,
-    ja: `KanoDramaで${title} 全話（全${epCount}話）を高画質HDで無料視聴。${tagsSuffix}`,
-    th: `ดูฟรีซีรีส์ ${title} ครบทุกตอน (${epCount} ตอน) คมชัดระดับ HD ที่ KanoDrama${tagsSuffix}`,
-    ms: `Tonton percuma ${title} episod penuh (${epCount} episod) dalam kualiti HD di KanoDrama.${tagsSuffix}`,
-    tl: `Panoorin nang libre ang ${title} buong episode (${epCount} episodes) sa HD sa KanoDrama.${tagsSuffix}`,
+    id: `${title}${epMetaId ? ` (${epMetaId})` : ''} — Nonton drama pendek sub Indo full episode HD${providerPhraseId} gratis tanpa iklan di KanoDrama.`,
+    en: `${title}${epMetaEn ? ` (${epMetaEn})` : ''} — Watch short drama full episodes ad-free in crisp HD${providerPhraseEn} with subtitles on KanoDrama.`,
+    cn: `${title}（共${epCount}集）— 在 KanoDrama 免费无广告高清观看热门短剧全集。${tagsSuffix}`,
+    vi: `${title} (${epCount} tập) — Xem miễn phí trọn bộ phim ngắn chất lượng HD tại KanoDrama.${tagsSuffix}`,
+    es: `${title} (${epCount} episodios) — Ver gratis todos los episodios del drama corto en HD en KanoDrama.${tagsSuffix}`,
+    ko: `${title} (총 ${epCount}부작) — KanoDrama에서 인기 숏드라마 전편을 선명한 HD로 무료 시청하세요.${tagsSuffix}`,
+    ja: `${title}（全${epCount}話）— KanoDramaで話題のショートドラマ全話を高画質HDで無料視聴。${tagsSuffix}`,
+    th: `${title} (${epCount} ตอน) — ดูฟรีมินิซีรีส์ครบทุกตอน คมชัดระดับ HD ที่ KanoDrama${tagsSuffix}`,
+    ms: `${title} (${epCount} episod) — Tonton percuma drama pendek episod penuh dalam kualiti HD di KanoDrama.${tagsSuffix}`,
+    tl: `${title} (${epCount} episodes) — Panoorin nang libre ang buong episode ng short drama sa HD sa KanoDrama.${tagsSuffix}`,
   };
   return (seriesTemplates[lang] || seriesTemplates.en).trim();
 }
@@ -697,7 +709,7 @@ export function buildDramaJsonLd(
   );
   const dramaUrl = `${brandOrigin}${detailPath}`;
   const epWatchUrl = `${brandOrigin}${watchPath}`;
-  const episodeCount = Math.max(1, episodes.length || drama.chapterCount || 1);
+  const episodeCount = Math.max(1, episodes.length, drama.chapterCount || 1);
   const coverImage = buildOgImageEndpointUrl(drama.cover, brandOrigin, drama.title);
 
   const isMovie =
@@ -1180,9 +1192,11 @@ export function syncProgrammaticLandingSeo(
   upsertMetaTag('property', 'og:image:width', '1200');
   upsertMetaTag('property', 'og:image:height', '630');
   upsertMetaTag('property', 'og:image:alt', landing.title);
+  upsertMetaTag('name', 'twitter:card', 'summary_large_image');
   upsertMetaTag('name', 'twitter:title', landing.title);
   upsertMetaTag('name', 'twitter:description', landing.description);
   upsertMetaTag('name', 'twitter:image', ogImage);
+  upsertMetaTag('name', 'twitter:url', canonicalUrl);
   upsertCanonicalLink(canonicalUrl);
   upsertHreflangLinks(canonicalUrl);
   upsertJsonLdScript({
@@ -1250,7 +1264,7 @@ export function syncDramaDocumentSeo(
     drama.provider === 'LookSeries';
   const effectiveLang = lang ?? detectLanguageFromContent(drama, 'en');
   const path = getDramaPath(drama.bookId, drama.title, drama.provider, drama.slug);
-  const epCount = Math.max(1, episodes.length || drama.chapterCount || 1);
+  const epCount = Math.max(1, episodes.length, drama.chapterCount || 1);
   const urlEpRaw = Number(new URLSearchParams(window.location.search).get('ep'));
   const activeEp =
     Number.isFinite(urlEpRaw) && urlEpRaw >= 1 ? Math.floor(urlEpRaw) : 1;
@@ -1330,7 +1344,7 @@ export function syncEpisodePlayerSeo(
     safeEpisodeNumber
   );
   const watchUrl = `${origin}${watchPath}`;
-  const epCount = Math.max(1, episodes.length || drama.chapterCount || 1);
+  const epCount = Math.max(1, episodes.length, drama.chapterCount || 1);
   const activeEp = episodes.find(
     (ep) => Number(ep.episodeNumber) === safeEpisodeNumber
   );
@@ -1392,9 +1406,11 @@ export function syncEpisodePlayerSeo(
     upsertMetaTag('property', 'og:image:height', String(primaryImg.height));
     upsertMetaTag('property', 'og:image:alt', primaryImg.alt);
   }
+  upsertMetaTag('name', 'twitter:card', meta.twitter.card);
   upsertMetaTag('name', 'twitter:image', meta.image);
   upsertMetaTag('name', 'twitter:title', meta.title);
   upsertMetaTag('name', 'twitter:description', meta.description);
+  upsertMetaTag('name', 'twitter:url', watchUrl);
   upsertCanonicalLink(meta.canonicalUrl);
   upsertHreflangLinks(meta.canonicalUrl);
   upsertJsonLdScript(

@@ -1448,13 +1448,294 @@ function hasSubOrDubIndoLabel(text: string): boolean {
   );
 }
 
-function truncateMetaDescription(raw: string, maxLen = 165): string {
+function truncateMetaDescription(raw: string, maxLen = 160): string {
   const clean = sanitizeMetaText(raw);
   if (clean.length <= maxLen) return clean;
   const slice = clean.slice(0, maxLen - 3);
+  const lastSentenceEnd = Math.max(
+    slice.lastIndexOf('. '),
+    slice.lastIndexOf('! '),
+    slice.lastIndexOf('? ')
+  );
+  if (lastSentenceEnd >= Math.floor(maxLen * 0.68)) {
+    return slice.slice(0, lastSentenceEnd + 1).trim();
+  }
   const lastSpace = slice.lastIndexOf(' ');
-  const boundary = lastSpace >= Math.floor((maxLen - 3) * 0.65) ? slice.slice(0, lastSpace) : slice;
+  const boundary =
+    lastSpace >= Math.floor((maxLen - 3) * 0.55)
+      ? slice.slice(0, lastSpace)
+      : slice;
   return `${boundary.replace(/[,:;.\-–—\s]+$/, '').trim()}...`;
+}
+
+function truncateTitleAtWord(raw: string, maxLen = 46): string {
+  const clean = sanitizeMetaText(raw);
+  if (clean.length <= maxLen) return clean;
+  const slice = clean.slice(0, maxLen);
+  const lastSpace = slice.lastIndexOf(' ');
+  const boundary =
+    lastSpace >= Math.floor(maxLen * 0.55) ? slice.slice(0, lastSpace) : slice;
+  return boundary.replace(/[,:;.\-–—\s]+$/, '').trim();
+}
+
+function pickPrimaryGenresForTitle(
+  dramaTitle: string,
+  tags: string[]
+): string[] {
+  const titleLower = dramaTitle.toLowerCase();
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const rawTag of tags) {
+    const clean = sanitizeMetaText(rawTag);
+    if (!clean) continue;
+    const lower = clean.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    if (titleLower.includes(lower)) continue;
+    unique.push(clean);
+    if (unique.length >= 2) break;
+  }
+  if (unique.length === 0 && tags.length > 0) {
+    const first = sanitizeMetaText(tags[0]);
+    if (first) unique.push(first);
+  }
+  return unique;
+}
+
+function buildDramaDetailTitle(
+  lang: LanguageCode,
+  dramaTitle: string,
+  epCount: number,
+  topGenres: string[],
+  hasSubIndo: boolean
+): string {
+  const subIndoTail = hasSubIndo ? '' : ' Sub Indo';
+  const epFullId = epCount > 1 ? ` (${epCount} Episode)` : '';
+  const epShortId = epCount > 1 ? ` (${epCount} Ep)` : '';
+  const epFullEn = epCount > 1 ? ` (${epCount} Eps)` : '';
+  const g1 = topGenres[0] || '';
+  const g2 = topGenres.slice(0, 2).join(', ');
+  const pickUnderLimit = (candidates: string[], fallback: string, limit = 74): string => {
+    for (const candidate of candidates) {
+      if (candidate.length <= limit) return candidate;
+    }
+    return fallback;
+  };
+
+  switch (lang) {
+    case 'id':
+      return pickUnderLimit(
+        [
+          `${dramaTitle}${epFullId} — ${g2 ? `${g2}, ` : ''}Drama Pendek${subIndoTail} | KanoDrama`,
+          `${dramaTitle}${epShortId} — ${g1 ? `${g1} ` : ''}Drama Pendek${subIndoTail} | KanoDrama`,
+          `${dramaTitle}${epShortId} — Drama Pendek${subIndoTail} | KanoDrama`,
+          `${dramaTitle}${epShortId}${subIndoTail} | KanoDrama`,
+        ],
+        `${truncateTitleAtWord(dramaTitle, 40)}${epShortId} — Drama Pendek${subIndoTail} | KanoDrama`
+      );
+    case 'en':
+      return pickUnderLimit(
+        [
+          `${dramaTitle}${epFullEn} — ${g2 ? `${g2} ` : ''}Short Drama HD | KanoDrama`,
+          `${dramaTitle}${epFullEn} — ${g1 ? `${g1} ` : ''}Short Drama | KanoDrama`,
+          `${dramaTitle}${epFullEn} — Short Drama | KanoDrama`,
+          `${dramaTitle}${epFullEn} | KanoDrama`,
+        ],
+        `${truncateTitleAtWord(dramaTitle, 40)}${epFullEn} — Short Drama | KanoDrama`
+      );
+    case 'cn':
+      return pickUnderLimit(
+        [
+          `${dramaTitle}${epCount > 1 ? ` (${epCount}集)` : ''} — ${g1 ? `${g1}` : ''}热门短剧高清全集 | KanoDrama`,
+          `${dramaTitle}${epCount > 1 ? ` (${epCount}集)` : ''} — 热门短剧 | KanoDrama`,
+        ],
+        `${truncateTitleAtWord(dramaTitle, 32)}${epCount > 1 ? ` (${epCount}集)` : ''} — 热门短剧 | KanoDrama`
+      );
+    case 'vi':
+      return pickUnderLimit(
+        [
+          `${dramaTitle}${epCount > 1 ? ` (${epCount} Tập)` : ''} — ${g1 ? `${g1} ` : ''}Phim Ngắn Vietsub HD | KanoDrama`,
+          `${dramaTitle}${epCount > 1 ? ` (${epCount} Tập)` : ''} — Phim Ngắn HD | KanoDrama`,
+        ],
+        `${truncateTitleAtWord(dramaTitle, 38)}${epCount > 1 ? ` (${epCount} Tập)` : ''} — Phim Ngắn | KanoDrama`
+      );
+    case 'es':
+      return pickUnderLimit(
+        [
+          `${dramaTitle}${epFullEn} — ${g1 ? `${g1} ` : ''}Drama Corto HD | KanoDrama`,
+          `${dramaTitle}${epFullEn} — Drama Corto | KanoDrama`,
+        ],
+        `${truncateTitleAtWord(dramaTitle, 38)}${epFullEn} — Drama Corto | KanoDrama`
+      );
+    case 'ko':
+      return pickUnderLimit(
+        [
+          `${dramaTitle}${epCount > 1 ? ` (${epCount}부작)` : ''} — ${g1 ? `${g1} ` : ''}인기 숏드라마 HD | KanoDrama`,
+          `${dramaTitle}${epCount > 1 ? ` (${epCount}부작)` : ''} — 숏드라마 | KanoDrama`,
+        ],
+        `${truncateTitleAtWord(dramaTitle, 34)}${epCount > 1 ? ` (${epCount}부작)` : ''} — 숏드라마 | KanoDrama`
+      );
+    case 'ja':
+      return pickUnderLimit(
+        [
+          `${dramaTitle}${epCount > 1 ? ` (全${epCount}話)` : ''} — ${g1 ? `${g1} ` : ''}ショートドラマHD | KanoDrama`,
+          `${dramaTitle}${epCount > 1 ? ` (全${epCount}話)` : ''} — ショートドラマ | KanoDrama`,
+        ],
+        `${truncateTitleAtWord(dramaTitle, 34)}${epCount > 1 ? ` (全${epCount}話)` : ''} — ショートドラマ | KanoDrama`
+      );
+    case 'th':
+      return pickUnderLimit(
+        [
+          `${dramaTitle}${epCount > 1 ? ` (${epCount} ตอน)` : ''} — ${g1 ? `${g1} ` : ''}มินิซีรีส์ซับไทย HD | KanoDrama`,
+          `${dramaTitle}${epCount > 1 ? ` (${epCount} ตอน)` : ''} — มินิซีรีส์ HD | KanoDrama`,
+        ],
+        `${truncateTitleAtWord(dramaTitle, 36)}${epCount > 1 ? ` (${epCount} ตอน)` : ''} — มินิซีรีส์ | KanoDrama`
+      );
+    case 'ms':
+      return pickUnderLimit(
+        [
+          `${dramaTitle}${epShortId} — ${g1 ? `${g1} ` : ''}Drama Pendek HD | KanoDrama`,
+          `${dramaTitle}${epShortId} — Drama Pendek | KanoDrama`,
+        ],
+        `${truncateTitleAtWord(dramaTitle, 38)}${epShortId} — Drama Pendek | KanoDrama`
+      );
+    case 'tl':
+      return pickUnderLimit(
+        [
+          `${dramaTitle}${epFullEn} — ${g1 ? `${g1} ` : ''}Short Drama HD | KanoDrama`,
+          `${dramaTitle}${epFullEn} — Short Drama | KanoDrama`,
+        ],
+        `${truncateTitleAtWord(dramaTitle, 38)}${epFullEn} — Short Drama | KanoDrama`
+      );
+  }
+}
+
+function buildDramaDetailDescription(
+  lang: LanguageCode,
+  dramaTitle: string,
+  epCount: number,
+  topGenres: string[],
+  providerLabel: string,
+  rawDesc: string | undefined,
+  hasSubIndo: boolean
+): string {
+  const cleanRaw = sanitizeMetaText(rawDesc);
+  const genreStr = topGenres.slice(0, 2).join(', ');
+  const subIndoTag = hasSubIndo ? '' : ' Sub Indo';
+  const providerPhraseId = providerLabel ? ` di ${providerLabel}` : '';
+  const providerPhraseEn = providerLabel ? ` from ${providerLabel}` : '';
+
+  const parenParts: string[] = [];
+  if (epCount > 1) {
+    parenParts.push(
+      lang === 'id'
+        ? `${epCount} Ep`
+        : lang === 'cn'
+        ? `${epCount}集`
+        : lang === 'vi'
+        ? `${epCount} Tập`
+        : lang === 'ko'
+        ? `${epCount}부작`
+        : lang === 'ja'
+        ? `全${epCount}話`
+        : lang === 'th'
+        ? `${epCount} ตอน`
+        : lang === 'ms'
+        ? `${epCount} Ep`
+        : `${epCount} Eps`
+    );
+  }
+  if (topGenres.length > 0) {
+    parenParts.push(topGenres[0]);
+  }
+  const hasShortKwInRaw =
+    lang === 'id'
+      ? /drama pendek|short drama|sub\s?indo/i.test(cleanRaw)
+      : lang === 'en'
+      ? /short drama|vertical drama|mini-?series/i.test(cleanRaw)
+      : true;
+  if (cleanRaw && !hasShortKwInRaw) {
+    if (lang === 'id') {
+      parenParts.push(`Drama Pendek${subIndoTag}`);
+    } else if (lang === 'en') {
+      parenParts.push('Short Drama');
+    }
+  }
+  const metaParen = parenParts.length > 0 ? ` (${parenParts.join(', ')})` : '';
+
+  const fallbackParenParts: string[] = [];
+  if (epCount > 1) {
+    fallbackParenParts.push(
+      lang === 'id'
+        ? `${epCount} Episode`
+        : lang === 'cn'
+        ? `${epCount}集`
+        : lang === 'vi'
+        ? `${epCount} Tập`
+        : lang === 'ko'
+        ? `${epCount}부작`
+        : lang === 'ja'
+        ? `全${epCount}話`
+        : lang === 'th'
+        ? `${epCount} ตอน`
+        : lang === 'ms'
+        ? `${epCount} Episod`
+        : `${epCount} Episodes`
+    );
+  }
+  if (genreStr) fallbackParenParts.push(genreStr);
+  const fallbackParen =
+    fallbackParenParts.length > 0 ? ` (${fallbackParenParts.join(', ')})` : '';
+
+  const fallbackMap: Record<LanguageCode, string> = {
+    id: `${dramaTitle}${fallbackParen} — Nonton drama pendek${subIndoTag} full episode HD${providerPhraseId} gratis tanpa iklan & baca sinopsis lengkap di KanoDrama.`,
+    en: `${dramaTitle}${fallbackParen} — Watch short drama full episodes ad-free in crisp HD${providerPhraseEn} with subtitles & read synopsis on KanoDrama.`,
+    cn: `${dramaTitle}${fallbackParen} — 在 KanoDrama 免费无广告高清观看${providerLabel ? `${providerLabel} ` : ''}热门短剧全集与剧情简介。`,
+    vi: `${dramaTitle}${fallbackParen} — Xem phim ngắn trọn bộ Vietsub HD miễn phí không quảng cáo trên KanoDrama.`,
+    es: `${dramaTitle}${fallbackParen} — Ver drama corto completo gratis en HD sin anuncios con sinopsis en KanoDrama.`,
+    ko: `${dramaTitle}${fallbackParen} — KanoDrama에서 인기 숏드라마 전편과 줄거리를 광고 없이 무료 HD 감상하세요.`,
+    ja: `${dramaTitle}${fallbackParen} — KanoDramaで話題のショートドラマ全話＆あらすじを広告なしHD無料視聴。`,
+    th: `${dramaTitle}${fallbackParen} — ดูฟรีมินิซีรีส์ซับไทยครบทุกตอนระดับ HD ไม่มีโฆษณาที่ KanoDrama`,
+    ms: `${dramaTitle}${fallbackParen} — Tonton drama pendek episod penuh percuma tanpa iklan dalam HD di KanoDrama.`,
+    tl: `${dramaTitle}${fallbackParen} — Panoorin ang buong episode ng vertical short drama nang libre sa HD sa KanoDrama.`,
+  };
+
+  if (!cleanRaw) {
+    return truncateMetaDescription(fallbackMap[lang] || fallbackMap.en, 160);
+  }
+
+  const startsWithTitle = cleanRaw
+    .toLowerCase()
+    .startsWith(dramaTitle.toLowerCase());
+  const punctuatedRaw = /[.!?]$/.test(cleanRaw) ? cleanRaw : `${cleanRaw}.`;
+
+  const shortCtaMap: Record<LanguageCode, string> = {
+    id: 'Nonton HD di KanoDrama.',
+    en: 'Watch HD on KanoDrama.',
+    cn: '在 KanoDrama 免费高清观看。',
+    vi: 'Xem HD tại KanoDrama.',
+    es: 'Ver HD en KanoDrama.',
+    ko: 'KanoDrama 무료 HD 감상.',
+    ja: 'KanoDrama無料HD視聴。',
+    th: 'ดู HD ที่ KanoDrama',
+    ms: 'Tonton HD di KanoDrama.',
+    tl: 'Panoorin sa KanoDrama.',
+  };
+
+  const leadHeader = startsWithTitle
+    ? metaParen && !cleanRaw.includes(String(epCount))
+      ? `${dramaTitle}${metaParen} — ${cleanRaw.slice(dramaTitle.length).replace(/^[\s:—–-]+/, '')}`
+      : cleanRaw
+    : `${dramaTitle}${metaParen}: ${punctuatedRaw}`;
+
+  if (!/kano\s?drama/i.test(leadHeader)) {
+    const withCta = `${/[-.!?:]$/.test(leadHeader) ? leadHeader : `${leadHeader}.`} ${shortCtaMap[lang]}`;
+    if (withCta.length <= 160) {
+      return withCta;
+    }
+  }
+
+  return truncateMetaDescription(leadHeader, 160);
 }
 
 function composeRichMetaDescription(
@@ -1465,13 +1746,13 @@ function composeRichMetaDescription(
 ): string {
   const cleanRaw = sanitizeMetaText(rawDesc);
   if (!cleanRaw) {
-    return truncateMetaDescription(fallbackDesc, 165);
+    return truncateMetaDescription(fallbackDesc, 160);
   }
   const hasBrandHint = /kano\s?drama/i.test(cleanRaw);
   if (!hasBrandHint && cleanRaw.length <= 108 && watchSuffix) {
     const punctuated = /[.!?]$/.test(cleanRaw) ? cleanRaw : `${cleanRaw}.`;
     const combined = `${punctuated} ${watchSuffix}`.trim();
-    if (combined.length <= 165) {
+    if (combined.length <= 160) {
       return combined;
     }
   }
@@ -1479,12 +1760,12 @@ function composeRichMetaDescription(
     const cleanLead = sanitizeMetaText(seoLeadIn);
     if (cleanLead && cleanLead.length <= 92) {
       const combinedWithLead = `${cleanLead} — ${cleanRaw}`;
-      if (combinedWithLead.length >= 115) {
-        return truncateMetaDescription(combinedWithLead, 165);
+      if (combinedWithLead.length >= 110) {
+        return truncateMetaDescription(combinedWithLead, 160);
       }
     }
   }
-  return truncateMetaDescription(cleanRaw, 165);
+  return truncateMetaDescription(cleanRaw, 160);
 }
 
 /**
@@ -1528,7 +1809,6 @@ export function generateMetadata(
     const dramaTitle =
       stripLeadingWatchPrefix(input.title || '') || 'Short Drama';
     const epCount = Math.max(1, input.episodeCount || 1);
-    const epsTag = epCount > 1 ? ` (${epCount} Eps)` : '';
     const hasSubIndo = hasSubOrDubIndoLabel(dramaTitle);
     const subIndoTag = hasSubIndo ? '' : ' Sub Indo';
     const epTitleClean = sanitizeMetaText(input.episodeTitle);
@@ -1599,48 +1879,22 @@ export function generateMetadata(
         watchSuffixMap[lang]
       );
     } else {
-      const topTags = (input.tags || [])
-        .map((tg) => sanitizeMetaText(tg))
-        .filter(Boolean)
-        .slice(0, 2);
-      const tagPhraseId = topTags.length > 0 ? ` (${topTags.join(', ')})` : '';
-      const tagPhraseEn = topTags.length > 0 ? ` [${topTags.join(', ')}]` : '';
-      const fullTitleMap: Record<LanguageCode, string> = {
-        id: `Nonton ${dramaTitle}${subIndoTag} Full Episode${epsTag} HD | KanoDrama`,
-        en: `Watch ${dramaTitle} Full Episodes Ad-Free HD${epsTag} | KanoDrama`,
-        cn: `免费观看 ${dramaTitle} 高清全集${epsTag} | KanoDrama`,
-        vi: `Xem Miễn Phí ${dramaTitle} Trọn Bộ HD${epsTag} | KanoDrama`,
-        es: `Ver Gratis ${dramaTitle} Capítulos Completos HD${epsTag} | KanoDrama`,
-        ko: `무료 감상 ${dramaTitle} 전편 HD${epsTag} | KanoDrama`,
-        ja: `無料視聴 ${dramaTitle} 全話HD${epsTag} | KanoDrama`,
-        th: `ดูฟรี ${dramaTitle} ครบทุกตอน HD${epsTag} | KanoDrama`,
-        ms: `Tonton Percuma ${dramaTitle} Episod Penuh HD${epsTag} | KanoDrama`,
-        tl: `Panoorin Nang Libre ${dramaTitle} Full Episodes HD${epsTag} | KanoDrama`,
-      };
-      const fullDescMap: Record<LanguageCode, string> = {
-        id: `Sinopsis & nonton ${dramaTitle}${subIndoTag} full${epCount > 1 ? ` ${epCount}` : ''} episode${tagPhraseId} HD${providerPhraseId} gratis tanpa iklan di KanoDrama.`,
-        en: `Read synopsis & watch ${dramaTitle}${epCount > 1 ? ` (${epCount} episodes)` : ''}${tagPhraseEn} full series ad-free in HD${providerPhraseEn} with subtitles on KanoDrama.`,
-        cn: `在 KanoDrama 免费无广告高清观看${providerLabel ? ` ${providerLabel} ` : ''}《${dramaTitle}》剧情简介与全集${epCount > 1 ? `（共${epCount}集）` : ''}。`,
-        vi: `Xem miễn phí trọn bộ ${dramaTitle}${epCount > 1 ? ` (${epCount} tập)` : ''} chất lượng HD trên KanoDrama.`,
-        es: `Ver gratis episodios completos de ${dramaTitle}${epCount > 1 ? ` (${epCount} episodios)` : ''} en calidad HD en KanoDrama.`,
-        ko: `KanoDrama에서 ${dramaTitle} 줄거리와 전편${epCount > 1 ? `(${epCount}부작)` : ''}을 선명한 HD로 무료 시청하세요.`,
-        ja: `KanoDramaで『${dramaTitle}』のあらすじ＆全話${epCount > 1 ? `（全${epCount}話）` : ''}を高画質HDで無料視聴。`,
-        th: `ดูฟรีซีรีส์ ${dramaTitle} ครบทุกตอน${epCount > 1 ? ` (${epCount} ตอน)` : ''} คมชัดระดับ HD บน KanoDrama`,
-        ms: `Tonton percuma ${dramaTitle}${epCount > 1 ? ` (${epCount} episod)` : ''} dalam kualiti HD di KanoDrama.`,
-        tl: `Panoorin nang libre ang ${dramaTitle}${epCount > 1 ? ` (${epCount} episodes)` : ''} sa malinaw na HD sa KanoDrama.`,
-      };
-      const detailLeadIn =
-        lang === 'id'
-          ? `Nonton ${dramaTitle}${epsTag}${providerPhraseId} Sub Indo HD di KanoDrama`
-          : lang === 'en'
-          ? `Watch ${dramaTitle}${epsTag}${providerPhraseEn} HD on KanoDrama`
-          : undefined;
-      title = fullTitleMap[lang];
-      description = composeRichMetaDescription(
+      const topGenres = pickPrimaryGenresForTitle(dramaTitle, input.tags || []);
+      title = buildDramaDetailTitle(
+        lang,
+        dramaTitle,
+        epCount,
+        topGenres,
+        hasSubIndo
+      );
+      description = buildDramaDetailDescription(
+        lang,
+        dramaTitle,
+        epCount,
+        topGenres,
+        providerLabel,
         input.description,
-        fullDescMap[lang],
-        watchSuffixMap[lang],
-        detailLeadIn
+        hasSubIndo
       );
     }
   } else if (input.page === 'movie') {
@@ -1755,8 +2009,8 @@ export function generateMetadata(
   } else if (input.page === 'tag') {
     const tag = sanitizeMetaText(input.tag) || 'Drama';
     const tagTitleMap: Record<LanguageCode, string> = {
-      id: `Topik & Tag #${tag} — Koleksi Drama Pendek Sub Indo HD | KanoDrama`,
-      en: `Topic & Tag #${tag} — Vertical Short Dramas Playlist HD | KanoDrama`,
+      id: `Tema #${tag} — Trope & Episode Drama Pendek Terbaru | KanoDrama`,
+      en: `#${tag} Tag — Trope Playlist & Fresh Short Dramas | KanoDrama`,
       cn: `#${tag} 标签话题 — 热门短剧精选合集 HD | KanoDrama`,
       vi: `Chủ Đề & Thẻ #${tag} — Tuyển Tập Phim Ngắn HD | KanoDrama`,
       es: `Tema y Etiqueta #${tag} — Dramas Cortos HD | KanoDrama`,
@@ -1767,8 +2021,8 @@ export function generateMetadata(
       tl: `Paksa at Tag #${tag} — Koleksyon ng Short Dramas HD | KanoDrama`,
     };
     const tagDescMap: Record<LanguageCode, string> = {
-      id: `Koleksi drama pendek bertema topik & tag #${tag} terbaru sub Indo HD dari 82+ platform resmi gratis tanpa iklan di KanoDrama.`,
-      en: `Curated #${tag} topic & tag playlist of vertical short dramas sorted by newest episodes across 82+ platforms in HD on KanoDrama.`,
+      id: `Kurasi tema & trope #${tag} lintas genre dengan update episode drama pendek sub Indo HD terbaru tanpa iklan di KanoDrama.`,
+      en: `Curated #${tag} trope & story theme playlist featuring fresh vertical short drama episodes across 82+ platforms in HD on KanoDrama.`,
       cn: `在 KanoDrama 免费高清浏览 #${tag} 标签话题短剧精选合集。`,
       vi: `Tuyển tập phim ngắn theo chủ đề & thẻ #${tag} cập nhật mới nhất từ 82+ nền tảng chuẩn HD.`,
       es: `Colección por tema y etiqueta #${tag} con estrenos de dramas cortos verticales de 82+ plataformas en HD.`,
@@ -1823,14 +2077,14 @@ export function generateMetadata(
     title = sanitizeMetaText(input.title) || sectionCopy.title;
     description = truncateMetaDescription(
       sanitizeMetaText(input.description) || sectionCopy.description,
-      165
+      160
     );
     if (!input.pathname) {
       path = sectionCopy.path;
     }
   }
 
-  const trimmedDesc = truncateMetaDescription(description, 165);
+  const trimmedDesc = truncateMetaDescription(description, 160);
   const pathWithoutQuery = (path || '/').split('?')[0].split('#')[0] || '/';
   const normalizedPath = pathWithoutQuery.startsWith('/')
     ? pathWithoutQuery
@@ -1869,26 +2123,35 @@ export function generateMetadata(
 
       const localizedCore: Record<LanguageCode, string[]> = {
         id: [
+          `${baseTitle} Sub Indo`,
           `Nonton ${baseTitle} Sub Indo`,
           `Sinopsis ${baseTitle}`,
           `Streaming ${baseTitle} Full Episode`,
-          `${baseTitle} Sub Indo HD`,
           ...(input.page === 'movie'
             ? [`Nonton Film ${baseTitle} Sub Indo`, 'Streaming Film HD Gratis']
-            : ['Nonton Drama Pendek Sub Indo', 'Drama China Sub Indo', 'Short Drama Sub Indo']),
+            : [
+                'Nonton Drama Pendek Sub Indo',
+                'Drama China Sub Indo',
+                'Short Drama Sub Indo',
+              ]),
           'Nonton Gratis Tanpa Iklan',
         ],
         en: [
+          `${baseTitle} Short Drama`,
           `Watch ${baseTitle} Full Episodes`,
           `${baseTitle} Synopsis`,
           `${baseTitle} HD Subtitles`,
-          `Stream ${baseTitle} Online Free`,
           ...(input.page === 'movie'
             ? [`Watch ${baseTitle} Full Movie HD`, 'Free Asian Movies HD']
-            : ['Watch Vertical Short Dramas', 'Asian Short Series HD', 'Chinese Short Drama']),
+            : [
+                'Watch Vertical Short Dramas',
+                'Chinese Short Drama HD',
+                'Asian Mini Series Online',
+              ]),
           'Ad-Free HD Streaming',
         ],
         cn: [
+          `${baseTitle} 短剧`,
           `免费观看 ${baseTitle}`,
           `${baseTitle} 剧情简介`,
           `${baseTitle} 高清全集`,
@@ -1896,6 +2159,7 @@ export function generateMetadata(
           '竖屏短剧高清',
         ],
         vi: [
+          `${baseTitle} Vietsub`,
           `Xem ${baseTitle} Vietsub HD`,
           `Tóm tắt ${baseTitle}`,
           `${baseTitle} Trọn Bộ`,
@@ -1903,6 +2167,7 @@ export function generateMetadata(
           'Xem Phim HD Miễn Phí',
         ],
         es: [
+          `${baseTitle} Sub Español`,
           `Ver ${baseTitle} Sub Español`,
           `Sinopsis ${baseTitle}`,
           `${baseTitle} Capítulos Completos`,
@@ -1910,28 +2175,33 @@ export function generateMetadata(
           'Ver Series Asiáticas Gratis',
         ],
         ko: [
+          `${baseTitle} 숏드라마`,
           `${baseTitle} 무료 다시보기`,
           `${baseTitle} 줄거리`,
           `${baseTitle} 전편 HD`,
           '숏드라마 무료 감상',
         ],
         ja: [
+          `${baseTitle} ショートドラマ`,
           `${baseTitle} 無料視聴`,
           `${baseTitle} あらすじ`,
           `${baseTitle} 全話 HD`,
           'ショートドラマ無料',
         ],
         th: [
+          `${baseTitle} ซับไทย`,
           `ดู ${baseTitle} ซับไทย HD`,
           `${baseTitle} ครบทุกตอน`,
           'มินิซีรีส์ออนไลน์ฟรี',
         ],
         ms: [
+          `${baseTitle} Sari Kata Melayu`,
           `Tonton ${baseTitle} Sari Kata Melayu`,
           `${baseTitle} Episod Penuh HD`,
           'Drama Pendek HD',
         ],
         tl: [
+          `${baseTitle} Full Episodes`,
           `Panoorin ${baseTitle} Full Episodes`,
           `${baseTitle} Tagalog Sub HD`,
           'Vertical Short Dramas',
@@ -1963,7 +2233,9 @@ export function generateMetadata(
           : []),
         ...cleanTags,
         ...cleanTags.slice(0, 3).map((tg) =>
-          lang === 'id' ? `Drama ${tg} Sub Indo` : `${tg} Short Drama`
+          lang === 'id'
+            ? `Drama Pendek ${tg} Sub Indo`
+            : `${tg} Vertical Short Drama`
         ),
         ...cleanTags.slice(0, 2).map((tg) => `${baseTitle} ${tg}`),
         ...(input.keywords || []).map((k) => sanitizeMetaText(k)),
@@ -1983,6 +2255,34 @@ export function generateMetadata(
         if (deduped.length >= 22) break;
       }
       return deduped.join(', ');
+    }
+
+    if (input.page === 'tag') {
+      const tagLabel = sanitizeMetaText(input.tag) || 'Drama';
+      return (
+        input.keywords && input.keywords.length > 0
+          ? input.keywords
+          : lang === 'id'
+          ? [
+              `tag ${tagLabel}`,
+              `topik drama ${tagLabel}`,
+              `trope ${tagLabel} sub Indo`,
+              `tema cerita ${tagLabel}`,
+              `update episode ${tagLabel}`,
+              'KanoDrama',
+              'kano-drama.live',
+            ]
+          : [
+              `#${tagLabel} tag`,
+              `${tagLabel} drama trope`,
+              `${tagLabel} theme playlist`,
+              `fresh ${tagLabel} short drama episodes`,
+              'KanoDrama',
+              'kano-drama.live',
+            ]
+      )
+        .filter(Boolean)
+        .join(', ');
     }
 
     return (

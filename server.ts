@@ -2467,7 +2467,7 @@ function injectDramaSeoIntoHtml(
   const watchPath = `/${provSlug}/watch/${encodedSlug}${safeEp > 1 ? `?ep=${safeEp}` : ''}`;
   const epWatchUrl =
     isWatchRoute || safeEp > 1 ? `${brandOrigin}${watchPath}` : canonicalUrl;
-  const epCount = Math.max(1, episodes.length || drama.chapterCount || 1);
+  const epCount = Math.max(1, episodes.length, drama.chapterCount || 1);
   const effectiveLang = explicitQueryLang ?? _ssrLang;
   const isId = effectiveLang === 'id';
   const activeEpisode = episodes.find((ep) => Number(ep.episodeNumber) === safeEp);
@@ -3477,17 +3477,21 @@ function injectProgrammaticSeoIntoHtml(
     const prefix =
       landing.basePath === 'tag'
         ? isId
-          ? `Topik #${landing.label} (${itemListElements.length}+ pilihan: ${sampleTitles}). `
-          : `#${landing.label} tag picks (${itemListElements.length}+ titles: ${sampleTitles}). `
+          ? `Tema & trope #${landing.label} (${itemListElements.length}+ pilihan: ${sampleTitles}). `
+          : `#${landing.label} trope picks (${itemListElements.length}+ titles: ${sampleTitles}). `
         : landing.basePath === 'category'
         ? isId
           ? `Kategori ${landing.label} (${itemListElements.length}+ judul: ${sampleTitles}). `
           : `${landing.label} category (${itemListElements.length}+ titles: ${sampleTitles}). `
         : isId
-        ? `Genre ${landing.label} (${itemListElements.length}+ seri: ${sampleTitles}). `
-        : `${landing.label} genre (${itemListElements.length}+ series: ${sampleTitles}). `;
+        ? `Katalog genre ${landing.label} (${itemListElements.length}+ seri: ${sampleTitles}). `
+        : `${landing.label} genre catalog (${itemListElements.length}+ series: ${sampleTitles}). `;
     const combined = `${prefix}${landing.description}`.replace(/\s+/g, ' ').trim();
-    return combined.length > 165 ? `${combined.slice(0, 162).trim()}...` : combined;
+    if (combined.length <= 160) return combined;
+    const slice = combined.slice(0, 157);
+    const lastSpace = slice.lastIndexOf(' ');
+    const cut = lastSpace >= 95 ? slice.slice(0, lastSpace) : slice;
+    return `${cut.replace(/[,:;.\-–—\s]+$/, '').trim()}...`;
   })();
 
   const programmaticLabels: Record<
@@ -3577,6 +3581,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
     <meta name="twitter:title" content="${escapeHtmlAttr(landing.title)}" />
     <meta name="twitter:description" content="${escapeHtmlAttr(enrichedDescription)}" />
     <meta name="twitter:image" content="${escapeHtmlAttr(ogImage)}" />
+    <meta name="twitter:url" content="${escapeHtmlAttr(canonicalUrl)}" />
     <script type="application/ld+json" id="kano-drama-jsonld">${JSON.stringify(
       jsonLd
     ).replace(/<\/script>/gi, '<\\/script>')}</script>
