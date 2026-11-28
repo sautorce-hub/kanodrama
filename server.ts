@@ -1212,7 +1212,13 @@ function buildCanonicalRedirectUrl(req: Request, targetPath: string): string {
 
 function toAbsoluteImageUrl(rawUrl: string, origin: string): string {
   const clean = (rawUrl || '').trim();
-  if (!clean) return `${origin}${DEFAULT_OG_IMAGE_PATH}`;
+  if (
+    !clean ||
+    /^(?:<nil>|nil|null|undefined|n\/a|na|none|-)$/i.test(clean) ||
+    /^data:/i.test(clean)
+  ) {
+    return `${origin}${DEFAULT_OG_IMAGE_PATH}`;
+  }
   if (clean.startsWith('//')) return `https:${clean}`;
   if (clean.startsWith('https://') || clean.startsWith('http://')) return clean;
   if (clean.startsWith('/')) return `${origin}${clean}`;
@@ -2283,11 +2289,17 @@ const INVALID_SSR_PLACEHOLDER_SLUGS = new Set([
   'unknown',
   'null',
   'undefined',
+  'none',
+  'error',
+  '404',
 ]);
 
 function isValidSitemapSlug(slug: string | undefined | null): boolean {
   const clean = String(slug || '').trim().toLowerCase();
-  return Boolean(clean && !INVALID_SSR_PLACEHOLDER_SLUGS.has(clean));
+  if (!clean || INVALID_SSR_PLACEHOLDER_SLUGS.has(clean)) return false;
+  if (/[\s/?#\\<>%"'`]/.test(clean)) return false;
+  if (/(?:housedrama|house-drama|kano-drama\.xyz)/i.test(clean)) return false;
+  return true;
 }
 
 function isValidSsrDrama(
@@ -2493,6 +2505,7 @@ function injectDramaSeoIntoHtml(
   const keywordsList = [
     drama.title,
     isId ? `Nonton ${drama.title} Sub Indo` : `Watch ${drama.title} HD online`,
+    isId ? `Watch ${drama.title} Online` : `Nonton ${drama.title} Sub Indo`,
     'KanoDrama',
     'kano-drama.live',
     providerDisplay,
@@ -2745,7 +2758,7 @@ function injectDramaSeoIntoHtml(
   };
 
   const primaryImg = meta.openGraph.images[0];
-  const resolvedOgImg = buildOgImageEndpointUrl(drama.cover || DEFAULT_OG_IMAGE_PATH, brandOrigin, pageTitle);
+  const resolvedOgImg = buildOgImageEndpointUrl(ogImage, brandOrigin, pageTitle);
   const ogImageUrl = resolvedOgImg || primaryImg?.url || meta.openGraph.image;
   const ogSecureUrl = ogImageUrl.replace(/^http:\/\//i, 'https://');
   const ogImgAlt = primaryImg?.alt || pageTitle;
@@ -3341,7 +3354,7 @@ function injectMovieSeoIntoHtml(
 
   const primaryImg = meta.openGraph.images[0];
   const resolvedOgImg = buildOgImageEndpointUrl(
-    movie.poster || movie.cover || DEFAULT_OG_IMAGE_PATH,
+    ogImage,
     brandOrigin,
     pageTitle
   );
@@ -3372,6 +3385,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
     <meta name="twitter:title" content="${escapeHtmlAttr(pageTitle)}" />
     <meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />
     <meta name="twitter:image" content="${escapeHtmlAttr(ogImageUrl)}" />
+    <meta name="twitter:url" content="${escapeHtmlAttr(epWatchUrl)}" />
     <script type="application/ld+json" id="kano-drama-jsonld">${JSON.stringify(
       jsonLd
     ).replace(/<\/script>/gi, '<\\/script>')}</script>
@@ -4164,6 +4178,7 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
     <meta name="twitter:title" content="${escapeHtmlAttr(meta.twitter.title)}" />
     <meta name="twitter:description" content="${escapeHtmlAttr(meta.twitter.description)}" />
     <meta name="twitter:image" content="${escapeHtmlAttr(ogImgUrl)}" />
+    <meta name="twitter:url" content="${escapeHtmlAttr(meta.openGraph.url)}" />
     <script type="application/ld+json" id="kano-drama-jsonld">${JSON.stringify(
       jsonLd
     ).replace(/<\/script>/gi, '<\\/script>')}</script>
@@ -4433,6 +4448,7 @@ ${buildHreflangLinksHtml(meta.canonicalUrl)}
     <meta name="twitter:title" content="${escapeHtmlAttr(meta.twitter.title)}" />
     <meta name="twitter:description" content="${escapeHtmlAttr(meta.twitter.description)}" />
     <meta name="twitter:image" content="${escapeHtmlAttr(ogImgUrl)}" />
+    <meta name="twitter:url" content="${escapeHtmlAttr(meta.openGraph.url)}" />
     <script type="application/ld+json" id="kano-drama-jsonld">${JSON.stringify(
       jsonLd
     ).replace(/<\/script>/gi, '<\\/script>')}</script>
@@ -9548,8 +9564,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
   });
 
   const SITEMAP_MAX_URLS_PER_FILE = 25000;
-  const SITEMAP_CACHE_TTL_MS = 5 * 60 * 1000;
+  const SITEMAP_CACHE_TTL_MS = 10 * 60 * 1000;
   const SITEMAP_COLD_CACHE_TTL_MS = 60 * 1000;
+  const SITEMAP_STALE_TTL_MS = 60 * 60 * 1000;
+  const SITEMAP_DB_TIMEOUT_MS = 3500;
+  const SITEMAP_UPSTREAM_TIMEOUT_MS = 2500;
+  const SITEMAP_BUILD_TIMEOUT_MS = 5000;
 
   interface SitemapUrlEntry {
     loc: string;
@@ -9558,284 +9578,138 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
     lastmod?: string;
   }
 
-  const sitemapEntriesCache = new Map<
-    string,
-    { expiresAt: number; version: number; entries: SitemapUrlEntry[] }
-  >();
-  const sitemapBuildInFlight = new Map<string, Promise<SitemapUrlEntry[]>>();
-
-  async function collectAllSitemapEntries(origin: string): Promise<SitemapUrlEntry[]> {
-    const siteOrigin = DEFAULT_SITE_ORIGIN;
-    const currentCatalogVersion = getSitemapCatalogVersion();
-    const cached = sitemapEntriesCache.get(siteOrigin);
-    if (
-      cached &&
-      cached.version === currentCatalogVersion &&
-      Date.now() < cached.expiresAt
-    ) {
-      return cached.entries;
-    }
-
-    const existingPromise = sitemapBuildInFlight.get(siteOrigin);
-    if (existingPromise) {
-      return existingPromise;
-    }
-
-    const buildPromise = (async (): Promise<SitemapUrlEntry[]> => {
-      const buildVersion = getSitemapCatalogVersion();
-      const seenLocs = new Set<string>();
-      const entries: SitemapUrlEntry[] = [];
-
-      const pushEntry = (
-        loc: string,
-        changefreq: string,
-        priority: string,
-        lastmod?: string
-      ) => {
-        if (seenLocs.has(loc)) return;
-        seenLocs.add(loc);
-        entries.push({ loc, changefreq, priority, lastmod });
-      };
-
-      const todayIso = new Date().toISOString().split('T')[0];
-
-      // 1) Homepage, primary categories & provider hubs first
-      pushEntry(`${siteOrigin}/`, 'hourly', '1.0', todayIso);
-      pushEntry(`${siteOrigin}/movies`, 'hourly', '0.95', todayIso);
-      pushEntry(`${siteOrigin}/explore`, 'hourly', '0.95', todayIso);
-      pushEntry(`${siteOrigin}/providers`, 'daily', '0.95', todayIso);
-      pushEntry(`${siteOrigin}/trending`, 'hourly', '0.9', todayIso);
-      pushEntry(`${siteOrigin}/latest`, 'hourly', '0.9', todayIso);
-      pushEntry(`${siteOrigin}/vip`, 'daily', '0.85', todayIso);
-      pushEntry(`${siteOrigin}/rewards`, 'daily', '0.9', todayIso);
-
-      for (const provName of Object.keys(PROVIDER_SLUG_MAP)) {
-        if (provName === 'LK21' || provName === 'LookSeries') continue;
-        const provSlug = getProviderRouteSlug(provName);
-        pushEntry(`${siteOrigin}/provider/${provSlug}`, 'daily', '0.85', todayIso);
-      }
-
-      for (const preset of CURATED_PROGRAMMATIC_PAGES) {
-        pushEntry(`${siteOrigin}/genre/${preset.slug}`, 'daily', '0.85', todayIso);
-      }
-
-      // 2) Popular & newest valid dramas with complete metadata (/<provider>/detail/<slug>)
-      const cachedSitemap = await getCachedDramasForSitemap(100000);
-      let validDramaIndex = 0;
-      for (const item of cachedSitemap.dramas) {
-        const cleanTitle = cleanText(item.title);
-        const cleanSlug = resolveCanonicalDramaSlug({
-          title: cleanTitle,
-          slug: cleanText(item.slug),
-          bookId: item.bookId,
-          provider: item.provider,
-        });
-        if (
-          !cleanTitle ||
-          cleanTitle.length < 2 ||
-          !isValidSitemapSlug(cleanSlug) ||
-          (item.chapterCount ?? 0) < 1 ||
-          !cleanText(item.cover)
-        ) {
-          continue;
-        }
-        const provSlug = getProviderRouteSlug(item.provider);
-        const loc = `${siteOrigin}/${provSlug}/detail/${encodeURIComponent(cleanSlug)}`;
-        const lastmod = item.updatedAt
-          ? new Date(item.updatedAt).toISOString().split('T')[0]
-          : todayIso;
-        const priority = validDramaIndex < 150 ? '0.9' : '0.8';
-        validDramaIndex++;
-        pushEntry(loc, 'daily', priority, lastmod);
-      }
-
-      // 3) Valid movies from PostgreSQL `movies` table (/movie/detail/<slug>)
-      const cachedMovies = await listMoviesForSitemapFromDb(100000);
-      let validMovieIndex = 0;
-      for (const m of cachedMovies) {
-        const cleanTitle = cleanText(m.title);
-        const cleanSlug = cleanText(m.slug).toLowerCase();
-        if (
-          !cleanTitle ||
-          cleanTitle.length < 2 ||
-          !isValidSitemapSlug(cleanSlug) ||
-          isMovieMarkedUnavailable(cleanSlug) ||
-          !cleanText(m.cover)
-        ) {
-          continue;
-        }
-        const loc = `${siteOrigin}/movie/detail/${encodeURIComponent(cleanSlug)}`;
-        const lastmod = m.updatedAt
-          ? new Date(m.updatedAt).toISOString().split('T')[0]
-          : todayIso;
-        const priority = validMovieIndex < 50 ? '0.9' : '0.85';
-        validMovieIndex++;
-        pushEntry(loc, 'daily', priority, lastmod);
-      }
-
-      if (cachedMovies.length === 0) {
-        try {
-          const [lkHome, lsFeed] = await Promise.all([
-            getLk21Home(getMolaToken, origin).catch(() => null),
-            getLookSeriesFeed(getMolaToken, 'foryou', 1).catch(() => null),
-          ]);
-          const flatMovies = [
-            ...(lkHome?.rows || []).flatMap((r) => r.items || []),
-            ...(lsFeed?.items || []),
-          ];
-          for (const m of flatMovies) {
-            const cleanTitle = cleanText(m.title);
-            const cleanSlug = cleanText(m.slug).toLowerCase();
-            if (
-              !cleanTitle ||
-              cleanTitle.length < 2 ||
-              !isValidSitemapSlug(cleanSlug) ||
-              isMovieMarkedUnavailable(cleanSlug) ||
-              !cleanText(m.cover || m.coverHz || m.coverVt)
-            ) {
-              continue;
-            }
-            pushEntry(
-              `${siteOrigin}/movie/detail/${encodeURIComponent(cleanSlug)}`,
-              'daily',
-              '0.85',
-              todayIso
-            );
-          }
-        } catch {
-          // Ignore cold movie sitemap fallback errors
-        }
-      }
-
-      // 4) Upstream fallback only if cache has zero dramas yet (cold boot)
-      if (cachedSitemap.dramas.length === 0) {
-        try {
-          const token = getMolaToken();
-          if (token) {
-            const [rankRes, newRes, nsRankRes, nsAllRes, arForYouRes, mlRankRes] =
-              await Promise.allSettled([
-                fetch(
-                  `${DRAMABOX_V2_BASE_URL}/ranking?page=1&lang=en&token=${token}`,
-                  { signal: AbortSignal.timeout(5000) }
-                ),
-                fetch(
-                  `${DRAMABOX_V2_BASE_URL}/terbaru?page=1&lang=en&token=${token}`,
-                  { signal: AbortSignal.timeout(5000) }
-                ),
-                fetch(
-                  `${NETSHORT_BASE_URL}/trending?page=1&lang=en_US&token=${token}`,
-                  { signal: AbortSignal.timeout(5000) }
-                ),
-                fetch(
-                  `${NETSHORT_BASE_URL}/all?page=1&lang=en_US&token=${token}`,
-                  { signal: AbortSignal.timeout(5000) }
-                ),
-                fetch(
-                  `${ANYREEL_BASE_URL}/foryou?page=1&lang=en&token=${token}`,
-                  { signal: AbortSignal.timeout(5000) }
-                ),
-                fetch(
-                  `${MELOLO_V2_BASE_URL}/rank?page=1&page_size=18&token=${token}`,
-                  { signal: AbortSignal.timeout(5000) }
-                ),
-              ]);
-            const processResult = async (
-              r: PromiseSettledResult<globalThis.Response>,
-              provider: SsrProviderName
-            ) => {
-              if (r.status !== 'fulfilled' || !r.value.ok) return;
-              const json = (await r.value.json()) as Record<string, unknown>;
-              const list = Array.isArray(json.books)
-                ? (json.books as Record<string, unknown>[])
-                : Array.isArray(json.data) &&
-                  Array.isArray((json.data[0] as Record<string, unknown>)?.books)
-                ? ((json.data[0] as Record<string, unknown>).books as Record<
-                    string,
-                    unknown
-                  >[])
-                : Array.isArray(json.data)
-                ? (json.data as Record<string, unknown>[])
-                : [];
-              const provSlug = getProviderRouteSlug(provider);
-              for (const item of list) {
-                const title = cleanText(item.bookName ?? item.title);
-                const cover = cleanText(
-                  item.cover ?? item.coverUrl ?? item.bookCover ?? item.coverWap ?? item.poster
-                );
-                const slug = resolveCanonicalDramaSlug({
-                  title,
-                  bookId: cleanText(item.bookId ?? item.id),
-                  provider,
-                });
-                if (title.length >= 2 && isValidSitemapSlug(slug) && cover) {
-                  pushEntry(
-                    `${siteOrigin}/${provSlug}/detail/${encodeURIComponent(slug)}`,
-                    'daily',
-                    '0.8',
-                    todayIso
-                  );
-                }
-              }
-            };
-            await Promise.all([
-              processResult(rankRes, 'DramaBoxV2'),
-              processResult(newRes, 'DramaBoxV2'),
-              processResult(nsRankRes, 'NetShort'),
-              processResult(nsAllRes, 'NetShort'),
-              processResult(arForYouRes, 'AnyReel'),
-              processResult(mlRankRes, 'MeloLoV2'),
-            ]);
-          }
-        } catch {
-          // Fallback to root & tag entries
-        }
-      }
-
-      // 5) Curated and dynamic /tag/* pages placed after core content URLs
-      const coreGenreSlugs = [
-        'ceo',
-        'romance',
-        'billionaire',
-        'revenge',
-        'fantasy',
-        'historical',
-        'action',
-        'dubbed',
-      ];
-      for (const slug of coreGenreSlugs) {
-        pushEntry(`${siteOrigin}/tag/${slug}`, 'daily', '0.8', todayIso);
-      }
-
-      for (const tag of cachedSitemap.tags) {
-        const slug = slugifyTitle(tag);
-        if (slug) {
-          pushEntry(`${siteOrigin}/tag/${slug}`, 'daily', '0.75');
-        }
-      }
-
-      const ttl =
-        cachedSitemap.dramas.length > 0
-          ? SITEMAP_CACHE_TTL_MS
-          : SITEMAP_COLD_CACHE_TTL_MS;
-      sitemapEntriesCache.set(siteOrigin, {
-        expiresAt: Date.now() + ttl,
-        version: buildVersion,
-        entries,
-      });
-
-      return entries;
-    })().finally(() => {
-      sitemapBuildInFlight.delete(siteOrigin);
-    });
-
-    sitemapBuildInFlight.set(siteOrigin, buildPromise);
-    return buildPromise;
+  interface SitemapCacheRecord {
+    expiresAt: number;
+    staleUntil: number;
+    version: number;
+    entries: SitemapUrlEntry[];
+    indexXml?: string;
+    partXmls: Map<number, string>;
   }
 
-  const handleSitemapIndexXml = async (req: Request, res: Response) => {
-    const origin = resolveOrigin(req);
-    const siteOrigin = DEFAULT_SITE_ORIGIN;
-    const entries = await collectAllSitemapEntries(origin);
+  const sitemapEntriesCache = new Map<string, SitemapCacheRecord>();
+  const sitemapBuildInFlight = new Map<string, Promise<SitemapCacheRecord>>();
+
+  const LEGACY_SITEMAP_BLOCK_RE = /(?:housedrama|house-drama|kano-drama\.xyz)/i;
+  const LEGACY_ID_SUFFIX_SLUG_RE =
+    /(?:^|-)(?:dram|book|db|ns|ar|ml|rs|sm|gs|fr|dw|fl|vg|fx|dd|ff|sr|vs|ct|md|fd|fs|ts|hs|pd|id)-\d{3,}$/i;
+
+  function formatSitemapLastmod(rawDate: unknown, fallbackIso: string): string {
+    if (rawDate === null || rawDate === undefined || rawDate === '') {
+      return fallbackIso;
+    }
+    try {
+      const parsed =
+        typeof rawDate === 'number'
+          ? Number.isFinite(rawDate) && rawDate > 0
+            ? new Date(rawDate)
+            : null
+          : new Date(String(rawDate));
+      if (!parsed || Number.isNaN(parsed.getTime())) {
+        return fallbackIso;
+      }
+      const year = parsed.getUTCFullYear();
+      if (year < 2020 || year > 2100) {
+        return fallbackIso;
+      }
+      return parsed.toISOString().split('T')[0];
+    } catch {
+      return fallbackIso;
+    }
+  }
+
+  function sanitizeSitemapLoc(rawLoc: string, siteOrigin: string): string | null {
+    const trimmed = String(rawLoc || '').trim();
+    if (!trimmed.startsWith(`${siteOrigin}/`)) return null;
+    if (LEGACY_SITEMAP_BLOCK_RE.test(trimmed)) return null;
+    if (/[\s?#\\<>]/.test(trimmed)) return null;
+    const afterOrigin = trimmed.slice(siteOrigin.length);
+    if (afterOrigin.includes('//') || afterOrigin.includes('%25')) return null;
+    if (
+      /\/(?:detail|watch|provider|genre|tag|category)\/(?:null|undefined|unknown|none|404|error|series|watch-drama|hd-movie)(?:\/|$)/i.test(
+        afterOrigin
+      )
+    ) {
+      return null;
+    }
+    return trimmed;
+  }
+
+  function filterSafeCachedEntries(entries: SitemapUrlEntry[]): SitemapUrlEntry[] {
+    return entries.filter((entry) => {
+      if (LEGACY_SITEMAP_BLOCK_RE.test(entry.loc)) return false;
+      const movieMatch = entry.loc.match(/\/movie\/detail\/([^/?#]+)$/i);
+      if (movieMatch) {
+        try {
+          const decoded = decodeURIComponent(movieMatch[1]).trim().toLowerCase();
+          if (!decoded || isMovieMarkedUnavailable(decoded)) return false;
+        } catch {
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
+  function buildCoreStaticSitemapEntries(siteOrigin: string): SitemapUrlEntry[] {
+    const todayIso = new Date().toISOString().split('T')[0];
+    const seenLocs = new Set<string>();
+    const entries: SitemapUrlEntry[] = [];
+
+    const pushCore = (
+      rawLoc: string,
+      changefreq: string,
+      priority: string,
+      lastmod = todayIso
+    ) => {
+      const safeLoc = sanitizeSitemapLoc(rawLoc, siteOrigin);
+      if (!safeLoc || seenLocs.has(safeLoc)) return;
+      seenLocs.add(safeLoc);
+      entries.push({ loc: safeLoc, changefreq, priority, lastmod });
+    };
+
+    pushCore(`${siteOrigin}/`, 'hourly', '1.0', todayIso);
+    pushCore(`${siteOrigin}/movies`, 'hourly', '0.95', todayIso);
+    pushCore(`${siteOrigin}/explore`, 'hourly', '0.95', todayIso);
+    pushCore(`${siteOrigin}/providers`, 'daily', '0.95', todayIso);
+    pushCore(`${siteOrigin}/trending`, 'hourly', '0.9', todayIso);
+    pushCore(`${siteOrigin}/latest`, 'hourly', '0.9', todayIso);
+    pushCore(`${siteOrigin}/vip`, 'daily', '0.85', todayIso);
+    pushCore(`${siteOrigin}/rewards`, 'daily', '0.9', todayIso);
+
+    for (const provName of Object.keys(PROVIDER_SLUG_MAP)) {
+      if (provName === 'LK21' || provName === 'LookSeries') continue;
+      const provSlug = getProviderRouteSlug(provName);
+      if (!isValidSitemapSlug(provSlug)) continue;
+      pushCore(`${siteOrigin}/provider/${provSlug}`, 'daily', '0.85', todayIso);
+    }
+
+    for (const preset of CURATED_PROGRAMMATIC_PAGES) {
+      if (!isValidSitemapSlug(preset.slug)) continue;
+      pushCore(`${siteOrigin}/genre/${preset.slug}`, 'daily', '0.85', todayIso);
+    }
+
+    const coreTagSlugs = [
+      'ceo',
+      'romance',
+      'billionaire',
+      'revenge',
+      'fantasy',
+      'historical',
+      'action',
+      'dubbed',
+    ];
+    for (const slug of coreTagSlugs) {
+      pushCore(`${siteOrigin}/tag/${slug}`, 'daily', '0.8', todayIso);
+    }
+
+    return entries;
+  }
+
+  function buildSitemapIndexXmlString(
+    entries: SitemapUrlEntry[],
+    siteOrigin: string
+  ): string {
     const totalParts = Math.max(
       1,
       Math.ceil(entries.length / SITEMAP_MAX_URLS_PER_FILE)
@@ -9862,43 +9736,11 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       );
     }
 
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapsXml.join('\n')}\n</sitemapindex>`;
-    res
-      .type('application/xml; charset=utf-8')
-      .set('Cache-Control', 'public, max-age=900')
-      .send(xml);
-  };
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemapsXml.join('\n')}\n</sitemapindex>`;
+  }
 
-  const handleSitemapPartXml = async (req: Request, res: Response) => {
-    const pageRaw = req.params[0] ?? req.params.page ?? '';
-    if (!/^[1-9]\d*$/.test(pageRaw)) {
-      res
-        .status(404)
-        .type('application/xml; charset=utf-8')
-        .send('<?xml version="1.0" encoding="UTF-8"?>\n<error>Invalid sitemap page</error>');
-      return;
-    }
-
-    const page = Number(pageRaw);
-    const origin = resolveOrigin(req);
-    const entries = await collectAllSitemapEntries(origin);
-    const totalParts = Math.max(
-      1,
-      Math.ceil(entries.length / SITEMAP_MAX_URLS_PER_FILE)
-    );
-
-    if (page < 1 || page > totalParts) {
-      res
-        .status(404)
-        .type('application/xml; charset=utf-8')
-        .send('<?xml version="1.0" encoding="UTF-8"?>\n<error>Sitemap part not found</error>');
-      return;
-    }
-
-    const start = (page - 1) * SITEMAP_MAX_URLS_PER_FILE;
-    const partEntries = entries.slice(start, start + SITEMAP_MAX_URLS_PER_FILE);
-
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${partEntries
+  function buildSitemapPartXmlString(partEntries: SitemapUrlEntry[]): string {
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${partEntries
       .map(
         (entry) =>
           `  <url>\n    <loc>${escapeXml(entry.loc)}</loc>\n${
@@ -9906,19 +9748,511 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           }    <changefreq>${escapeXml(entry.changefreq)}</changefreq>\n    <priority>${escapeXml(entry.priority)}</priority>\n  </url>`
       )
       .join('\n')}\n</urlset>`;
+  }
 
+  async function withSitemapTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    fallbackValue: T
+  ): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise.catch(() => fallbackValue),
+        new Promise<T>((resolve) => {
+          timer = setTimeout(() => resolve(fallbackValue), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  async function getSitemapCacheRecord(
+    origin: string,
+    opts: { forceRefresh?: boolean } = {}
+  ): Promise<SitemapCacheRecord> {
+    const siteOrigin = DEFAULT_SITE_ORIGIN;
+    const currentCatalogVersion = getSitemapCatalogVersion();
+    const cached = sitemapEntriesCache.get(siteOrigin);
+    const now = Date.now();
+
+    if (!opts.forceRefresh && cached && cached.version === currentCatalogVersion) {
+      if (now < cached.expiresAt) {
+        return cached;
+      }
+      if (now < cached.staleUntil) {
+        if (!sitemapBuildInFlight.has(siteOrigin)) {
+          void getSitemapCacheRecord(origin, { forceRefresh: true }).catch(() => {});
+        }
+        return cached;
+      }
+    }
+
+    const existingPromise = sitemapBuildInFlight.get(siteOrigin);
+    if (existingPromise) {
+      return withSitemapTimeout(
+        existingPromise,
+        SITEMAP_BUILD_TIMEOUT_MS,
+        cached
+          ? {
+              ...cached,
+              entries: filterSafeCachedEntries(cached.entries),
+              indexXml: undefined,
+              partXmls: new Map(),
+            }
+          : {
+              expiresAt: now + SITEMAP_COLD_CACHE_TTL_MS,
+              staleUntil: now + SITEMAP_STALE_TTL_MS,
+              version: currentCatalogVersion,
+              entries: buildCoreStaticSitemapEntries(siteOrigin),
+              partXmls: new Map(),
+            }
+      );
+    }
+
+    const buildPromise = (async (): Promise<SitemapCacheRecord> => {
+      const buildVersion = getSitemapCatalogVersion();
+      const seenLocs = new Set<string>();
+      const entries: SitemapUrlEntry[] = [];
+
+      const pushEntry = (
+        rawLoc: string,
+        changefreq: string,
+        priority: string,
+        lastmod?: string
+      ) => {
+        const safeLoc = sanitizeSitemapLoc(rawLoc, siteOrigin);
+        if (!safeLoc || seenLocs.has(safeLoc)) return;
+        seenLocs.add(safeLoc);
+        entries.push({ loc: safeLoc, changefreq, priority, lastmod });
+      };
+
+      const todayIso = new Date().toISOString().split('T')[0];
+
+      // 1) Homepage, primary categories & provider hubs first
+      pushEntry(`${siteOrigin}/`, 'hourly', '1.0', todayIso);
+      pushEntry(`${siteOrigin}/movies`, 'hourly', '0.95', todayIso);
+      pushEntry(`${siteOrigin}/explore`, 'hourly', '0.95', todayIso);
+      pushEntry(`${siteOrigin}/providers`, 'daily', '0.95', todayIso);
+      pushEntry(`${siteOrigin}/trending`, 'hourly', '0.9', todayIso);
+      pushEntry(`${siteOrigin}/latest`, 'hourly', '0.9', todayIso);
+      pushEntry(`${siteOrigin}/vip`, 'daily', '0.85', todayIso);
+      pushEntry(`${siteOrigin}/rewards`, 'daily', '0.9', todayIso);
+
+      for (const provName of Object.keys(PROVIDER_SLUG_MAP)) {
+        if (provName === 'LK21' || provName === 'LookSeries') continue;
+        const provSlug = getProviderRouteSlug(provName);
+        if (!isValidSitemapSlug(provSlug)) continue;
+        pushEntry(`${siteOrigin}/provider/${provSlug}`, 'daily', '0.85', todayIso);
+      }
+
+      for (const preset of CURATED_PROGRAMMATIC_PAGES) {
+        if (!isValidSitemapSlug(preset.slug)) continue;
+        pushEntry(`${siteOrigin}/genre/${preset.slug}`, 'daily', '0.85', todayIso);
+      }
+
+      // 2) Parallel bounded fetch of dramas & movies from cache/PostgreSQL
+      const [cachedSitemap, cachedMovies] = await Promise.all([
+        withSitemapTimeout(
+          getCachedDramasForSitemap(100000),
+          SITEMAP_DB_TIMEOUT_MS,
+          { dramas: [], tags: [], providers: [] }
+        ),
+        withSitemapTimeout(
+          listMoviesForSitemapFromDb(100000),
+          SITEMAP_DB_TIMEOUT_MS,
+          []
+        ),
+      ]);
+
+      let validDramaIndex = 0;
+      for (const item of cachedSitemap.dramas) {
+        const cleanTitle = cleanText(item.title);
+        const cleanSlug = resolveCanonicalDramaSlug({
+          title: cleanTitle,
+          slug: cleanText(item.slug),
+          bookId: item.bookId,
+          provider: item.provider,
+        });
+        if (
+          !cleanTitle ||
+          cleanTitle.length < 2 ||
+          !isValidSitemapSlug(cleanSlug) ||
+          hasStrictLegacyProviderIdSuffix(cleanSlug) ||
+          LEGACY_ID_SUFFIX_SLUG_RE.test(cleanSlug) ||
+          (item.chapterCount ?? 0) < 1 ||
+          !cleanText(item.cover)
+        ) {
+          continue;
+        }
+        const provSlug = getProviderRouteSlug(item.provider);
+        if (!isValidSitemapSlug(provSlug) || provSlug === 'lk21' || provSlug === 'lookseries') {
+          continue;
+        }
+        const loc = `${siteOrigin}/${provSlug}/detail/${encodeURIComponent(cleanSlug)}`;
+        const lastmod = formatSitemapLastmod(item.updatedAt, todayIso);
+        const priority = validDramaIndex < 150 ? '0.9' : '0.8';
+        validDramaIndex++;
+        pushEntry(loc, 'daily', priority, lastmod);
+      }
+
+      // 3) Valid movies from PostgreSQL `movies` table (/movie/detail/<slug>)
+      let validMovieIndex = 0;
+      for (const m of cachedMovies) {
+        const cleanTitle = cleanText(m.title);
+        const cleanSlug = cleanText(m.slug).toLowerCase();
+        if (
+          !cleanTitle ||
+          cleanTitle.length < 2 ||
+          !isValidSitemapSlug(cleanSlug) ||
+          isMovieMarkedUnavailable(cleanSlug) ||
+          !cleanText(m.cover)
+        ) {
+          continue;
+        }
+        const loc = `${siteOrigin}/movie/detail/${encodeURIComponent(cleanSlug)}`;
+        const lastmod = formatSitemapLastmod(m.updatedAt, todayIso);
+        const priority = validMovieIndex < 50 ? '0.9' : '0.85';
+        validMovieIndex++;
+        pushEntry(loc, 'daily', priority, lastmod);
+      }
+
+      // 4) Cold-boot upstream fallbacks in parallel with strict timeout (only when DB/cache empty)
+      const coldTasks: Promise<void>[] = [];
+
+      if (cachedMovies.length === 0) {
+        coldTasks.push(
+          (async () => {
+            try {
+              const [lkHome, lsFeed] = await withSitemapTimeout(
+                Promise.all([
+                  getLk21Home(getMolaToken, origin).catch(() => null),
+                  getLookSeriesFeed(getMolaToken, 'foryou', 1).catch(() => null),
+                ]),
+                SITEMAP_UPSTREAM_TIMEOUT_MS,
+                [null, null]
+              );
+              const flatMovies = [
+                ...(lkHome?.rows || []).flatMap((r) => r.items || []),
+                ...(lsFeed?.items || []),
+              ];
+              for (const m of flatMovies) {
+                const cleanTitle = cleanText(m.title);
+                const cleanSlug = cleanText(m.slug).toLowerCase();
+                if (
+                  !cleanTitle ||
+                  cleanTitle.length < 2 ||
+                  !isValidSitemapSlug(cleanSlug) ||
+                  isMovieMarkedUnavailable(cleanSlug) ||
+                  !cleanText(m.cover || m.coverHz || m.coverVt)
+                ) {
+                  continue;
+                }
+                pushEntry(
+                  `${siteOrigin}/movie/detail/${encodeURIComponent(cleanSlug)}`,
+                  'daily',
+                  '0.85',
+                  todayIso
+                );
+              }
+            } catch {
+              // Ignore cold movie sitemap fallback errors
+            }
+          })()
+        );
+      }
+
+      if (cachedSitemap.dramas.length === 0) {
+        coldTasks.push(
+          (async () => {
+            try {
+              const token = getMolaToken();
+              if (!token) return;
+              const settled = await withSitemapTimeout<
+                PromiseSettledResult<globalThis.Response>[]
+              >(
+                Promise.allSettled([
+                  fetch(
+                    `${DRAMABOX_V2_BASE_URL}/ranking?page=1&lang=en&token=${token}`,
+                    { signal: AbortSignal.timeout(SITEMAP_UPSTREAM_TIMEOUT_MS) }
+                  ),
+                  fetch(
+                    `${DRAMABOX_V2_BASE_URL}/terbaru?page=1&lang=en&token=${token}`,
+                    { signal: AbortSignal.timeout(SITEMAP_UPSTREAM_TIMEOUT_MS) }
+                  ),
+                  fetch(
+                    `${NETSHORT_BASE_URL}/trending?page=1&lang=en_US&token=${token}`,
+                    { signal: AbortSignal.timeout(SITEMAP_UPSTREAM_TIMEOUT_MS) }
+                  ),
+                  fetch(
+                    `${NETSHORT_BASE_URL}/all?page=1&lang=en_US&token=${token}`,
+                    { signal: AbortSignal.timeout(SITEMAP_UPSTREAM_TIMEOUT_MS) }
+                  ),
+                  fetch(
+                    `${ANYREEL_BASE_URL}/foryou?page=1&lang=en&token=${token}`,
+                    { signal: AbortSignal.timeout(SITEMAP_UPSTREAM_TIMEOUT_MS) }
+                  ),
+                  fetch(
+                    `${MELOLO_V2_BASE_URL}/rank?page=1&page_size=18&token=${token}`,
+                    { signal: AbortSignal.timeout(SITEMAP_UPSTREAM_TIMEOUT_MS) }
+                  ),
+                ]),
+                SITEMAP_UPSTREAM_TIMEOUT_MS + 300,
+                []
+              );
+              const providers: SsrProviderName[] = [
+                'DramaBoxV2',
+                'DramaBoxV2',
+                'NetShort',
+                'NetShort',
+                'AnyReel',
+                'MeloLoV2',
+              ];
+              const processResult = async (
+                r: PromiseSettledResult<globalThis.Response>,
+                provider: SsrProviderName
+              ) => {
+                if (r.status !== 'fulfilled' || !r.value.ok) return;
+                const json = (await r.value.json()) as Record<string, unknown>;
+                const list = Array.isArray(json.books)
+                  ? (json.books as Record<string, unknown>[])
+                  : Array.isArray(json.data) &&
+                    Array.isArray((json.data[0] as Record<string, unknown>)?.books)
+                  ? ((json.data[0] as Record<string, unknown>).books as Record<
+                      string,
+                      unknown
+                    >[])
+                  : Array.isArray(json.data)
+                  ? (json.data as Record<string, unknown>[])
+                  : [];
+                const provSlug = getProviderRouteSlug(provider);
+                for (const item of list) {
+                  const title = cleanText(item.bookName ?? item.title);
+                  const cover = cleanText(
+                    item.cover ?? item.coverUrl ?? item.bookCover ?? item.coverWap ?? item.poster
+                  );
+                  const slug = resolveCanonicalDramaSlug({
+                    title,
+                    bookId: cleanText(item.bookId ?? item.id),
+                    provider,
+                  });
+                  if (
+                    title.length >= 2 &&
+                    isValidSitemapSlug(slug) &&
+                    !hasStrictLegacyProviderIdSuffix(slug) &&
+                    !LEGACY_ID_SUFFIX_SLUG_RE.test(slug) &&
+                    cover
+                  ) {
+                    pushEntry(
+                      `${siteOrigin}/${provSlug}/detail/${encodeURIComponent(slug)}`,
+                      'daily',
+                      '0.8',
+                      todayIso
+                    );
+                  }
+                }
+              };
+              await Promise.all(
+                settled.map((resItem, idx) =>
+                  processResult(resItem, providers[idx] || 'DramaBoxV2')
+                )
+              );
+            } catch {
+              // Fallback to core & tag entries
+            }
+          })()
+        );
+      }
+
+      if (coldTasks.length > 0) {
+        await Promise.all(coldTasks);
+      }
+
+      // 5) Curated and dynamic /tag/* pages placed after core content URLs
+      const coreGenreSlugs = [
+        'ceo',
+        'romance',
+        'billionaire',
+        'revenge',
+        'fantasy',
+        'historical',
+        'action',
+        'dubbed',
+      ];
+      for (const slug of coreGenreSlugs) {
+        pushEntry(`${siteOrigin}/tag/${slug}`, 'daily', '0.8', todayIso);
+      }
+
+      for (const tag of cachedSitemap.tags) {
+        const cleanTag = cleanText(tag);
+        if (!cleanTag || LEGACY_SITEMAP_BLOCK_RE.test(cleanTag)) continue;
+        const slug = slugifyTitle(cleanTag);
+        if (slug && slug !== 'series' && isValidSitemapSlug(slug)) {
+          pushEntry(`${siteOrigin}/tag/${slug}`, 'daily', '0.75', todayIso);
+        }
+      }
+
+      const builtAt = Date.now();
+      const ttl =
+        cachedSitemap.dramas.length > 0
+          ? SITEMAP_CACHE_TTL_MS
+          : SITEMAP_COLD_CACHE_TTL_MS;
+      const record: SitemapCacheRecord = {
+        expiresAt: builtAt + ttl,
+        staleUntil: builtAt + SITEMAP_STALE_TTL_MS,
+        version: buildVersion,
+        entries,
+        indexXml: buildSitemapIndexXmlString(entries, siteOrigin),
+        partXmls: new Map(),
+      };
+      sitemapEntriesCache.set(siteOrigin, record);
+
+      return record;
+    })().finally(() => {
+      sitemapBuildInFlight.delete(siteOrigin);
+    });
+
+    sitemapBuildInFlight.set(siteOrigin, buildPromise);
+
+    return withSitemapTimeout(
+      buildPromise,
+      SITEMAP_BUILD_TIMEOUT_MS,
+      cached
+        ? {
+            ...cached,
+            entries: filterSafeCachedEntries(cached.entries),
+            indexXml: undefined,
+            partXmls: new Map(),
+          }
+        : {
+            expiresAt: now + SITEMAP_COLD_CACHE_TTL_MS,
+            staleUntil: now + SITEMAP_STALE_TTL_MS,
+            version: currentCatalogVersion,
+            entries: buildCoreStaticSitemapEntries(siteOrigin),
+            partXmls: new Map(),
+          }
+    );
+  }
+
+  const sendXmlSuccess = (res: Response, xml: string, cacheControl: string) => {
     res
-      .type('application/xml; charset=utf-8')
-      .set('Cache-Control', 'public, max-age=900')
+      .status(200)
+      .setHeader('Content-Type', 'application/xml; charset=utf-8')
+      .setHeader('X-Content-Type-Options', 'nosniff')
+      .setHeader('Cache-Control', cacheControl)
       .send(xml);
+  };
+
+  const handleSitemapIndexXml = async (req: Request, res: Response) => {
+    const siteOrigin = DEFAULT_SITE_ORIGIN;
+    try {
+      const origin = resolveOrigin(req);
+      const record = await getSitemapCacheRecord(origin);
+      const xml =
+        record.indexXml || buildSitemapIndexXmlString(record.entries, siteOrigin);
+      record.indexXml = xml;
+      sendXmlSuccess(
+        res,
+        xml,
+        'public, max-age=300, s-maxage=900, stale-while-revalidate=3600'
+      );
+    } catch {
+      const stale = sitemapEntriesCache.get(siteOrigin);
+      const fallbackEntries = stale
+        ? filterSafeCachedEntries(stale.entries)
+        : buildCoreStaticSitemapEntries(siteOrigin);
+      const fallbackXml = buildSitemapIndexXmlString(fallbackEntries, siteOrigin);
+      sendXmlSuccess(res, fallbackXml, 'public, max-age=60');
+    }
+  };
+
+  const handleSitemapPartXml = async (req: Request, res: Response) => {
+    const siteOrigin = DEFAULT_SITE_ORIGIN;
+    const pageRaw = req.params[0] ?? req.params.page ?? '';
+    if (!/^[1-9]\d*$/.test(pageRaw)) {
+      res
+        .status(404)
+        .setHeader('Content-Type', 'application/xml; charset=utf-8')
+        .setHeader('X-Content-Type-Options', 'nosniff')
+        .setHeader('X-Robots-Tag', 'noindex, nofollow')
+        .setHeader('Cache-Control', 'no-store')
+        .send('<?xml version="1.0" encoding="UTF-8"?>\n<error>Invalid sitemap page</error>');
+      return;
+    }
+
+    const page = Number(pageRaw);
+    try {
+      const origin = resolveOrigin(req);
+      const record = await getSitemapCacheRecord(origin);
+      const totalParts = Math.max(
+        1,
+        Math.ceil(record.entries.length / SITEMAP_MAX_URLS_PER_FILE)
+      );
+
+      if (page < 1 || page > totalParts) {
+        res
+          .status(404)
+          .setHeader('Content-Type', 'application/xml; charset=utf-8')
+          .setHeader('X-Content-Type-Options', 'nosniff')
+          .setHeader('X-Robots-Tag', 'noindex, nofollow')
+          .setHeader('Cache-Control', 'no-store')
+          .send('<?xml version="1.0" encoding="UTF-8"?>\n<error>Sitemap part not found</error>');
+        return;
+      }
+
+      let xml = record.partXmls.get(page);
+      if (!xml) {
+        const start = (page - 1) * SITEMAP_MAX_URLS_PER_FILE;
+        const partEntries = record.entries.slice(
+          start,
+          start + SITEMAP_MAX_URLS_PER_FILE
+        );
+        xml = buildSitemapPartXmlString(partEntries);
+        record.partXmls.set(page, xml);
+      }
+
+      sendXmlSuccess(
+        res,
+        xml,
+        'public, max-age=300, s-maxage=900, stale-while-revalidate=3600'
+      );
+    } catch {
+      const stale = sitemapEntriesCache.get(siteOrigin);
+      const fallbackEntries = stale
+        ? filterSafeCachedEntries(stale.entries)
+        : buildCoreStaticSitemapEntries(siteOrigin);
+      const totalParts = Math.max(
+        1,
+        Math.ceil(fallbackEntries.length / SITEMAP_MAX_URLS_PER_FILE)
+      );
+      if (page < 1 || page > totalParts) {
+        res
+          .status(404)
+          .setHeader('Content-Type', 'application/xml; charset=utf-8')
+          .setHeader('X-Content-Type-Options', 'nosniff')
+          .setHeader('X-Robots-Tag', 'noindex, nofollow')
+          .setHeader('Cache-Control', 'no-store')
+          .send('<?xml version="1.0" encoding="UTF-8"?>\n<error>Sitemap part not found</error>');
+        return;
+      }
+      const start = (page - 1) * SITEMAP_MAX_URLS_PER_FILE;
+      const fallbackXml = buildSitemapPartXmlString(
+        fallbackEntries.slice(start, start + SITEMAP_MAX_URLS_PER_FILE)
+      );
+      sendXmlSuccess(res, fallbackXml, 'public, max-age=60');
+    }
   };
 
   app.get('/index.xml', handleSitemapIndexXml);
   app.get('/sitemap.xml', handleSitemapIndexXml);
+  app.get('/sitemap_index.xml', handleSitemapIndexXml);
   app.get(
-    /^\/(?:sitemap-part-|sitemaps\/pages-)([1-9]\d*)\.xml$/,
+    /^\/(?:sitemap-part-|sitemaps\/pages-)([a-zA-Z0-9_-]+)\.xml$/,
     handleSitemapPartXml
   );
+  app.locals.warmSitemapCache = () =>
+    getSitemapCacheRecord(DEFAULT_SITE_ORIGIN).catch(() => null);
 
   // Deprecated video sitemap & embed routes cleanly return 404 + noindex
   app.get('/video-sitemap.xml', (_req: Request, res: Response) => {
@@ -11143,6 +11477,12 @@ async function startServer() {
     }, 60_000).unref();
     startHomeCacheWorker(getMolaToken);
     startLk21Prewarm(getMolaToken);
+    setTimeout(() => {
+      const warm = app.locals.warmSitemapCache as (() => Promise<unknown>) | undefined;
+      if (typeof warm === 'function') {
+        void warm().catch(() => {});
+      }
+    }, 2500).unref();
   });
 }
 

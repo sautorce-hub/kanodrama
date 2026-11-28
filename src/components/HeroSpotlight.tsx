@@ -4,6 +4,7 @@ import { useDramaContext } from '../context/DramaContext';
 import { ProviderBadge } from './ProviderBadge';
 import { HeroSkeleton } from './SkeletonCard';
 import { getDramaPath, getWatchPath, slugifyDramaTitle } from '../utils/seo';
+import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import type { DramaItem } from '../types/drama';
 
 interface HeroSpotlightProps {
@@ -285,7 +286,7 @@ export const HeroSpotlight: React.FC<HeroSpotlightProps> = ({
                               </span>
                             )}
                             <a
-                              href={`/tag/${encodeURIComponent(slugifyDramaTitle(tag))}`}
+                              href={`${DEFAULT_SITE_ORIGIN}/tag/${encodeURIComponent(slugifyDramaTitle(tag))}`}
                               onClick={(e) => {
                                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                                 e.preventDefault();
@@ -317,13 +318,13 @@ export const HeroSpotlight: React.FC<HeroSpotlightProps> = ({
                   {/* Primary Pill-Shaped CTA & Secondary Controls */}
                   <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
                     <a
-                      href={getWatchPath(
+                      href={`${DEFAULT_SITE_ORIGIN}${getWatchPath(
                         item.bookId,
                         item.title,
                         item.provider,
                         item.slug,
                         1
-                      )}
+                      )}`}
                       data-primary-action="true"
                       onClick={(e) => {
                         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
@@ -337,12 +338,12 @@ export const HeroSpotlight: React.FC<HeroSpotlightProps> = ({
                     </a>
 
                     <a
-                      href={getDramaPath(
+                      href={`${DEFAULT_SITE_ORIGIN}${getDramaPath(
                         item.bookId,
                         item.title,
                         item.provider,
                         item.slug
-                      )}
+                      )}`}
                       data-primary-action="true"
                       onClick={(e) => {
                         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;

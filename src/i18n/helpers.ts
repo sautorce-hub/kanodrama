@@ -722,43 +722,43 @@ const SECTION_SEO_COPY: Record<
       path: '/',
       title: 'KanoDrama — Watch Short Dramas, Asian Series & HD Movies Ad-Free',
       description:
-        'Stream short dramas, Chinese & Korean series, and HD movies free without ads on KanoDrama. Browse 82+ platforms with multi-lang subs & earn daily rewards.',
+        'Watch short dramas online, Chinese & Korean full episodes, and HD movies free without ads on KanoDrama. Browse 82+ platforms with subs & earn daily rewards.',
     },
     movies: {
       path: '/movies',
       title: 'Watch Free HD Movies Ad-Free — Asian Cinema, K-Movies & Hits | KanoDrama',
       description:
-        'Stream thousands of Full HD movies, Korean & Asian cinema, and global box office hits free without ads with Indonesian & English subtitles on KanoDrama.',
+        'Watch Full HD movies online, Korean & Asian cinema, and box office hits free without ads with Indonesian & English subtitles on KanoDrama.',
     },
     explore: {
       path: '/explore',
-      title: 'Explore Short Dramas by Genre, Status & Rating — Ad-Free HD | KanoDrama',
+      title: 'Explore Short Dramas by Genre, Status & Rating — Watch Online HD | KanoDrama',
       description:
-        'Filter 82+ short drama catalogs by CEO Romance, Revenge, Fantasy, completed status & top ratings. Stream Chinese & Korean mini-series ad-free on KanoDrama.',
+        'Filter 82+ short drama catalogs by CEO Romance, Revenge, Fantasy, completed full episodes & top ratings. Watch Chinese & Korean series online ad-free on KanoDrama.',
     },
     providers: {
       path: '/providers',
       title: '82+ Short Drama Providers — Stream Chinese & Asian Series HD | KanoDrama',
       description:
-        'Browse 82+ official short drama hubs including DramaBox V2, MeloLo V2, NetShort, and ReelShort V2. Watch free ad-free HD series with multi-lang subtitles.',
+        'Browse 82+ official short drama hubs including DramaBox V2, MeloLo V2, NetShort, and ReelShort V2. Watch full episodes online ad-free with multi-lang subs.',
     },
     trending: {
       path: '/trending',
       title: 'Trending Short Dramas Today — Top Viral Asian Mini-Series HD | KanoDrama',
       description:
-        'Watch today’s #1 viral Chinese & Korean short dramas and top-ranked vertical series free without ads in crisp HD with multi-lang subtitles on KanoDrama.',
+        'Watch today’s #1 viral Chinese & Korean short dramas and top-ranked full episodes online free without ads in crisp HD with multi-lang subtitles on KanoDrama.',
     },
     latest: {
       path: '/latest',
-      title: 'Latest Short Drama Releases — Daily New Episodes in HD | KanoDrama',
+      title: 'Latest Short Drama Releases — Daily Full Episodes Online HD | KanoDrama',
       description:
-        'Stream newly released short drama episodes and premiering Chinese & Asian series updated daily across 82+ platforms, free and ad-free on KanoDrama.',
+        'Watch newly released short drama full episodes and premiering Chinese & Asian series updated daily across 82+ platforms, free and ad-free on KanoDrama.',
     },
     vip: {
       path: '/vip',
       title: 'VIP Exclusive Short Dramas — Watch Full Episodes Free HD | KanoDrama',
       description:
-        'Unlock VIP-exclusive billionaire romance, intense revenge sagas, and cinematic Asian short dramas free without ads in Full HD on KanoDrama.',
+        'Unlock VIP-exclusive billionaire romance, intense revenge sagas, and Asian short dramas to watch online free without ads in Full HD on KanoDrama.',
     },
     anime: {
       path: '/explore',
@@ -796,43 +796,43 @@ const SECTION_SEO_COPY: Record<
       path: '/',
       title: 'KanoDrama — Nonton Drama Pendek, Serial Asia & Film Sub Indo HD',
       description:
-        'Nonton drama pendek, drama China & Korea, serta film sub Indo HD gratis tanpa iklan di KanoDrama. Streaming 82+ platform dan kumpulkan poin reward harian!',
+        'Nonton online drama pendek, drama China & Korea, serta film sub Indo full episode HD gratis tanpa iklan di KanoDrama. Raih poin reward harian!',
     },
     movies: {
       path: '/movies',
       title: 'Nonton Film Sub Indo HD Gratis Tanpa Iklan — Sinema Asia | KanoDrama',
       description:
-        'Streaming ribuan film layar lebar Full HD, film Korea, Asia & box office sub Indo gratis tanpa iklan di KanoDrama. Pilih resolusi jernih & subtitle lengkap.',
+        'Nonton online ribuan film Full HD, film Korea, Asia & box office sub Indo gratis tanpa iklan di KanoDrama. Resolusi jernih & subtitle lengkap.',
     },
     explore: {
       path: '/explore',
-      title: 'Jelajahi Drama Pendek & Serial Asia Sub Indo per Genre HD | KanoDrama',
+      title: 'Jelajahi Drama Pendek & Short Drama Sub Indo per Genre HD | KanoDrama',
       description:
-        'Cari drama pendek China & Korea dari 82+ platform berdasarkan genre CEO, Romansa, Balas Dendam, Fantasi, status tamat & rating tertinggi di KanoDrama.',
+        'Cari drama pendek China & Korea dari 82+ platform per genre CEO, Romansa, Balas Dendam, Fantasi, full episode tamat & rating tertinggi di KanoDrama.',
     },
     providers: {
       path: '/providers',
-      title: 'Daftar 82+ Provider Drama Pendek & Serial Asia Sub Indo HD | KanoDrama',
+      title: 'Daftar 82+ Provider Drama Pendek & Short Drama Sub Indo HD | KanoDrama',
       description:
-        'Jelajahi 82+ platform drama pendek resmi termasuk DramaBox V2, MeloLo V2, NetShort & ReelShort V2. Streaming gratis tanpa iklan Sub Indo HD di KanoDrama.',
+        'Jelajahi 82+ platform drama pendek resmi termasuk DramaBox V2, MeloLo V2, NetShort & ReelShort V2. Nonton online full episode Sub Indo HD di KanoDrama.',
     },
     trending: {
       path: '/trending',
       title: 'Drama Pendek Trending Hari Ini — Top Viral Sub Indo HD | KanoDrama',
       description:
-        'Tonton drama pendek viral #1 dan serial mini China serta Korea terpopuler hari ini secara gratis tanpa iklan dalam kualitas HD Sub Indo di KanoDrama.',
+        'Nonton online drama pendek viral #1 dan serial mini China serta Korea terpopuler hari ini full episode gratis tanpa iklan HD Sub Indo di KanoDrama.',
     },
     latest: {
       path: '/latest',
-      title: 'Rilis Drama Pendek Terbaru — Update Episode Harian Sub Indo | KanoDrama',
+      title: 'Rilis Drama Pendek Terbaru — Update Full Episode Sub Indo | KanoDrama',
       description:
-        'Nonton episode terbaru drama pendek, drama China & Korea yang update setiap hari dari 82+ platform gratis tanpa iklan dalam kualitas HD di KanoDrama.',
+        'Nonton online episode terbaru drama pendek, drama China & Korea update harian dari 82+ platform gratis tanpa iklan kualitas HD di KanoDrama.',
     },
     vip: {
       path: '/vip',
       title: 'Koleksi Drama Pendek VIP Sub Indo — Full Episode Gratis HD | KanoDrama',
       description:
-        'Streaming drama pendek eksklusif VIP bertema CEO, romansa & balas dendam sub Indo gratis tanpa iklan kualitas Full HD dan kumpulkan poin di KanoDrama.',
+        'Streaming drama pendek eksklusif VIP bertema CEO, romansa & balas dendam sub Indo full episode gratis tanpa iklan HD dan raih poin di KanoDrama.',
     },
     anime: {
       path: '/explore',
@@ -1526,16 +1526,21 @@ function buildDramaDetailTitle(
     case 'id':
       return pickUnderLimit(
         [
+          `${dramaTitle}${epFullId} — ${g2 ? `${g2}, ` : ''}Drama Pendek${subIndoTail} Full Episode | KanoDrama`,
+          `${dramaTitle}${epShortId} — ${g1 ? `${g1} ` : ''}Short Drama & Drama Pendek${subIndoTail} | KanoDrama`,
+          `${dramaTitle}${epShortId} — ${g1 ? `${g1} ` : ''}Drama Pendek${subIndoTail} Full Episode | KanoDrama`,
           `${dramaTitle}${epFullId} — ${g2 ? `${g2}, ` : ''}Drama Pendek${subIndoTail} | KanoDrama`,
           `${dramaTitle}${epShortId} — ${g1 ? `${g1} ` : ''}Drama Pendek${subIndoTail} | KanoDrama`,
           `${dramaTitle}${epShortId} — Drama Pendek${subIndoTail} | KanoDrama`,
           `${dramaTitle}${epShortId}${subIndoTail} | KanoDrama`,
         ],
-        `${truncateTitleAtWord(dramaTitle, 40)}${epShortId} — Drama Pendek${subIndoTail} | KanoDrama`
+        `${truncateTitleAtWord(dramaTitle, 38)}${epShortId} — Drama Pendek${subIndoTail} | KanoDrama`
       );
     case 'en':
       return pickUnderLimit(
         [
+          `${dramaTitle}${epFullEn} — ${g2 ? `${g2} ` : ''}Short Drama Full Episodes HD | KanoDrama`,
+          `${dramaTitle}${epFullEn} — ${g1 ? `${g1} ` : ''}Short Drama Watch Online HD | KanoDrama`,
           `${dramaTitle}${epFullEn} — ${g2 ? `${g2} ` : ''}Short Drama HD | KanoDrama`,
           `${dramaTitle}${epFullEn} — ${g1 ? `${g1} ` : ''}Short Drama | KanoDrama`,
           `${dramaTitle}${epFullEn} — Short Drama | KanoDrama`,
@@ -1688,8 +1693,8 @@ function buildDramaDetailDescription(
     fallbackParenParts.length > 0 ? ` (${fallbackParenParts.join(', ')})` : '';
 
   const fallbackMap: Record<LanguageCode, string> = {
-    id: `${dramaTitle}${fallbackParen} — Nonton drama pendek${subIndoTag} full episode HD${providerPhraseId} gratis tanpa iklan & baca sinopsis lengkap di KanoDrama.`,
-    en: `${dramaTitle}${fallbackParen} — Watch short drama full episodes ad-free in crisp HD${providerPhraseEn} with subtitles & read synopsis on KanoDrama.`,
+    id: `${dramaTitle}${fallbackParen} — Nonton drama pendek${subIndoTag} full episode online HD${providerPhraseId} gratis tanpa iklan di KanoDrama.`,
+    en: `${dramaTitle}${fallbackParen} — Watch short drama full episodes online HD${providerPhraseEn} ad-free with Sub Indo & English subs on KanoDrama.`,
     cn: `${dramaTitle}${fallbackParen} — 在 KanoDrama 免费无广告高清观看${providerLabel ? `${providerLabel} ` : ''}热门短剧全集与剧情简介。`,
     vi: `${dramaTitle}${fallbackParen} — Xem phim ngắn trọn bộ Vietsub HD miễn phí không quảng cáo trên KanoDrama.`,
     es: `${dramaTitle}${fallbackParen} — Ver drama corto completo gratis en HD sin anuncios con sinopsis en KanoDrama.`,
@@ -1708,6 +1713,11 @@ function buildDramaDetailDescription(
     .toLowerCase()
     .startsWith(dramaTitle.toLowerCase());
   const punctuatedRaw = /[.!?]$/.test(cleanRaw) ? cleanRaw : `${cleanRaw}.`;
+
+  const richCtaMap: Partial<Record<LanguageCode, string>> = {
+    id: 'Nonton online full episode HD di KanoDrama.',
+    en: 'Watch full episodes online HD on KanoDrama.',
+  };
 
   const shortCtaMap: Record<LanguageCode, string> = {
     id: 'Nonton HD di KanoDrama.',
@@ -1729,7 +1739,17 @@ function buildDramaDetailDescription(
     : `${dramaTitle}${metaParen}: ${punctuatedRaw}`;
 
   if (!/kano\s?drama/i.test(leadHeader)) {
-    const withCta = `${/[-.!?:]$/.test(leadHeader) ? leadHeader : `${leadHeader}.`} ${shortCtaMap[lang]}`;
+    const baseSentence = /[-.!?:]$/.test(leadHeader)
+      ? leadHeader
+      : `${leadHeader}.`;
+    const richCta = richCtaMap[lang];
+    if (richCta) {
+      const withRichCta = `${baseSentence} ${richCta}`;
+      if (withRichCta.length <= 160) {
+        return withRichCta;
+      }
+    }
+    const withCta = `${baseSentence} ${shortCtaMap[lang]}`;
     if (withCta.length <= 160) {
       return withCta;
     }
@@ -2010,7 +2030,7 @@ export function generateMetadata(
     const tag = sanitizeMetaText(input.tag) || 'Drama';
     const tagTitleMap: Record<LanguageCode, string> = {
       id: `Tema #${tag} — Trope & Episode Drama Pendek Terbaru | KanoDrama`,
-      en: `#${tag} Tag — Trope Playlist & Fresh Short Dramas | KanoDrama`,
+      en: `#${tag} Tag — Trope Playlist & Watch Short Dramas | KanoDrama`,
       cn: `#${tag} 标签话题 — 热门短剧精选合集 HD | KanoDrama`,
       vi: `Chủ Đề & Thẻ #${tag} — Tuyển Tập Phim Ngắn HD | KanoDrama`,
       es: `Tema y Etiqueta #${tag} — Dramas Cortos HD | KanoDrama`,
@@ -2021,8 +2041,8 @@ export function generateMetadata(
       tl: `Paksa at Tag #${tag} — Koleksyon ng Short Dramas HD | KanoDrama`,
     };
     const tagDescMap: Record<LanguageCode, string> = {
-      id: `Kurasi tema & trope #${tag} lintas genre dengan update episode drama pendek sub Indo HD terbaru tanpa iklan di KanoDrama.`,
-      en: `Curated #${tag} trope & story theme playlist featuring fresh vertical short drama episodes across 82+ platforms in HD on KanoDrama.`,
+      id: `Kurasi tema & trope #${tag} lintas genre: nonton online update episode drama pendek sub Indo full episode HD terbaru di KanoDrama.`,
+      en: `Curated #${tag} trope & story theme playlist to watch short drama episodes online in crisp HD with English & Sub Indo updates on KanoDrama.`,
       cn: `在 KanoDrama 免费高清浏览 #${tag} 标签话题短剧精选合集。`,
       vi: `Tuyển tập phim ngắn theo chủ đề & thẻ #${tag} cập nhật mới nhất từ 82+ nền tảng chuẩn HD.`,
       es: `Colección por tema y etiqueta #${tag} con estrenos de dramas cortos verticales de 82+ plataformas en HD.`,
@@ -2124,27 +2144,43 @@ export function generateMetadata(
       const localizedCore: Record<LanguageCode, string[]> = {
         id: [
           `${baseTitle} Sub Indo`,
+          `Nonton ${baseTitle} Online`,
+          `${baseTitle} Full Episode`,
           `Nonton ${baseTitle} Sub Indo`,
           `Sinopsis ${baseTitle}`,
-          `Streaming ${baseTitle} Full Episode`,
           ...(input.page === 'movie'
-            ? [`Nonton Film ${baseTitle} Sub Indo`, 'Streaming Film HD Gratis']
+            ? [
+                `Nonton Film ${baseTitle} Sub Indo`,
+                'Streaming Film HD Gratis',
+                'Watch Full Movie Online HD',
+              ]
             : [
                 'Nonton Drama Pendek Sub Indo',
-                'Drama China Sub Indo',
+                'Drama Pendek Online',
                 'Short Drama Sub Indo',
+                'Watch Short Drama Online',
+                'Drama China Sub Indo',
               ]),
           'Nonton Gratis Tanpa Iklan',
         ],
         en: [
           `${baseTitle} Short Drama`,
+          `Watch ${baseTitle} Online`,
           `Watch ${baseTitle} Full Episodes`,
+          `${baseTitle} Sub Indo`,
           `${baseTitle} Synopsis`,
           `${baseTitle} HD Subtitles`,
           ...(input.page === 'movie'
-            ? [`Watch ${baseTitle} Full Movie HD`, 'Free Asian Movies HD']
+            ? [
+                `Watch ${baseTitle} Full Movie HD`,
+                'Free Asian Movies HD',
+                'Nonton Film Sub Indo HD',
+              ]
             : [
-                'Watch Vertical Short Dramas',
+                'Watch Short Drama Online',
+                'Short Drama Full Episode',
+                'Drama Pendek Sub Indo',
+                'Nonton Drama Pendek Online',
                 'Chinese Short Drama HD',
                 'Asian Mini Series Online',
               ]),
@@ -2235,7 +2271,7 @@ export function generateMetadata(
         ...cleanTags.slice(0, 3).map((tg) =>
           lang === 'id'
             ? `Drama Pendek ${tg} Sub Indo`
-            : `${tg} Vertical Short Drama`
+            : `${tg} Short Drama`
         ),
         ...cleanTags.slice(0, 2).map((tg) => `${baseTitle} ${tg}`),
         ...(input.keywords || []).map((k) => sanitizeMetaText(k)),
@@ -2252,7 +2288,7 @@ export function generateMetadata(
         if (seen.has(norm)) continue;
         seen.add(norm);
         deduped.push(candidate);
-        if (deduped.length >= 22) break;
+        if (deduped.length >= 28) break;
       }
       return deduped.join(', ');
     }
@@ -2264,10 +2300,12 @@ export function generateMetadata(
           ? input.keywords
           : lang === 'id'
           ? [
-              `tag ${tagLabel}`,
+              `tag #${tagLabel}`,
               `topik drama ${tagLabel}`,
               `trope ${tagLabel} sub Indo`,
               `tema cerita ${tagLabel}`,
+              `nonton online drama pendek ${tagLabel}`,
+              `${tagLabel} short drama full episode`,
               `update episode ${tagLabel}`,
               'KanoDrama',
               'kano-drama.live',
@@ -2276,6 +2314,8 @@ export function generateMetadata(
               `#${tagLabel} tag`,
               `${tagLabel} drama trope`,
               `${tagLabel} theme playlist`,
+              `watch ${tagLabel} short drama online`,
+              `drama pendek ${tagLabel} sub Indo`,
               `fresh ${tagLabel} short drama episodes`,
               'KanoDrama',
               'kano-drama.live',
@@ -2318,6 +2358,7 @@ export function generateMetadata(
             lang === 'id'
               ? 'Daftar Platform Drama Pendek Sub Indo'
               : 'Short Drama Streaming Providers',
+            'short drama platforms',
             'kano-drama.live',
           ]
         : input.page === 'account' ||
@@ -2335,10 +2376,12 @@ export function generateMetadata(
             'KanoDrama',
             'kano-drama.live',
             lang === 'id' ? 'Nonton Drama Pendek' : 'Watch Short Dramas',
-            lang === 'id' ? 'Serial Asia Sub Indo HD' : 'Asian Series HD',
+            lang === 'id' ? 'Short Drama Sub Indo' : 'Drama Pendek Sub Indo',
+            lang === 'id' ? 'Nonton Online Full Episode' : 'Watch Short Drama Online',
+            lang === 'id' ? 'Serial Asia Sub Indo HD' : 'Asian Series Full Episodes HD',
             lang === 'id'
               ? 'Drama China & Korea'
-              : 'Chinese & Korean Dramas',
+              : 'Chinese & Korean Short Dramas',
             lang === 'id'
               ? 'Streaming Gratis Tanpa Iklan'
               : 'Ad-Free Streaming',

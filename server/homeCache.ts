@@ -2891,7 +2891,13 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
       bookId: cleanId,
       provider,
     });
-    if (!cleanSlug || INVALID_SITEMAP_DRAMA_SLUGS.has(cleanSlug)) return;
+    if (
+      !cleanSlug ||
+      INVALID_SITEMAP_DRAMA_SLUGS.has(cleanSlug) ||
+      /(?:housedrama|house-drama|kano-drama\.xyz)/i.test(cleanSlug)
+    ) {
+      return;
+    }
     const chapterCount = Number(item.chapterCount) || 0;
     const cover = cleanText(item.cover);
     const description = cleanText(item.description);
@@ -2901,7 +2907,11 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
     if (Array.isArray(item.tags)) {
       for (const tg of item.tags) {
         const cleanTag = cleanText(tg);
-        if (cleanTag && cleanTag.length <= 32) {
+        if (
+          cleanTag &&
+          cleanTag.length <= 32 &&
+          !/(?:housedrama|house-drama|kano-drama\.xyz)/i.test(cleanTag)
+        ) {
           tagSet.add(cleanTag);
         }
       }
@@ -2921,9 +2931,33 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
     }
   };
 
+  const withDbTimeout = async <T>(promise: Promise<T>, fallback: T, ms = 2500): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise.catch(() => fallback),
+        new Promise<T>((resolve) => {
+          timer = setTimeout(() => resolve(fallback), ms);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
+
   try {
-    // 1. Primary source: indexed drama_catalog (has collision-free canonical slugs)
-    const catalogRows = await listCatalogForSitemapFromDb(limit);
+    // 1. Primary sources in parallel with strict timeout: indexed drama_catalog + home_cache
+    const [catalogRows, homeRes] = await Promise.all([
+      withDbTimeout(listCatalogForSitemapFromDb(limit), []),
+      withDbTimeout(
+        dbQuery<{
+          payload_json: Partial<HomeCatalogPayload> | string;
+          updated_at: string | number;
+        }>('SELECT payload_json, updated_at FROM home_cache ORDER BY updated_at DESC LIMIT 12'),
+        null
+      ),
+    ]);
+
     for (const row of catalogRows) {
       const normalizedProvider = normalizeMediaProviderName(row.provider);
       const cleanSlug = resolveCanonicalDramaSlug({
@@ -2938,6 +2972,7 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
         row.title.trim().length < 2 ||
         !cleanSlug ||
         INVALID_SITEMAP_DRAMA_SLUGS.has(cleanSlug) ||
+        /(?:housedrama|house-drama|kano-drama\.xyz)/i.test(cleanSlug) ||
         (row.chapterCount || 0) < 1 ||
         (!row.cover && !row.description)
       ) {
@@ -2945,7 +2980,13 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
       }
       providerSet.add(normalizedProvider);
       for (const tg of row.genres) {
-        if (tg && tg.length <= 32) tagSet.add(tg);
+        if (
+          tg &&
+          tg.length <= 32 &&
+          !/(?:housedrama|house-drama|kano-drama\.xyz)/i.test(tg)
+        ) {
+          tagSet.add(tg);
+        }
       }
       const key = `${normalizedProvider}:${row.dramaId}`;
       if (!seenDramas.has(key) && seenDramas.size < limit) {
@@ -2961,11 +3002,6 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
         });
       }
     }
-
-    const homeRes = await dbQuery<{
-      payload_json: Partial<HomeCatalogPayload> | string;
-      updated_at: string | number;
-    }>('SELECT payload_json, updated_at FROM home_cache ORDER BY updated_at DESC LIMIT 20');
 
     if (homeRes) {
       for (const row of homeRes.rows) {
@@ -2990,32 +3026,41 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
       }
     }
 
-    const apiRes = await dbQuery<{
-      cache_key: string;
-      payload_json: string;
-      updated_at: string | number;
-    }>('SELECT cache_key, payload_json, updated_at FROM api_response_cache ORDER BY updated_at DESC LIMIT 120');
+    // Only scan api_response_cache on cold/sparse catalog to avoid heavy JSON parsing per sitemap build
+    if (seenDramas.size < Math.min(limit, 200)) {
+      const apiRes = await withDbTimeout(
+        dbQuery<{
+          cache_key: string;
+          payload_json: string;
+          updated_at: string | number;
+        }>(
+          'SELECT cache_key, payload_json, updated_at FROM api_response_cache ORDER BY updated_at DESC LIMIT 30'
+        ),
+        null,
+        2000
+      );
 
-    if (apiRes) {
-      for (const row of apiRes.rows) {
-        if (seenDramas.size >= limit) break;
-        const cacheKey = String(row.cache_key || '');
-        const updatedAt = Number(row.updated_at) || Date.now();
-        const segMatch = cacheKey.match(/^mola:\/([^/?]+)/i);
-        const segment = segMatch?.[1]?.toLowerCase() || '';
-        if (!segment || segment === 'lk21' || segment === 'lookseries') continue;
-        const providerGuess =
-          (segment ? resolveProviderFromMolaSegment(segment) : null) || 'DramaBoxV2';
-        try {
-          const parsed = JSON.parse(String(row.payload_json));
-          const books = extractBookArray(parsed);
-          for (const raw of books) {
-            const norm = normalizeDrama(raw, providerGuess);
-            if (norm) pushItem(norm, updatedAt);
-            if (seenDramas.size >= limit) break;
+      if (apiRes) {
+        for (const row of apiRes.rows) {
+          if (seenDramas.size >= limit) break;
+          const cacheKey = String(row.cache_key || '');
+          const updatedAt = Number(row.updated_at) || Date.now();
+          const segMatch = cacheKey.match(/^mola:\/([^/?]+)/i);
+          const segment = segMatch?.[1]?.toLowerCase() || '';
+          if (!segment || segment === 'lk21' || segment === 'lookseries') continue;
+          const providerGuess =
+            (segment ? resolveProviderFromMolaSegment(segment) : null) || 'DramaBoxV2';
+          try {
+            const parsed = JSON.parse(String(row.payload_json));
+            const books = extractBookArray(parsed);
+            for (const raw of books) {
+              const norm = normalizeDrama(raw, providerGuess);
+              if (norm) pushItem(norm, updatedAt);
+              if (seenDramas.size >= limit) break;
+            }
+          } catch {
+            // Ignore malformed JSON row
           }
-        } catch {
-          // Ignore malformed JSON row
         }
       }
     }

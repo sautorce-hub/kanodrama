@@ -367,20 +367,27 @@ function buildGenreKeywords(
   const candidates = isId
     ? [
         `genre ${label}`,
-        `nonton drama pendek genre ${label}`,
+        `katalog utama genre ${label}`,
+        `nonton online drama pendek genre ${label}`,
+        `short drama ${label} full episode`,
+        `watch ${subject} genre drama online`,
         `katalog ${label} sub Indo HD`,
         `serial ${subject} terpopuler`,
         `drama China ${subject} sub Indo`,
         'KanoDrama',
+        'kano-drama.live',
       ]
     : [
         `${label} genre`,
-        `watch ${label} genre short dramas`,
-        `${subject} series catalog HD`,
+        `${label} genre directory`,
+        `watch ${label} genre short dramas online`,
+        `drama pendek genre ${label} sub Indo`,
+        `${subject} full episode catalog HD`,
         `best ${subject} vertical dramas`,
         `completed ${subject} mini series`,
         ...extraSeed,
         'KanoDrama',
+        'kano-drama.live',
       ];
   return Array.from(new Set(candidates.map((c) => c.trim()).filter(Boolean))).join(', ');
 }
@@ -396,17 +403,23 @@ function buildTagKeywords(
         `topik drama ${label}`,
         `trope ${subject} sub Indo`,
         `tema cerita ${label}`,
+        `nonton online trope ${label} full episode`,
+        `${label} short drama trope playlist`,
         `update episode ${label} terbaru`,
         `kompilasi drama pendek ${subject}`,
         'KanoDrama',
+        'kano-drama.live',
       ]
     : [
         `#${label} tag`,
         `${label} drama trope`,
         `${subject} story theme playlist`,
+        `watch ${label} trope short drama online`,
+        `tema drama pendek ${label} sub Indo`,
         `cross-genre ${subject} mini series`,
         `fresh ${label} episode drops`,
         'KanoDrama',
+        'kano-drama.live',
       ];
   return Array.from(new Set(candidates.map((c) => c.trim()).filter(Boolean))).join(', ');
 }
@@ -512,11 +525,11 @@ export function resolveProgrammaticLanding(
         : clampMeta(`#${exactPreset.label} Tag: Trope Playlist & Fresh Dramas | KanoDrama`, 72);
       const description = isId
         ? clampMeta(
-            `Kurasi tema & trope #${exactPreset.label} lintas genre dengan update episode drama pendek sub Indo HD terbaru tanpa iklan di KanoDrama.`,
+            `Kurasi tema & trope #${exactPreset.label} lintas genre dengan update episode drama pendek sub Indo & short drama terbaru di KanoDrama.`,
             160
           )
         : clampMeta(
-            `Curated #${exactPreset.label} trope & story theme playlist featuring fresh vertical short drama episodes and plot twists on KanoDrama.`,
+            `Curated #${exactPreset.label} trope & story theme playlist featuring fresh vertical short drama episodes to watch online on KanoDrama.`,
             160
           );
       return {
@@ -601,7 +614,7 @@ export function resolveProgrammaticLanding(
       : clampMeta(exactPreset.title, 72);
     const genreDesc = isId
       ? clampMeta(
-          `Jelajahi katalog utama genre ${exactPreset.label} terpopuler sub Indo HD. Tonton serial lengkap, rating tertinggi & rekomendasi 82+ platform di KanoDrama.`,
+          `Jelajahi katalog utama genre ${exactPreset.label} terpopuler sub Indo HD. Nonton online full episode & rating tertinggi di KanoDrama.`,
           160
         )
       : clampMeta(exactPreset.description, 160);
@@ -683,11 +696,11 @@ export function resolveProgrammaticLanding(
       : clampMeta(`#${readableLabel} Tag — Trope Playlist & Short Dramas | KanoDrama`, 72);
     const description = isId
       ? clampMeta(
-          `Kurasi tema & trope #${readableLabel} dengan update episode drama pendek sub Indo HD terbaru lintas 82+ platform di KanoDrama.`,
+          `Kurasi tema & trope #${readableLabel} dengan update episode drama pendek sub Indo & short drama terbaru di KanoDrama.`,
           160
         )
       : clampMeta(
-          `Curated #${readableLabel} trope & story theme playlist sorted by latest episode updates and viewer picks across 82+ platforms on KanoDrama.`,
+          `Curated #${readableLabel} trope & story theme playlist sorted by latest episode updates to watch online in HD on KanoDrama.`,
           160
         );
     return {
@@ -762,11 +775,11 @@ export function resolveProgrammaticLanding(
     : clampMeta(`${readableLabel} Genre — Best Vertical Short Dramas HD | KanoDrama`, 72);
   const genreDesc = isId
     ? clampMeta(
-        `Nonton katalog utama genre ${readableLabel} terpopuler sub Indo full HD. Pilihan serial lengkap & rating tertinggi di KanoDrama.`,
+        `Nonton online katalog utama genre ${readableLabel} sub Indo full episode HD. Serial lengkap & rating tertinggi di KanoDrama.`,
         160
       )
     : clampMeta(
-        `Explore the ${readableLabel} genre catalog featuring top-ranked vertical short dramas and completed mini-series in full HD on KanoDrama.`,
+        `Explore the ${readableLabel} genre catalog featuring top-ranked short dramas, full episodes & completed mini-series in HD on KanoDrama.`,
         160
       );
 

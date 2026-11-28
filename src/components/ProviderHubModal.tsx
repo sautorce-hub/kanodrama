@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X, Check, Layers } from 'lucide-react';
 import { useDramaContext } from '../context/DramaContext';
+import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import {
   getOfficialProviderLogoUrl,
   getProxiedLogoUrl,
@@ -840,8 +841,9 @@ export const ProviderHubModal: React.FC<ProviderHubModalProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <a
-              href="/providers"
+              href={`${DEFAULT_SITE_ORIGIN}/providers`}
               onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
                 e.preventDefault();
                 onClose();
                 if (onOpenProvidersDirectory) {

@@ -1074,3 +1074,216 @@ test('7. Drama detail title-first SEO, OpenGraph/Twitter tags, and /genre vs /ta
   );
 });
 
+test('8. Mixed ID+EN keywords & meta on Drama Detail, Home, /genre/* vs /tag/*, and WIB/UTC timezone rules', () => {
+  // Compact title gets full bilingual detail keywords under 74 chars without ellipsis
+  const compactId = generateMetadata({
+    page: 'drama',
+    lang: 'id',
+    pathname: '/dramaboxv2/detail/kopi-malam',
+    title: 'Kopi Malam',
+    description: 'Barista muda memikat CEO dingin.',
+    providerName: 'DramaBoxV2',
+    episodeCount: 40,
+    tags: ['Romance', 'CEO'],
+    image: 'https://img.kano-drama.live/kopi-malam.jpg',
+  });
+  assert.ok(compactId.title.startsWith('Kopi Malam'));
+  assert.ok(compactId.title.length <= 74);
+  assert.ok(!compactId.title.includes('...'));
+  assert.match(compactId.title, /Drama Pendek Sub Indo|Full Episode/i);
+  assert.match(compactId.description, /nonton online full episode HD di KanoDrama/i);
+  assert.ok(compactId.description.length <= 160);
+  assert.match(compactId.keywords, /Nonton Kopi Malam Online/i);
+  assert.match(compactId.keywords, /Short Drama Sub Indo/i);
+  assert.match(compactId.keywords, /Watch Short Drama Online/i);
+  assert.match(compactId.keywords, /Drama Pendek Romance Sub Indo/i);
+  assert.equal(compactId.twitter.card, 'summary_large_image');
+  assert.equal(compactId.twitter.title, compactId.title);
+  assert.equal(compactId.twitter.description, compactId.description);
+  assert.ok(compactId.twitter.image.includes('kopi-malam.jpg'));
+
+  const compactEn = generateMetadata({
+    page: 'drama',
+    lang: 'en',
+    pathname: '/dramaboxv2/detail/hidden-wife',
+    title: 'Hidden Wife',
+    description: 'A secret bride enters a billionaire household.',
+    providerName: 'DramaBoxV2',
+    episodeCount: 52,
+    tags: ['Romance'],
+    image: 'https://img.kano-drama.live/hidden-wife.jpg',
+  });
+  assert.ok(compactEn.title.startsWith('Hidden Wife'));
+  assert.ok(compactEn.title.length <= 74);
+  assert.ok(!compactEn.title.includes('...'));
+  assert.match(compactEn.title, /Short Drama/i);
+  assert.match(compactEn.description, /Watch full episodes online HD on KanoDrama/i);
+  assert.ok(compactEn.description.length <= 160);
+  assert.match(compactEn.keywords, /Watch Hidden Wife Online/i);
+  assert.match(compactEn.keywords, /Drama Pendek Sub Indo/i);
+  assert.match(compactEn.keywords, /Short Drama Full Episode/i);
+  assert.equal(compactEn.openGraph.url, 'https://kano-drama.live/dramaboxv2/detail/hidden-wife');
+
+  // Home mixed ID+EN keywords
+  const homeId = generateMetadata({ page: 'home', lang: 'id', pathname: '/' });
+  const homeEn = generateMetadata({ page: 'home', lang: 'en', pathname: '/' });
+  assert.match(homeId.keywords, /Short Drama Sub Indo/i);
+  assert.match(homeId.keywords, /Nonton Online Full Episode/i);
+  assert.match(homeEn.keywords, /Drama Pendek Sub Indo/i);
+  assert.match(homeEn.keywords, /Watch Short Drama Online/i);
+
+  // /genre/* vs /tag/* mixed ID+EN differentiation
+  const genreId = resolveProgrammaticLanding('romance', 'genre', undefined, 'id');
+  const tagId = resolveProgrammaticLanding('romance', 'tag', undefined, 'id');
+  assert.match(genreId.keywords, /katalog utama genre Romance/i);
+  assert.match(genreId.keywords, /nonton online drama pendek genre Romance/i);
+  assert.match(genreId.keywords, /short drama Romance full episode/i);
+  assert.match(tagId.keywords, /tag #Romance/i);
+  assert.match(tagId.keywords, /nonton online trope Romance full episode/i);
+  assert.match(tagId.keywords, /Romance short drama trope playlist/i);
+  assert.notEqual(genreId.title, tagId.title);
+  assert.notEqual(genreId.description, tagId.description);
+
+  const genreEn = resolveProgrammaticLanding('revenge', 'genre', undefined, 'en');
+  const tagEn = resolveProgrammaticLanding('revenge', 'tag', undefined, 'en');
+  assert.match(genreEn.keywords, /Revenge genre directory/i);
+  assert.match(genreEn.keywords, /drama pendek genre Revenge sub Indo/i);
+  assert.match(tagEn.keywords, /#Revenge tag/i);
+  assert.match(tagEn.keywords, /tema drama pendek Revenge sub Indo/i);
+  assert.notEqual(genreEn.title, tagEn.title);
+  assert.notEqual(genreEn.description, tagEn.description);
+
+  // Canonical timezone check (WIB for id, UTC for en and others)
+  const sampleDate = new Date('2026-11-28T10:30:00Z');
+  assert.equal(getCanonicalTimeZone('id'), 'Asia/Jakarta');
+  assert.equal(getCanonicalTimeZone('en'), 'UTC');
+  assert.equal(getCanonicalTimeZone('ja'), 'UTC');
+  assert.match(formatCanonicalTime(sampleDate, 'id'), /WIB$/);
+  assert.match(formatCanonicalTime(sampleDate, 'en'), /UTC$/);
+  assert.match(formatCanonicalTime(sampleDate, 'ja'), /UTC$/);
+  assert.match(formatCanonicalDate(sampleDate, 'id'), /2026/);
+
+  // Fallback description (no synopsis) + invalid poster safeguard
+  const fallbackId = buildDramaSeoMetadata(
+    {
+      bookId: '9912',
+      title: 'Pewaris Kopi Malam',
+      slug: 'pewaris-kopi-malam',
+      cover: 'null',
+      description: '',
+      chapterCount: 68,
+      tags: ['Romance'],
+      isVip: false,
+      provider: 'DramaBoxV2',
+    },
+    'https://kano-drama.live',
+    'id'
+  );
+  assert.match(fallbackId.description, /^Pewaris Kopi Malam \(68 Episode, Romance\) — Nonton drama pendek.*full episode online.*tanpa iklan/);
+  assert.equal(fallbackId.image, 'https://kano-drama.live/og-image.jpg');
+});
+
+test('9. Sitemap /sitemap.xml and sub-sitemaps respond quickly with valid XML, caching, bounded timeouts, clean canonical URLs, and XML 404s', async () => {
+  await withTestServer(
+    (url) => {
+      if (url.includes('/api/dramaboxv2/ranking')) {
+        return new Response(
+          JSON.stringify({
+            books: [
+              {
+                bookId: '7771',
+                bookName: 'Cinta Espresso Tengah Malam',
+                cover: 'https://img.kano-drama.live/7771.jpg',
+                chapterCount: 55,
+              },
+              {
+                bookId: '7772',
+                bookName: 'Cinta Espresso Tengah Malam',
+                cover: 'https://img.kano-drama.live/7772.jpg',
+                chapterCount: 55,
+              },
+              {
+                bookId: '7773',
+                bookName: 'Invalid Legacy HouseDrama',
+                cover: 'https://img.kano-drama.live/7773.jpg',
+                chapterCount: 20,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      if (url.includes('/api/lk21/') || url.includes('/api/lookseries/')) {
+        // Simulate upstream 500 error so sitemap must stay fast and resilient
+        return new Response(JSON.stringify({ error: 'Upstream unavailable' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+    async (base) => {
+      const startMs = Date.now();
+      const [indexRes, aliasRes, part1Res, pages1Res] = await Promise.all([
+        fetch(`${base}/sitemap.xml`),
+        fetch(`${base}/sitemap_index.xml`),
+        fetch(`${base}/sitemap-part-1.xml`),
+        fetch(`${base}/sitemaps/pages-1.xml`),
+      ]);
+      const elapsedMs = Date.now() - startMs;
+      assert.ok(elapsedMs < 5000, `Sitemap cold response took too long: ${elapsedMs}ms`);
+
+      for (const r of [indexRes, aliasRes, part1Res, pages1Res]) {
+        assert.equal(r.status, 200);
+        assert.match(r.headers.get('content-type') || '', /^application\/xml;\s*charset=utf-8$/i);
+        assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+        assert.match(r.headers.get('cache-control') || '', /public,\s*max-age=/i);
+      }
+
+      const indexXml = await indexRes.text();
+      assert.ok(indexXml.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
+      assert.match(indexXml, /<sitemapindex\s+xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/);
+      assert.match(indexXml, /<loc>https:\/\/kano-drama\.live\/sitemap-part-1\.xml<\/loc>/);
+      assert.match(indexXml, /<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
+      assert.doesNotMatch(indexXml, /<html|<!doctype/i);
+
+      const part1Xml = await part1Res.text();
+      assert.ok(part1Xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
+      assert.match(part1Xml, /<urlset\s+xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/);
+      assert.doesNotMatch(part1Xml, /<html|<!doctype/i);
+      assert.doesNotMatch(part1Xml, /HouseDrama|house-drama|kano-drama\.xyz/i);
+      assert.doesNotMatch(part1Xml, /\/tag\/series<\/loc>/i);
+      assert.doesNotMatch(part1Xml, /-dram-\d+<\/loc>/i);
+
+      // Extract all <loc> values and confirm canonical origin + uniqueness
+      const locs = Array.from(part1Xml.matchAll(/<loc>([^<]+)<\/loc>/g)).map((m) => m[1]);
+      assert.ok(locs.length >= 20, `Expected core sitemap entries, got ${locs.length}`);
+      assert.equal(new Set(locs).size, locs.length, 'Sitemap <loc> entries must be unique');
+      for (const loc of locs) {
+        assert.ok(loc.startsWith('https://kano-drama.live/'), `Unexpected origin in sitemap loc: ${loc}`);
+        assert.doesNotMatch(loc, /\s|\?|#/);
+      }
+
+      // Second hit should be served immediately from pre-rendered XML cache
+      const warmStart = Date.now();
+      const warmPartRes = await fetch(`${base}/sitemap-part-1.xml`);
+      assert.equal(warmPartRes.status, 200);
+      assert.ok(Date.now() - warmStart < 500, 'Cached sitemap response should be fast');
+
+      // Invalid sitemap pages must return 404 XML (not HTML) + noindex
+      for (const badPath of ['/sitemap-part-0.xml', '/sitemap-part-999.xml', '/sitemap-part-abc.xml']) {
+        const badRes = await fetch(`${base}${badPath}`);
+        assert.equal(badRes.status, 404, `${badPath} should return 404`);
+        assert.match(badRes.headers.get('content-type') || '', /^application\/xml;\s*charset=utf-8$/i);
+        assert.match(badRes.headers.get('x-robots-tag') || '', /noindex/i);
+        const badXml = await badRes.text();
+        assert.ok(badXml.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
+        assert.doesNotMatch(badXml, /<html|<!doctype/i);
+      }
+    }
+  );
+});
+

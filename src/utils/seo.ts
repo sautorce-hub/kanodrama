@@ -385,7 +385,13 @@ export function toAbsoluteOgImage(
 ): string {
   const cleanOrigin = originUrl.replace(/\/$/, '');
   const trimmed = (rawImage || '').trim();
-  if (!trimmed) return `${cleanOrigin}${DEFAULT_OG_IMAGE_PATH}`;
+  if (
+    !trimmed ||
+    /^(?:<nil>|nil|null|undefined|n\/a|na|none|-)$/i.test(trimmed) ||
+    /^data:/i.test(trimmed)
+  ) {
+    return `${cleanOrigin}${DEFAULT_OG_IMAGE_PATH}`;
+  }
   if (trimmed.startsWith('//')) return `https:${trimmed}`;
   if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) {
     return trimmed;
@@ -527,8 +533,8 @@ export function buildDramaFallbackDescription(
   }
 
   const seriesTemplates: Record<LanguageCode, string> = {
-    id: `${title}${epMetaId ? ` (${epMetaId})` : ''} — Nonton drama pendek sub Indo full episode HD${providerPhraseId} gratis tanpa iklan di KanoDrama.`,
-    en: `${title}${epMetaEn ? ` (${epMetaEn})` : ''} — Watch short drama full episodes ad-free in crisp HD${providerPhraseEn} with subtitles on KanoDrama.`,
+    id: `${title}${epMetaId ? ` (${epMetaId})` : ''} — Nonton drama pendek sub Indo full episode online HD${providerPhraseId} gratis tanpa iklan di KanoDrama.`,
+    en: `${title}${epMetaEn ? ` (${epMetaEn})` : ''} — Watch short drama full episodes online HD${providerPhraseEn} ad-free with Sub Indo & English subs on KanoDrama.`,
     cn: `${title}（共${epCount}集）— 在 KanoDrama 免费无广告高清观看热门短剧全集。${tagsSuffix}`,
     vi: `${title} (${epCount} tập) — Xem miễn phí trọn bộ phim ngắn chất lượng HD tại KanoDrama.${tagsSuffix}`,
     es: `${title} (${epCount} episodios) — Ver gratis todos los episodios del drama corto en HD en KanoDrama.${tagsSuffix}`,
@@ -664,6 +670,7 @@ export function buildDramaSeoMetadata(
     keywords: [
       drama.title,
       effectiveLang === 'id' ? `Nonton ${drama.title} Sub Indo` : `Watch ${drama.title} HD online`,
+      effectiveLang === 'id' ? `Watch ${drama.title} Online` : `Nonton ${drama.title} Sub Indo`,
       'KanoDrama',
       formatProviderDisplayName(drama.provider),
       ...drama.tags,
@@ -1300,6 +1307,7 @@ export function syncDramaDocumentSeo(
     keywords: [
       drama.title,
       effectiveLang === 'id' ? `Nonton ${drama.title} Sub Indo` : `Watch ${drama.title} HD online`,
+      effectiveLang === 'id' ? `Watch ${drama.title} Online` : `Nonton ${drama.title} Sub Indo`,
       'KanoDrama',
       formatProviderDisplayName(drama.provider),
       ...drama.tags,
@@ -1377,6 +1385,8 @@ export function syncEpisodePlayerSeo(
     image: toAbsoluteOgImage(drama.cover, origin),
     keywords: [
       drama.title,
+      effectiveLang === 'id' ? `Nonton ${drama.title} Sub Indo` : `Watch ${drama.title} HD online`,
+      effectiveLang === 'id' ? `Watch ${drama.title} Online` : `Nonton ${drama.title} Sub Indo`,
       'KanoDrama',
       formatProviderDisplayName(drama.provider),
       ...drama.tags,
