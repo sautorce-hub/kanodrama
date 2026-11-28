@@ -19,6 +19,11 @@ import {
   type LookSeriesCard,
 } from './lookseriesService.ts';
 import { normalizeMediaProviderName } from '../src/constants/providerLogos.ts';
+import {
+  extractLegacySlugLookupCandidates,
+  isLikelyIdSuffixTail,
+  resolveCanonicalDramaSlug,
+} from '../src/utils/seo.ts';
 
 export type HomeLangCode = 'en' | 'id' | 'cn' | 'vi';
 
@@ -97,7 +102,16 @@ function rememberIndexedDramas(items: CachedDramaItem[]): void {
   let changed = false;
   for (const item of items) {
     if (!item?.bookId || !item?.title) continue;
-    const slug = slugifyTitle(item.slug || item.title);
+    const isMovie =
+      item.provider === 'LK21' || item.provider === 'LookSeries';
+    const slug = isMovie
+      ? slugifyTitle(item.slug || item.title)
+      : resolveCanonicalDramaSlug({
+          title: item.title,
+          slug: item.slug,
+          bookId: item.bookId,
+          provider: item.provider,
+        });
     if (!slug) continue;
     const prev = recentIndexedBySlug.get(slug);
     if (
@@ -241,7 +255,12 @@ function deriveRating(item: CachedDramaItem): number {
 }
 
 function toCatalogUpsertItem(item: CachedDramaItem): CatalogUpsertItem {
-  const slug = slugifyTitle(item.slug || item.title);
+  const slug = resolveCanonicalDramaSlug({
+    title: item.title,
+    slug: item.slug,
+    bookId: item.bookId,
+    provider: item.provider,
+  });
   const genres = inferGenresForCatalog(item);
   const status = deriveStatus(item);
   const rating = deriveRating(item);
@@ -334,7 +353,18 @@ function hydrateWatchedRecordToCachedItem(
   const title = cleanText(raw.title) || fallback?.title || '';
   if (!title) return null;
   const cover = cleanText(raw.cover) || fallback?.cover || '';
-  const slug = cleanText(raw.slug) || fallback?.slug || slugifyTitle(title);
+  const isMovie =
+    row.mediaType === 'movie' ||
+    row.provider === 'LK21' ||
+    row.provider === 'LookSeries';
+  const slug = isMovie
+    ? cleanText(raw.slug) || fallback?.slug || slugifyTitle(title)
+    : resolveCanonicalDramaSlug({
+        title,
+        slug: cleanText(raw.slug) || fallback?.slug,
+        bookId: row.dramaId,
+        provider: row.provider,
+      });
   const chapterCount = Math.max(
     1,
     toPositiveNumber(raw.chapterCount, 0) ||
@@ -617,7 +647,12 @@ function normalizeDrama(
     id: bookId,
     bookId,
     title,
-    slug: cleanText(raw.slug) || slugifyTitle(title),
+    slug: resolveCanonicalDramaSlug({
+      title,
+      slug: cleanText(raw.slug),
+      bookId,
+      provider,
+    }),
     cover,
     description,
     chapterCount,
@@ -2380,31 +2415,77 @@ export async function findDramaBySlugInHomeCache(
   slug: string,
   providerHint?: string
 ): Promise<CachedDramaItem | null> {
-  const target = slugifyTitle(slug);
+  const rawTarget = decodeURIComponent(slug || '').trim().toLowerCase();
+  const targetCandidates = extractLegacySlugLookupCandidates(
+    rawTarget,
+    providerHint
+  );
+  const target = targetCandidates[targetCandidates.length - 1] || slugifyTitle(slug);
   if (!target) return null;
+  const candidateSet = new Set(targetCandidates);
   const normHint = providerHint ? normalizeMediaProviderName(providerHint) : '';
 
-  const recentHit = recentIndexedBySlug.get(target);
-  if (
-    recentHit &&
-    (!normHint || normalizeMediaProviderName(recentHit.provider) === normHint)
-  ) {
-    return recentHit;
-  }
+  const matchesSlug = (item: CachedDramaItem): { matched: boolean; canonicalSlug: string } => {
+    const canonicalSlug = resolveCanonicalDramaSlug({
+      title: item.title,
+      slug: item.slug,
+      bookId: item.bookId,
+      provider: item.provider,
+    });
+    if (candidateSet.has(canonicalSlug)) {
+      return { matched: true, canonicalSlug };
+    }
+    if (rawTarget.startsWith(`${canonicalSlug}-`)) {
+      const tail = rawTarget.slice(canonicalSlug.length + 1);
+      if (isLikelyIdSuffixTail(tail, item.provider, item.bookId)) {
+        return { matched: true, canonicalSlug };
+      }
+    }
+    if (canonicalSlug.startsWith(`${rawTarget}-`)) {
+      const tail = canonicalSlug.slice(rawTarget.length + 1);
+      if (isLikelyIdSuffixTail(tail, item.provider, item.bookId)) {
+        return { matched: true, canonicalSlug };
+      }
+    }
+    return { matched: false, canonicalSlug };
+  };
 
-  let fallbackMatch: CachedDramaItem | null =
-    recentHit && (!normHint || normalizeMediaProviderName(recentHit.provider) !== normHint)
-      ? recentHit
-      : null;
+  let fallbackMatch: CachedDramaItem | null = null;
+  for (const cand of targetCandidates) {
+    const recentHit = recentIndexedBySlug.get(cand);
+    if (recentHit) {
+      const canonicalSlug = resolveCanonicalDramaSlug({
+        title: recentHit.title,
+        slug: recentHit.slug,
+        bookId: recentHit.bookId,
+        provider: recentHit.provider,
+      });
+      const normalized = { ...recentHit, slug: canonicalSlug };
+      if (!normHint || normalizeMediaProviderName(recentHit.provider) === normHint) {
+        return normalized;
+      }
+      if (!fallbackMatch) fallbackMatch = normalized;
+    }
+  }
+  for (const recentItem of recentIndexedBySlug.values()) {
+    const check = matchesSlug(recentItem);
+    if (!check.matched) continue;
+    const normalized = { ...recentItem, slug: check.canonicalSlug };
+    if (!normHint || normalizeMediaProviderName(recentItem.provider) === normHint) {
+      return normalized;
+    }
+    if (!fallbackMatch) fallbackMatch = normalized;
+  }
 
   const inspectList = (list?: CachedDramaItem[]): CachedDramaItem | null => {
     if (!Array.isArray(list)) return null;
     for (const item of list) {
       if (!item?.title) continue;
-      if (slugifyTitle(item.slug || item.title) === target) {
+      const check = matchesSlug(item);
+      if (check.matched) {
         const normalized: CachedDramaItem = {
           ...item,
-          slug: slugifyTitle(item.slug || item.title),
+          slug: check.canonicalSlug,
         };
         if (!normHint || normalizeMediaProviderName(item.provider) === normHint) {
           return normalized;
@@ -2458,7 +2539,13 @@ export async function findDramaBySlugInApiCache(
   slug: string,
   providerHint?: string
 ): Promise<CachedDramaItem | null> {
-  const target = slugifyTitle(slug);
+  const rawTarget = decodeURIComponent(slug || '').trim().toLowerCase();
+  const targetCandidates = extractLegacySlugLookupCandidates(
+    rawTarget,
+    providerHint
+  );
+  const candidateSet = new Set(targetCandidates);
+  const target = targetCandidates[targetCandidates.length - 1] || slugifyTitle(slug);
   if (!target) return null;
   const normHint = providerHint ? normalizeMediaProviderName(providerHint) : '';
   let fallbackMatch: CachedDramaItem | null = null;
@@ -2477,15 +2564,35 @@ export async function findDramaBySlugInApiCache(
       for (let index = 0; index < books.length; index += 1) {
         const item = normalizeDrama(books[index], provider, index);
         if (!item) continue;
+        const itemSlug = resolveCanonicalDramaSlug({
+          title: item.title,
+          slug: item.slug,
+          bookId: item.bookId,
+          provider: item.provider,
+        });
+        const isDirectMatch =
+          candidateSet.has(itemSlug) ||
+          candidateSet.has(slugifyTitle(item.title));
+        const isTailMatch =
+          (rawTarget.startsWith(`${itemSlug}-`) &&
+            isLikelyIdSuffixTail(
+              rawTarget.slice(itemSlug.length + 1),
+              item.provider,
+              item.bookId
+            )) ||
+          (itemSlug.startsWith(`${rawTarget}-`) &&
+            isLikelyIdSuffixTail(
+              itemSlug.slice(rawTarget.length + 1),
+              item.provider,
+              item.bookId
+            ));
 
-        if (
-          slugifyTitle(item.slug || '') === target ||
-          slugifyTitle(item.title) === target
-        ) {
+        if (isDirectMatch || isTailMatch) {
+          const normalized = { ...item, slug: itemSlug };
           if (!normHint || normalizeMediaProviderName(provider) === normHint) {
-            return item;
+            return normalized;
           }
-          if (!fallbackMatch) fallbackMatch = item;
+          if (!fallbackMatch) fallbackMatch = normalized;
         }
       }
     } catch {
@@ -2526,16 +2633,36 @@ export async function searchUpstreamDramaBySlug(
   slug: string,
   providerHint?: string
 ): Promise<CachedDramaItem | null> {
-  const target = slugifyTitle(slug);
+  const rawTarget = decodeURIComponent(slug || '').trim().toLowerCase();
+  const targetCandidates = extractLegacySlugLookupCandidates(
+    rawTarget,
+    providerHint
+  );
+  const candidateSet = new Set(targetCandidates);
+  const cleanSearchTarget =
+    (targetCandidates.length > 1
+      ? targetCandidates[1]
+      : targetCandidates[0]) || slugifyTitle(slug);
+  const target = cleanSearchTarget;
   if (!token || !target) return null;
 
   const normHint = providerHint ? normalizeMediaProviderName(providerHint) : '';
-  const recentHit = recentIndexedBySlug.get(target);
-  if (
-    recentHit &&
-    (!normHint || normalizeMediaProviderName(recentHit.provider) === normHint)
-  ) {
-    return recentHit;
+  for (const cand of targetCandidates) {
+    const recentHit = recentIndexedBySlug.get(cand);
+    if (
+      recentHit &&
+      (!normHint || normalizeMediaProviderName(recentHit.provider) === normHint)
+    ) {
+      return {
+        ...recentHit,
+        slug: resolveCanonicalDramaSlug({
+          title: recentHit.title,
+          slug: recentHit.slug,
+          bookId: recentHit.bookId,
+          provider: recentHit.provider,
+        }),
+      };
+    }
   }
 
   const keyword = target
@@ -2674,23 +2801,49 @@ export async function searchUpstreamDramaBySlug(
   rememberIndexedDramas(allNormalized);
   void syncDramasToCatalogDb(allNormalized).catch(() => {});
 
-  const exact = allNormalized.find(
-    (item) =>
-      slugifyTitle(item.slug || '') === target ||
-      slugifyTitle(item.title) === target
-  );
+  const exact = allNormalized.find((item) => {
+    const itemSlug = resolveCanonicalDramaSlug({
+      title: item.title,
+      slug: item.slug,
+      bookId: item.bookId,
+      provider: item.provider,
+    });
+    return (
+      candidateSet.has(itemSlug) ||
+      candidateSet.has(slugifyTitle(item.title))
+    );
+  });
   if (exact) return exact;
 
-  // Only allow strict hyphen-boundary prefix matching when both slugs are substantial (>= 12 chars)
-  // so short slugs like "12-ipa-4" never falsely resolve to unrelated titles such as "12".
+  // Allow strict ID-suffix or clean prefix matching when slugs are substantial
   const prefix =
-    target.length >= 12
+    target.length >= 6
       ? allNormalized.find((item) => {
-          const itemSlug = slugifyTitle(item.slug || item.title);
-          if (itemSlug.length < 12) return false;
+          const itemSlug = resolveCanonicalDramaSlug({
+            title: item.title,
+            slug: item.slug,
+            bookId: item.bookId,
+            provider: item.provider,
+          });
+          if (itemSlug.length < 6) return false;
+          if (rawTarget.startsWith(`${itemSlug}-`)) {
+            return isLikelyIdSuffixTail(
+              rawTarget.slice(itemSlug.length + 1),
+              item.provider,
+              item.bookId
+            );
+          }
+          if (itemSlug.startsWith(`${target}-`)) {
+            return isLikelyIdSuffixTail(
+              itemSlug.slice(target.length + 1),
+              item.provider,
+              item.bookId
+            );
+          }
           return (
-            itemSlug.startsWith(`${target}-`) ||
-            target.startsWith(`${itemSlug}-`)
+            target.length >= 12 &&
+            itemSlug.length >= 12 &&
+            (itemSlug.startsWith(`${target}-`) || target.startsWith(`${itemSlug}-`))
           );
         })
       : undefined;
@@ -2732,7 +2885,12 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
       return;
     }
     const provider = normalizeMediaProviderName(rawProvider);
-    const cleanSlug = (item.slug || slugifyTitle(cleanTitle)).trim().toLowerCase();
+    const cleanSlug = resolveCanonicalDramaSlug({
+      title: cleanTitle,
+      slug: cleanText(item.slug),
+      bookId: cleanId,
+      provider,
+    });
     if (!cleanSlug || INVALID_SITEMAP_DRAMA_SLUGS.has(cleanSlug)) return;
     const chapterCount = Number(item.chapterCount) || 0;
     const cover = cleanText(item.cover);
@@ -2767,7 +2925,13 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
     // 1. Primary source: indexed drama_catalog (has collision-free canonical slugs)
     const catalogRows = await listCatalogForSitemapFromDb(limit);
     for (const row of catalogRows) {
-      const cleanSlug = (row.slug || slugifyTitle(row.title)).trim().toLowerCase();
+      const normalizedProvider = normalizeMediaProviderName(row.provider);
+      const cleanSlug = resolveCanonicalDramaSlug({
+        title: row.title,
+        slug: row.slug,
+        bookId: row.dramaId,
+        provider: normalizedProvider,
+      });
       if (
         !row.dramaId ||
         !row.title ||
@@ -2779,7 +2943,6 @@ export async function getCachedDramasForSitemap(limit = 2000): Promise<{
       ) {
         continue;
       }
-      const normalizedProvider = normalizeMediaProviderName(row.provider);
       providerSet.add(normalizedProvider);
       for (const tg of row.genres) {
         if (tg && tg.length <= 32) tagSet.add(tg);

@@ -12,6 +12,7 @@ import type {
   StreamServerOption,
   SubtitleTrackItem,
 } from '../types/drama';
+import { resolveCanonicalDramaSlug } from '../utils/seo';
 
 const MOLATV_BASE = '/api/mola';
 const DRAMABOX_V2_BASE = `${MOLATV_BASE}/dramaboxv2`;
@@ -587,12 +588,17 @@ function normalizeDrama(
     Boolean(raw.isVip) ||
     cornerText.toLowerCase().includes('vip');
 
-  const slugVal = cleanText(raw.slug);
+  const slugVal = resolveCanonicalDramaSlug({
+    title,
+    slug: cleanText(raw.slug),
+    bookId,
+    provider,
+  });
 
   return {
     bookId,
     title,
-    ...(slugVal ? { slug: slugVal } : {}),
+    slug: slugVal,
     cover,
     description,
     chapterCount,

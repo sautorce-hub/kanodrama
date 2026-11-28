@@ -38,6 +38,7 @@ import {
   getDramaPath,
   getSeoOrigin,
   getWatchPath,
+  resolveCanonicalDramaSlug,
   saveDramaLookupCache,
   slugifyDramaTitle,
   syncDramaDocumentSeo,
@@ -421,7 +422,12 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
         window.history.state && typeof window.history.state === 'object'
           ? (window.history.state as Record<string, unknown>)
           : {};
-      const resolvedSlug = detail.slug || slugifyDramaTitle(detail.title);
+      const resolvedSlug = resolveCanonicalDramaSlug({
+        title: detail.title,
+        slug: detail.slug,
+        bookId: detail.bookId,
+        provider: detail.provider,
+      });
       if (
         currentUrl !== nextUrl ||
         prevState.bookId !== detail.bookId ||

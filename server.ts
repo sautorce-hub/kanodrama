@@ -145,7 +145,10 @@ import {
 import {
   BRAND_LOGO_ICON_PATH,
   cleanSeoDescription,
+  hasStrictLegacyProviderIdSuffix,
+  resolveCanonicalDramaSlug,
   resolveDramaSeoDescriptionFields,
+  stripLegacyIdSuffixFromSlug,
 } from './src/utils/seo.ts';
 import {
   getAdminPayoutSecret,
@@ -2295,7 +2298,12 @@ function isValidSsrDrama(
   const title = cleanText(drama.title);
   const bookId = cleanText(drama.bookId);
   if (!title || title.length < 2 || !bookId) return false;
-  const resolvedSlug = cleanText(drama.slug) || slugifyTitle(title);
+  const resolvedSlug = resolveCanonicalDramaSlug({
+    title,
+    slug: cleanText(drama.slug),
+    bookId,
+    provider: drama.provider,
+  });
   if (!isValidSitemapSlug(resolvedSlug)) return false;
   const hasEpisodes =
     episodes.length > 0 || (Number(drama.chapterCount) || 0) >= 1;
@@ -2446,9 +2454,12 @@ function injectDramaSeoIntoHtml(
 ): string {
   const brandOrigin = DEFAULT_SITE_ORIGIN;
   const safeEp = Math.max(1, Math.floor(Number(episodeNumber) || 1));
-  const slug = (cleanText(drama.slug) || slugifyTitle(drama.title))
-    .trim()
-    .toLowerCase();
+  const slug = resolveCanonicalDramaSlug({
+    title: drama.title,
+    slug: cleanText(drama.slug),
+    bookId: drama.bookId || bookId,
+    provider: drama.provider,
+  });
   const encodedSlug = encodeURIComponent(slug);
   const provSlug = getProviderRouteSlug(drama.provider);
   const canonicalPath = `/${provSlug}/detail/${encodedSlug}`;
@@ -3439,8 +3450,14 @@ function injectProgrammaticSeoIntoHtml(
 
   const itemListElements = items.slice(0, 12).map((item, idx) => {
     const title = cleanText(item.title ?? item.bookName, 'Short Drama');
-    const slug = cleanText(item.slug) || slugifyTitle(title);
-    const provSlug = getProviderRouteSlug(cleanText(item.provider, 'DramaBoxV2'));
+    const provName = cleanText(item.provider, 'DramaBoxV2');
+    const slug = resolveCanonicalDramaSlug({
+      title,
+      slug: cleanText(item.slug),
+      bookId: cleanText(item.bookId ?? item.id),
+      provider: provName,
+    });
+    const provSlug = getProviderRouteSlug(provName);
     return {
       '@type': 'ListItem',
       position: idx + 1,
@@ -4248,8 +4265,14 @@ function injectProviderSeoIntoHtml(
 
   const itemListElements = items.slice(0, 12).map((item, idx) => {
     const title = cleanText(item.title, 'Short Drama');
-    const slug = cleanText(item.slug) || slugifyTitle(title);
-    const itemProvSlug = getProviderRouteSlug(cleanText(item.provider, provider));
+    const itemProvName = cleanText(item.provider, provider);
+    const slug = resolveCanonicalDramaSlug({
+      title,
+      slug: cleanText(item.slug),
+      bookId: cleanText(item.bookId ?? item.id),
+      provider: itemProvName,
+    });
+    const itemProvSlug = getProviderRouteSlug(itemProvName);
     return {
       '@type': 'ListItem',
       position: idx + 1,
@@ -8446,16 +8469,24 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       if (slug) {
         const dbHit = await resolveDramaBySlugFromDb(slug, providerHint);
         if (dbHit) {
+          const cleanSlug = resolveCanonicalDramaSlug({
+            title: String(
+              dbHit.drama?.title ?? dbHit.drama?.bookName ?? dbHit.drama?.name ?? ''
+            ),
+            slug: dbHit.slug,
+            bookId: dbHit.dramaId,
+            provider: dbHit.provider,
+          });
           res.json({
             ok: true,
             dramaId: dbHit.dramaId,
             provider: dbHit.provider,
-            slug: dbHit.slug,
+            slug: cleanSlug,
             drama: {
               ...dbHit.drama,
               bookId: dbHit.dramaId,
               provider: dbHit.provider,
-              slug: dbHit.slug,
+              slug: cleanSlug,
             },
           });
           return;
@@ -8466,12 +8497,18 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           (await findDramaBySlugInApiCache(slug, providerHint));
 
         if (homeHit) {
+          const cleanSlug = resolveCanonicalDramaSlug({
+            title: homeHit.title,
+            slug: homeHit.slug,
+            bookId: homeHit.bookId,
+            provider: homeHit.provider,
+          });
           res.json({
             ok: true,
             dramaId: homeHit.bookId,
             provider: homeHit.provider,
-            slug: homeHit.slug || slugifyTitle(homeHit.title),
-            drama: homeHit,
+            slug: cleanSlug,
+            drama: { ...homeHit, slug: cleanSlug },
           });
           return;
         }
@@ -8480,16 +8517,24 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       if (bookIdParam) {
         const dbById = await resolveDramaBySlugFromDb(bookIdParam, providerHint);
         if (dbById) {
+          const cleanSlug = resolveCanonicalDramaSlug({
+            title: String(
+              dbById.drama?.title ?? dbById.drama?.bookName ?? dbById.drama?.name ?? ''
+            ),
+            slug: dbById.slug,
+            bookId: dbById.dramaId,
+            provider: dbById.provider,
+          });
           res.json({
             ok: true,
             dramaId: dbById.dramaId,
             provider: dbById.provider,
-            slug: dbById.slug,
+            slug: cleanSlug,
             drama: {
               ...dbById.drama,
               bookId: dbById.dramaId,
               provider: dbById.provider,
-              slug: dbById.slug,
+              slug: cleanSlug,
             },
           });
           return;
@@ -8499,7 +8544,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           providerHint ?? 'DramaBoxV2'
         );
         if (ssrById.drama) {
-          const resolvedSlug = ssrById.drama.slug || slugifyTitle(ssrById.drama.title);
+          const resolvedSlug = resolveCanonicalDramaSlug({
+            title: ssrById.drama.title,
+            slug: ssrById.drama.slug,
+            bookId: bookIdParam,
+            provider: ssrById.drama.provider,
+          });
           res.json({
             ok: true,
             dramaId: bookIdParam,
@@ -8518,12 +8568,18 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           providerHint
         );
         if (searchHit) {
+          const cleanSlug = resolveCanonicalDramaSlug({
+            title: searchHit.title,
+            slug: searchHit.slug,
+            bookId: searchHit.bookId,
+            provider: searchHit.provider,
+          });
           res.json({
             ok: true,
             dramaId: searchHit.bookId,
             provider: searchHit.provider,
-            slug: searchHit.slug || slugifyTitle(searchHit.title),
-            drama: searchHit,
+            slug: cleanSlug,
+            drama: { ...searchHit, slug: cleanSlug },
           });
           return;
         }
@@ -8977,7 +9033,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
             id: row.dramaId,
             bookId: row.dramaId,
             title: title || row.dramaId,
-            slug: cleanText(raw.slug) || slugifyTitle(title || row.dramaId),
+            slug: resolveCanonicalDramaSlug({
+              title: title || row.dramaId,
+              slug: cleanText(raw.slug),
+              bookId: row.dramaId,
+              provider: row.provider,
+            }),
             cover,
             description: cleanText(raw.description),
             chapterCount,
@@ -9558,7 +9619,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       let validDramaIndex = 0;
       for (const item of cachedSitemap.dramas) {
         const cleanTitle = cleanText(item.title);
-        const cleanSlug = (item.slug || slugifyTitle(cleanTitle)).trim().toLowerCase();
+        const cleanSlug = resolveCanonicalDramaSlug({
+          title: cleanTitle,
+          slug: cleanText(item.slug),
+          bookId: item.bookId,
+          provider: item.provider,
+        });
         if (
           !cleanTitle ||
           cleanTitle.length < 2 ||
@@ -9691,7 +9757,11 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
                 const cover = cleanText(
                   item.cover ?? item.coverUrl ?? item.bookCover ?? item.coverWap ?? item.poster
                 );
-                const slug = slugifyTitle(title);
+                const slug = resolveCanonicalDramaSlug({
+                  title,
+                  bookId: cleanText(item.bookId ?? item.id),
+                  provider,
+                });
                 if (title.length >= 2 && isValidSitemapSlug(slug) && cover) {
                   pushEntry(
                     `${siteOrigin}/${provSlug}/detail/${encodeURIComponent(slug)}`,
@@ -9876,14 +9946,28 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       }
 
       const dbHit = await resolveDramaBySlugFromDb(bookId, provider);
-      let slug = dbHit?.slug;
       let resolvedProvider = dbHit?.provider || provider;
+      let slug = dbHit
+        ? resolveCanonicalDramaSlug({
+            title: String(
+              dbHit.drama?.title ?? dbHit.drama?.bookName ?? dbHit.drama?.name ?? ''
+            ),
+            slug: dbHit.slug,
+            bookId,
+            provider: resolvedProvider,
+          })
+        : '';
 
       if (!slug) {
         const ssr = await fetchDramaForSsr(bookId, provider);
         if (ssr.drama) {
-          slug = ssr.drama.slug || slugifyTitle(ssr.drama.title);
           resolvedProvider = ssr.drama.provider;
+          slug = resolveCanonicalDramaSlug({
+            title: ssr.drama.title,
+            slug: ssr.drama.slug,
+            bookId: ssr.drama.bookId || bookId,
+            provider: resolvedProvider,
+          });
         }
       }
 
@@ -9926,8 +10010,13 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       const pushItems = (items: Array<Record<string, unknown>>) => {
         for (const item of items) {
           const title = cleanText(item.title ?? item.bookName);
-          const slug = (cleanText(item.slug) || slugifyTitle(title)).toLowerCase();
           const provider = cleanText(item.provider, 'DramaBoxV2');
+          const slug = resolveCanonicalDramaSlug({
+            title,
+            slug: cleanText(item.slug),
+            bookId: cleanText(item.bookId ?? item.id),
+            provider,
+          });
           if (!title || !slug || seen.has(slug)) {
             continue;
           }
@@ -10359,11 +10448,13 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           }
 
           if (isValidSsrDrama(resolvedDrama, episodes)) {
-            const finalSlug = (
-              cleanText(resolvedDrama.slug) || slugifyTitle(resolvedDrama.title)
-            )
-              .trim()
-              .toLowerCase();
+            const finalSlug = resolveCanonicalDramaSlug({
+              title: resolvedDrama.title,
+              slug: cleanText(resolvedDrama.slug),
+              bookId: resolvedDrama.bookId,
+              provider: resolvedDrama.provider,
+            });
+            resolvedDrama = { ...resolvedDrama, slug: finalSlug };
             const canonicalProvSlug = getProviderRouteSlug(resolvedDrama.provider);
             if (
               routeProvSlug !== canonicalProvSlug ||
@@ -10391,6 +10482,23 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
               related
             );
           } else {
+            if (hasStrictLegacyProviderIdSuffix(segment)) {
+              const strippedSlug = stripLegacyIdSuffixFromSlug(
+                segment,
+                providerHint
+              );
+              const canonicalProvSlug = getProviderRouteSlug(providerHint);
+              if (
+                strippedSlug &&
+                strippedSlug !== segment.trim().toLowerCase() &&
+                isValidSitemapSlug(strippedSlug)
+              ) {
+                const targetPath = `/${canonicalProvSlug}/${isWatchRoute ? 'watch' : 'detail'}/${encodeURIComponent(strippedSlug)}${epParam > 1 ? `?ep=${epParam}` : ''}`;
+                res.setHeader('Cache-Control', 'public, max-age=3600');
+                res.redirect(301, buildCanonicalRedirectUrl(req, targetPath));
+                return;
+              }
+            }
             ssrHttpStatus = 404;
             isNotFoundResponse = true;
             html = injectNotFoundSeoIntoHtml(
@@ -10454,11 +10562,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
           }
         }
         if (isValidSsrDrama(resolvedSsrDrama, episodes)) {
-          const finalSlug = (
-            cleanText(resolvedSsrDrama.slug) || slugifyTitle(resolvedSsrDrama.title)
-          )
-            .trim()
-            .toLowerCase();
+          const finalSlug = resolveCanonicalDramaSlug({
+            title: resolvedSsrDrama.title,
+            slug: cleanText(resolvedSsrDrama.slug),
+            bookId: resolvedSsrDrama.bookId,
+            provider: resolvedSsrDrama.provider,
+          });
           const provSlug = getProviderRouteSlug(resolvedSsrDrama.provider);
           const targetPath = `/${provSlug}/${epParam > 1 ? 'watch' : 'detail'}/${encodeURIComponent(finalSlug)}${epParam > 1 ? `?ep=${epParam}` : ''}`;
           res.setHeader('Cache-Control', 'public, max-age=3600');
@@ -10570,11 +10679,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
         }
 
         if (isValidSsrDrama(resolvedSsrDrama, episodes)) {
-          const finalSlug = (
-            cleanText(resolvedSsrDrama.slug) || slugifyTitle(resolvedSsrDrama.title)
-          )
-            .trim()
-            .toLowerCase();
+          const finalSlug = resolveCanonicalDramaSlug({
+            title: resolvedSsrDrama.title,
+            slug: cleanText(resolvedSsrDrama.slug),
+            bookId: resolvedSsrDrama.bookId,
+            provider: resolvedSsrDrama.provider,
+          });
           const provSlug = getProviderRouteSlug(resolvedSsrDrama.provider);
           const targetPath = `/${provSlug}/${epParam > 1 ? 'watch' : 'detail'}/${encodeURIComponent(finalSlug)}${epParam > 1 ? `?ep=${epParam}` : ''}`;
           res.setHeader('Cache-Control', 'public, max-age=3600');
@@ -10736,11 +10846,12 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
                 }
               : null;
             if (isValidSsrDrama(candidateDrama, episodes)) {
-              const finalSlug = (
-                cleanText(candidateDrama.slug) || slugifyTitle(candidateDrama.title)
-              )
-                .trim()
-                .toLowerCase();
+              const finalSlug = resolveCanonicalDramaSlug({
+                title: candidateDrama.title,
+                slug: cleanText(candidateDrama.slug),
+                bookId: candidateDrama.bookId,
+                provider: candidateDrama.provider,
+              });
               const related = await loadRelatedDramaLinks(
                 candidateDrama.tags,
                 finalSlug

@@ -13,6 +13,12 @@ import {
   isPgSslRequired,
   resolveAccountLevelStatus,
 } from './config.ts';
+import {
+  extractLegacySlugLookupCandidates,
+  isLikelyIdSuffixTail,
+  resolveCanonicalDramaSlug,
+  slugifyDramaTitle,
+} from '../src/utils/seo.ts';
 
 let pool: Pool | null = null;
 let schemaReadyPromise: Promise<boolean> | null = null;
@@ -3079,8 +3085,27 @@ export async function upsertDramaCatalogBatchInDb(
       );
       const prevRow = prevRes.rows[0];
 
-      // Reserve collision-free slug if same slug belongs to a different (drama_id, provider)
-      let candidateSlug = (prevRow?.slug || item.slug).slice(0, 110);
+      const baseSlug = slugifyDramaTitle(item.title);
+      const effectiveBaseSlug =
+        baseSlug && baseSlug !== 'series'
+          ? baseSlug
+          : resolveCanonicalDramaSlug({
+              title: item.title,
+              slug: item.slug,
+              bookId: item.dramaId,
+              provider: item.provider,
+            });
+      const escapedBase = effectiveBaseSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const prevCleanSlug = String(prevRow?.slug || '').trim().toLowerCase();
+      const prevIsCleanCollision =
+        Boolean(prevCleanSlug) &&
+        (prevCleanSlug === effectiveBaseSlug ||
+          new RegExp(`^${escapedBase}-([2-9]\\d?)$`).test(prevCleanSlug));
+
+      // Keep clean title slug by default; only append -2, -3, etc. on genuine title collision
+      let candidateSlug = (
+        prevIsCleanCollision ? prevCleanSlug : effectiveBaseSlug
+      ).slice(0, 110);
       const conflictCheck = await activePool.query<{ drama_id: string; provider: string }>(
         `SELECT drama_id, provider FROM drama_catalog WHERE LOWER(slug) = $1 LIMIT 1`,
         [candidateSlug]
@@ -3090,8 +3115,27 @@ export async function upsertDramaCatalogBatchInDb(
         existingOwner &&
         (existingOwner.drama_id !== item.dramaId || existingOwner.provider !== item.provider)
       ) {
-        const suffix = `${item.provider.toLowerCase().slice(0, 4)}-${item.dramaId.slice(-4)}`.replace(/[^a-z0-9-]/g, '');
-        candidateSlug = `${candidateSlug.slice(0, 90)}-${suffix}`;
+        let resolvedCollisionSlug = '';
+        for (let collisionNum = 2; collisionNum <= 99; collisionNum += 1) {
+          const numberedSlug = `${effectiveBaseSlug.slice(0, 74)}-${collisionNum}`;
+          const numCheck = await activePool.query<{ drama_id: string; provider: string }>(
+            `SELECT drama_id, provider FROM drama_catalog WHERE LOWER(slug) = $1 LIMIT 1`,
+            [numberedSlug]
+          );
+          const numOwner = numCheck.rows[0];
+          if (
+            !numOwner ||
+            (numOwner.drama_id === item.dramaId && numOwner.provider === item.provider)
+          ) {
+            resolvedCollisionSlug = numberedSlug;
+            break;
+          }
+        }
+        if (!resolvedCollisionSlug) {
+          const fallbackHash = item.dramaId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(-6) || 'alt';
+          resolvedCollisionSlug = `${effectiveBaseSlug.slice(0, 70)}-${fallbackHash}`;
+        }
+        candidateSlug = resolvedCollisionSlug;
       }
 
       const nextChapterCount = Math.max(1, item.chapterCount);
@@ -3113,7 +3157,7 @@ export async function upsertDramaCatalogBatchInDb(
          )
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9, $10, $11, $12, $13, $14::jsonb, NOW())
          ON CONFLICT (drama_id, provider) DO UPDATE SET
-           slug = COALESCE(NULLIF(drama_catalog.slug, ''), EXCLUDED.slug),
+           slug = EXCLUDED.slug,
            title = CASE WHEN EXCLUDED.title <> '' THEN EXCLUDED.title ELSE drama_catalog.title END,
            description = CASE WHEN EXCLUDED.description <> '' THEN EXCLUDED.description ELSE drama_catalog.description END,
            cover = CASE WHEN EXCLUDED.cover <> '' THEN EXCLUDED.cover ELSE drama_catalog.cover END,
@@ -3127,7 +3171,7 @@ export async function upsertDramaCatalogBatchInDb(
            drama_json = jsonb_set(
              EXCLUDED.drama_json,
              '{slug}',
-             to_jsonb(COALESCE(NULLIF(drama_catalog.slug, ''), EXCLUDED.slug)),
+             to_jsonb(EXCLUDED.slug),
              true
            ),
            updated_at = NOW()
@@ -3216,6 +3260,33 @@ export async function resolveDramaBySlugFromDb(
     return Boolean(title);
   };
 
+  const normalizeDbRowResult = (r: {
+    drama_id: string;
+    provider: string;
+    slug: string;
+    drama_json: Record<string, unknown>;
+  }) => {
+    const json = r.drama_json || {};
+    const title = String(
+      json.title ?? json.bookName ?? json.name ?? json.dramaName ?? ''
+    ).trim();
+    const canonicalSlug = resolveCanonicalDramaSlug({
+      title,
+      slug: r.slug,
+      bookId: r.drama_id,
+      provider: r.provider,
+    });
+    return {
+      dramaId: r.drama_id,
+      provider: r.provider,
+      slug: canonicalSlug,
+      drama: { ...json, slug: canonicalSlug },
+    };
+  };
+
+  const lookupCandidates = extractLegacySlugLookupCandidates(clean, cleanProvider);
+  const candidateList = lookupCandidates.length > 0 ? lookupCandidates : [clean];
+
   const exactRes = await dbQuery<{
     drama_id: string;
     provider: string;
@@ -3225,57 +3296,82 @@ export async function resolveDramaBySlugFromDb(
     cleanProvider
       ? `SELECT drama_id, provider, slug, drama_json
          FROM drama_catalog
-         WHERE (LOWER(slug) = $1 OR drama_id = $2)
+         WHERE (LOWER(slug) = ANY($1::text[]) OR drama_id = $2)
            AND UPPER(provider) NOT IN ('LK21', 'LOOKSERIES')
            AND COALESCE(TRIM(title), '') <> ''
-         ORDER BY CASE WHEN LOWER(provider) = LOWER($3) THEN 0 ELSE 1 END, popularity_score DESC
+         ORDER BY
+           CASE WHEN LOWER(slug) = $3 THEN 0 WHEN drama_id = $2 THEN 1 ELSE 2 END,
+           CASE WHEN LOWER(provider) = LOWER($4) THEN 0 ELSE 1 END,
+           popularity_score DESC
          LIMIT 1`
       : `SELECT drama_id, provider, slug, drama_json
          FROM drama_catalog
-         WHERE (LOWER(slug) = $1 OR drama_id = $2)
+         WHERE (LOWER(slug) = ANY($1::text[]) OR drama_id = $2)
            AND UPPER(provider) NOT IN ('LK21', 'LOOKSERIES')
            AND COALESCE(TRIM(title), '') <> ''
-         ORDER BY popularity_score DESC
+         ORDER BY
+           CASE WHEN LOWER(slug) = $3 THEN 0 WHEN drama_id = $2 THEN 1 ELSE 2 END,
+           popularity_score DESC
          LIMIT 1`,
-    cleanProvider ? [clean, rawTrimmed, cleanProvider] : [clean, rawTrimmed]
+    cleanProvider
+      ? [candidateList, rawTrimmed, clean, cleanProvider]
+      : [candidateList, rawTrimmed, clean]
   );
   const row = exactRes?.rows[0];
   if (isValidCatalogRow(row)) {
-    return {
-      dramaId: row!.drama_id,
-      provider: row!.provider,
-      slug: row!.slug,
-      drama: row!.drama_json || {},
-    };
+    return normalizeDbRowResult(row!);
   }
 
-  // Only allow strict hyphen-boundary prefix fallback for meaningful slug lengths
-  // so short slugs like "12-ipa-4" never falsely match unrelated prefixes.
+  // Bidirectional ID-suffix fallback (both legacy DB rows and incoming legacy URLs)
   if (clean.length < 6) return null;
-  const escapedClean = clean.slice(0, 48).replace(/[%_\\]/g, '\\$&');
+  const escapedClean = clean.slice(0, 64).replace(/[%_\\]/g, '\\$&');
   const prefixRes = await dbQuery<{
     drama_id: string;
     provider: string;
     slug: string;
     drama_json: Record<string, unknown>;
   }>(
-    `SELECT drama_id, provider, slug, drama_json
-     FROM drama_catalog
-     WHERE LOWER(slug) LIKE $1 ESCAPE '\\'
-       AND UPPER(provider) NOT IN ('LK21', 'LOOKSERIES')
-       AND COALESCE(TRIM(title), '') <> ''
-     ORDER BY popularity_score DESC
-     LIMIT 1`,
-    [`${escapedClean}-%`]
+    cleanProvider
+      ? `SELECT drama_id, provider, slug, drama_json
+         FROM drama_catalog
+         WHERE (
+             ($1 LIKE (LOWER(slug) || '-%') AND LENGTH(LOWER(slug)) >= 6)
+             OR LOWER(slug) LIKE $2 ESCAPE '\\'
+           )
+           AND UPPER(provider) NOT IN ('LK21', 'LOOKSERIES')
+           AND COALESCE(TRIM(title), '') <> ''
+         ORDER BY CASE WHEN LOWER(provider) = LOWER($3) THEN 0 ELSE 1 END, popularity_score DESC
+         LIMIT 8`
+      : `SELECT drama_id, provider, slug, drama_json
+         FROM drama_catalog
+         WHERE (
+             ($1 LIKE (LOWER(slug) || '-%') AND LENGTH(LOWER(slug)) >= 6)
+             OR LOWER(slug) LIKE $2 ESCAPE '\\'
+           )
+           AND UPPER(provider) NOT IN ('LK21', 'LOOKSERIES')
+           AND COALESCE(TRIM(title), '') <> ''
+         ORDER BY popularity_score DESC
+         LIMIT 8`,
+    cleanProvider
+      ? [clean, `${escapedClean}-%`, cleanProvider]
+      : [clean, `${escapedClean}-%`]
   );
-  const pRow = prefixRes?.rows[0];
-  if (!isValidCatalogRow(pRow)) return null;
-  return {
-    dramaId: pRow!.drama_id,
-    provider: pRow!.provider,
-    slug: pRow!.slug,
-    drama: pRow!.drama_json || {},
-  };
+  for (const pRow of prefixRes?.rows ?? []) {
+    if (!isValidCatalogRow(pRow)) continue;
+    const rowSlug = String(pRow.slug || '').trim().toLowerCase();
+    if (clean.startsWith(`${rowSlug}-`)) {
+      const tail = clean.slice(rowSlug.length + 1);
+      if (isLikelyIdSuffixTail(tail, pRow.provider, pRow.drama_id)) {
+        return normalizeDbRowResult(pRow);
+      }
+    } else if (rowSlug.startsWith(`${clean}-`)) {
+      const tail = rowSlug.slice(clean.length + 1);
+      if (isLikelyIdSuffixTail(tail, pRow.provider, pRow.drama_id)) {
+        return normalizeDbRowResult(pRow);
+      }
+    }
+  }
+  return null;
 }
 
 export async function filterCatalogFromDb(input: {
@@ -3362,12 +3458,26 @@ export async function filterCatalogFromDb(input: {
 
   const total = Number(res.rows[0].total_count) || res.rows.length;
   return {
-    items: res.rows.map((r) => ({
-      ...(r.drama_json || {}),
-      slug: r.slug,
-      status: r.status,
-      rating: Number(r.rating) || 4.8,
-    })),
+    items: res.rows.map((r) => {
+      const json = r.drama_json || {};
+      const title = String(
+        json.title ?? json.bookName ?? json.name ?? json.dramaName ?? ''
+      ).trim();
+      const provider = String(json.provider ?? '').trim();
+      const bookId = String(json.bookId ?? json.id ?? '').trim();
+      const canonicalSlug = resolveCanonicalDramaSlug({
+        title,
+        slug: r.slug,
+        bookId,
+        provider,
+      });
+      return {
+        ...json,
+        slug: canonicalSlug,
+        status: r.status,
+        rating: Number(r.rating) || 4.8,
+      };
+    }),
     total,
   };
 }
@@ -3418,7 +3528,12 @@ export async function listCatalogForSitemapFromDb(limit = 2000): Promise<
       return Boolean(s && t && !invalidSlugs.has(s));
     })
     .map((r) => ({
-      slug: r.slug,
+      slug: resolveCanonicalDramaSlug({
+        title: r.title,
+        slug: r.slug,
+        bookId: r.drama_id,
+        provider: r.provider,
+      }),
       dramaId: r.drama_id,
       provider: r.provider,
       title: r.title,

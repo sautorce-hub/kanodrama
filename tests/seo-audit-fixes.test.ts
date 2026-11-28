@@ -11,7 +11,13 @@ delete process.env.DATABASE_URL;
 process.env.MOLA_API_TOKEN = 'test-mola-token-seo-audit';
 
 import { createServerApp } from '../server';
-import { isMovieMarkedUnavailable, markMovieAvailability } from '../server/db';
+import {
+  _setDbPoolForTest,
+  isMovieMarkedUnavailable,
+  markMovieAvailability,
+  resolveDramaBySlugFromDb,
+  upsertDramaCatalogBatchInDb,
+} from '../server/db';
 import {
   clearHomeCatalogCache,
   isCacheableMolaDetailOrEpisodePath,
@@ -23,6 +29,13 @@ import {
   getCanonicalTimeZone,
 } from '../src/i18n/helpers';
 import { resolveProgrammaticLanding } from '../src/utils/programmaticSeo';
+import {
+  buildDramaSeoMetadata,
+  generateSitemapXml,
+  getDramaPath,
+  getWatchPath,
+  resolveCanonicalDramaSlug,
+} from '../src/utils/seo';
 
 async function withTestServer<T>(
   upstreamHandler: (url: string) => Response | Promise<Response>,
@@ -444,4 +457,412 @@ test('4. Brand naming and WIB/UTC timezone formatting remain compliant', () => {
   assert.match(formatCanonicalTime(sampleDate, 'ja'), /\bUTC\b/);
   assert.match(formatCanonicalDate(sampleDate, 'id'), /\bWIB\b/);
   assert.match(formatCanonicalDate(sampleDate, 'en'), /\bUTC\b/);
+});
+
+test('5. Clean canonical drama slugs omit ID suffixes across links, metadata, sitemaps, and return 301 from legacy ID-suffixed URLs', async () => {
+  const sampleTitle = "The Mafia Boss's Unexpected Bride";
+  const expectedCleanSlug = 'the-mafia-boss-s-unexpected-bride';
+
+  assert.equal(
+    resolveCanonicalDramaSlug({
+      title: sampleTitle,
+      slug: `${expectedCleanSlug}-dram-4429`,
+      bookId: '4429',
+      provider: 'DramaBoxV2',
+    }),
+    expectedCleanSlug
+  );
+  assert.equal(
+    getDramaPath('4429', sampleTitle, 'DramaBoxV2', `${expectedCleanSlug}-dram-4429`),
+    `/dramaboxv2/detail/${expectedCleanSlug}`
+  );
+  assert.equal(
+    getWatchPath('4429', sampleTitle, 'DramaBoxV2', `${expectedCleanSlug}-dram-4429`, 3),
+    `/dramaboxv2/watch/${expectedCleanSlug}?ep=3`
+  );
+
+  const sampleDrama = {
+    bookId: '4429',
+    title: sampleTitle,
+    slug: `${expectedCleanSlug}-dram-4429`,
+    cover: 'https://img.kano-drama.live/mafia-bride.jpg',
+    description: 'An unexpected contract marriage with a powerful mafia boss.',
+    chapterCount: 55,
+    tags: ['Romance', 'CEO'],
+    isVip: false,
+    provider: 'DramaBoxV2' as const,
+  };
+  const seoMeta = buildDramaSeoMetadata(sampleDrama, 'https://kano-drama.live', 'en');
+  assert.equal(
+    seoMeta.canonicalUrl,
+    `https://kano-drama.live/dramaboxv2/detail/${expectedCleanSlug}`
+  );
+
+  const xml = generateSitemapXml([sampleDrama], 'https://kano-drama.live');
+  assert.ok(xml.includes(`https://kano-drama.live/dramaboxv2/detail/${expectedCleanSlug}</loc>`));
+  assert.doesNotMatch(xml, /-dram-4429/);
+
+  await withTestServer(
+    async (url) => {
+      if (url.includes('/dramaboxv2/allepisode')) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              { chapterIndex: 0, chapterId: 'ep-mb-1', title: 'Episode 1' },
+              { chapterIndex: 1, chapterId: 'ep-mb-2', title: 'Episode 2' },
+              { chapterIndex: 2, chapterId: 'ep-mb-3', title: 'Episode 3' },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (url.includes('/dramaboxv2/detail')) {
+        if (!url.includes('4429')) {
+          return new Response(JSON.stringify({ error: 'Not found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            data: {
+              bookId: '4429',
+              bookName: sampleTitle,
+              coverWap: 'https://img.kano-drama.live/mafia-bride.jpg',
+              introduction: 'An unexpected contract marriage with a powerful mafia boss.',
+              chapterCount: 55,
+              tags: ['Romance', 'CEO'],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (url.includes('/dramaboxv2/search')) {
+        if (url.includes('unknown')) {
+          return new Response(JSON.stringify({ data: { list: [] } }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
+      if (url.includes('/dramaboxv2/')) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              list: [
+                {
+                  bookId: '4429',
+                  bookName: sampleTitle,
+                  slug: `${expectedCleanSlug}-dram-4429`,
+                  coverWap: 'https://img.kano-drama.live/mafia-bride.jpg',
+                  introduction: 'An unexpected contract marriage with a powerful mafia boss.',
+                  chapterCount: 55,
+                  tags: ['Romance', 'CEO'],
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      return new Response(JSON.stringify({ data: { list: [] } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+    async (base) => {
+      // Warm home catalog & sitemap
+      await fetch(`${base}/api/home?lang=en&provider=All`);
+
+      // 5a. Legacy ID-suffixed detail URL returns 301 Permanent Redirect to clean URL
+      const legacyDetailRes = await fetch(
+        `${base}/dramaboxv2/detail/${expectedCleanSlug}-dram-4429`,
+        {
+          redirect: 'manual',
+          headers: { 'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)' },
+        }
+      );
+      assert.equal(legacyDetailRes.status, 301);
+      assert.equal(
+        legacyDetailRes.headers.get('location'),
+        `/dramaboxv2/detail/${expectedCleanSlug}`
+      );
+
+      // 5b. Legacy ID-suffixed watch URL returns 301 Permanent Redirect to clean watch URL preserving ?ep=
+      const legacyWatchRes = await fetch(
+        `${base}/dramaboxv2/watch/${expectedCleanSlug}-dram-4429?ep=3`,
+        {
+          redirect: 'manual',
+          headers: { 'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)' },
+        }
+      );
+      assert.equal(legacyWatchRes.status, 301);
+      assert.equal(
+        legacyWatchRes.headers.get('location'),
+        `/dramaboxv2/watch/${expectedCleanSlug}?ep=3`
+      );
+
+      // 5c. Even an uncached legacy -dram-9999 URL redirects 301 to clean slug
+      const uncachedLegacyRes = await fetch(
+        `${base}/dramaboxv2/detail/unknown-legacy-title-dram-9999`,
+        { redirect: 'manual' }
+      );
+      assert.equal(uncachedLegacyRes.status, 301);
+      assert.equal(
+        uncachedLegacyRes.headers.get('location'),
+        '/dramaboxv2/detail/unknown-legacy-title'
+      );
+
+      // 5d. Clean detail and watch pages render 200 OK with clean canonical & og:url (no ID suffix)
+      const cleanDetailRes = await fetch(
+        `${base}/dramaboxv2/detail/${expectedCleanSlug}`,
+        {
+          headers: { 'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)' },
+        }
+      );
+      assert.equal(cleanDetailRes.status, 200);
+      const cleanDetailHtml = await cleanDetailRes.text();
+      assert.equal(
+        extractTagContent(cleanDetailHtml, /<link\s+rel="canonical"\s+href="([^"]+)"/i),
+        `https://kano-drama.live/dramaboxv2/detail/${expectedCleanSlug}`
+      );
+      assert.equal(
+        extractTagContent(cleanDetailHtml, /<meta\s+property="og:url"\s+content="([^"]+)"/i),
+        `https://kano-drama.live/dramaboxv2/detail/${expectedCleanSlug}`
+      );
+      assert.doesNotMatch(cleanDetailHtml, /-dram-4429/);
+
+      const cleanWatchRes = await fetch(
+        `${base}/dramaboxv2/watch/${expectedCleanSlug}?ep=3`,
+        {
+          headers: { 'User-Agent': 'Googlebot/2.1 (+http://www.google.com/bot.html)' },
+        }
+      );
+      assert.equal(cleanWatchRes.status, 200);
+      const cleanWatchHtml = await cleanWatchRes.text();
+      assert.equal(
+        extractTagContent(cleanWatchHtml, /<link\s+rel="canonical"\s+href="([^"]+)"/i),
+        `https://kano-drama.live/dramaboxv2/detail/${expectedCleanSlug}`
+      );
+      assert.equal(
+        extractTagContent(cleanWatchHtml, /<meta\s+property="og:url"\s+content="([^"]+)"/i),
+        `https://kano-drama.live/dramaboxv2/watch/${expectedCleanSlug}?ep=3`
+      );
+      assert.doesNotMatch(cleanWatchHtml, /-dram-4429/);
+
+      // 5e. /sitemap-part-1.xml emits clean slug without ID suffix
+      const sitemapRes = await fetch(`${base}/sitemap-part-1.xml`);
+      assert.equal(sitemapRes.status, 200);
+      const sitemapXml = await sitemapRes.text();
+      assert.ok(
+        sitemapXml.includes(
+          `https://kano-drama.live/dramaboxv2/detail/${expectedCleanSlug}</loc>`
+        )
+      );
+      assert.doesNotMatch(sitemapXml, /-dram-4429/);
+    }
+  );
+});
+
+test('6. Genuine identical-title collision gets -2 only on conflict while legacy -dram-XXXX DB slugs self-heal', async (t) => {
+  type CatalogRow = {
+    drama_id: string;
+    provider: string;
+    slug: string;
+    title: string;
+    description: string;
+    cover: string;
+    chapter_count: number;
+    genres: string[];
+    status: string;
+    popularity_score: number;
+    rating: number;
+    play_count: string | null;
+    is_vip: boolean;
+    drama_json: Record<string, unknown>;
+  };
+
+  const rows = new Map<string, CatalogRow>([
+    [
+      'DramaBoxV2:4429',
+      {
+        drama_id: '4429',
+        provider: 'DramaBoxV2',
+        slug: 'the-mafia-boss-s-unexpected-bride-dram-4429',
+        title: "The Mafia Boss's Unexpected Bride",
+        description: 'Legacy stored row.',
+        cover: 'https://img.kano-drama.live/4429.jpg',
+        chapter_count: 40,
+        genres: ['Romance'],
+        status: 'Completed',
+        popularity_score: 900000,
+        rating: 4.8,
+        play_count: '900K',
+        is_vip: false,
+        drama_json: {
+          bookId: '4429',
+          provider: 'DramaBoxV2',
+          title: "The Mafia Boss's Unexpected Bride",
+          slug: 'the-mafia-boss-s-unexpected-bride-dram-4429',
+          cover: 'https://img.kano-drama.live/4429.jpg',
+          description: 'Legacy stored row.',
+          chapterCount: 40,
+          tags: ['Romance'],
+        },
+      },
+    ],
+  ]);
+
+  const mockPool: any = {
+    query: async (sql: string, params: any[] = []) => {
+      if (/CREATE TABLE|CREATE INDEX|ALTER TABLE|SELECT 1/i.test(sql)) {
+        return { rows: [{ '?column?': 1 }], rowCount: 1 };
+      }
+      if (sql.includes('SELECT chapter_count, slug FROM drama_catalog')) {
+        const key = `${params[1]}:${params[0]}`;
+        const hit = rows.get(key);
+        return {
+          rows: hit ? [{ chapter_count: hit.chapter_count, slug: hit.slug }] : [],
+          rowCount: hit ? 1 : 0,
+        };
+      }
+      if (sql.includes('SELECT drama_id, provider FROM drama_catalog WHERE LOWER(slug) = $1')) {
+        const target = String(params[0] || '').toLowerCase();
+        const hit = Array.from(rows.values()).find((r) => r.slug.toLowerCase() === target);
+        return {
+          rows: hit ? [{ drama_id: hit.drama_id, provider: hit.provider }] : [],
+          rowCount: hit ? 1 : 0,
+        };
+      }
+      if (sql.includes('INSERT INTO drama_catalog')) {
+        const [
+          dramaId,
+          provider,
+          slug,
+          title,
+          description,
+          cover,
+          chapterCount,
+          genres,
+          status,
+          popularityScore,
+          rating,
+          playCount,
+          isVip,
+          dramaJsonStr,
+        ] = params;
+        const key = `${provider}:${dramaId}`;
+        const prev = rows.get(key);
+        const parsedJson = JSON.parse(String(dramaJsonStr)) as Record<string, unknown>;
+        parsedJson.slug = slug;
+        rows.set(key, {
+          drama_id: dramaId,
+          provider,
+          slug,
+          title,
+          description,
+          cover,
+          chapter_count: Math.max(prev?.chapter_count || 0, Number(chapterCount) || 1),
+          genres,
+          status,
+          popularity_score: Math.max(prev?.popularity_score || 0, Number(popularityScore) || 0),
+          rating: Number(rating) || 4.8,
+          play_count: playCount,
+          is_vip: Boolean(isVip),
+          drama_json: parsedJson,
+        });
+        return {
+          rows: [{ slug, chapter_count: chapterCount, was_inserted: !prev }],
+          rowCount: 1,
+        };
+      }
+      if (sql.includes('WHERE (LOWER(slug) = ANY($1::text[]) OR drama_id = $2)')) {
+        const candidates = (params[0] as string[]).map((s) => s.toLowerCase());
+        const rawId = String(params[1] || '');
+        const hit = Array.from(rows.values()).find(
+          (r) => candidates.includes(r.slug.toLowerCase()) || r.drama_id === rawId
+        );
+        return { rows: hit ? [hit] : [], rowCount: hit ? 1 : 0 };
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    connect: async () => ({
+      query: async (sql: string, params?: any[]) => mockPool.query(sql, params),
+      release: () => {},
+    }),
+  };
+
+  _setDbPoolForTest(mockPool);
+  t.after(() => {
+    _setDbPoolForTest(null);
+  });
+
+  await upsertDramaCatalogBatchInDb([
+    {
+      dramaId: '4429',
+      provider: 'DramaBoxV2',
+      slug: 'the-mafia-boss-s-unexpected-bride',
+      title: "The Mafia Boss's Unexpected Bride",
+      description: 'Original DramaBoxV2 hit.',
+      cover: 'https://img.kano-drama.live/4429.jpg',
+      chapterCount: 50,
+      genres: ['Romance'],
+      status: 'Completed',
+      popularityScore: 950000,
+      rating: 4.9,
+      isVip: false,
+      dramaJson: {
+        bookId: '4429',
+        provider: 'DramaBoxV2',
+        title: "The Mafia Boss's Unexpected Bride",
+        cover: 'https://img.kano-drama.live/4429.jpg',
+        description: 'Original DramaBoxV2 hit.',
+        chapterCount: 50,
+        tags: ['Romance'],
+      },
+    },
+    {
+      dramaId: '9981',
+      provider: 'NetShort',
+      slug: 'the-mafia-boss-s-unexpected-bride',
+      title: "The Mafia Boss's Unexpected Bride",
+      description: 'Second distinct drama sharing identical title.',
+      cover: 'https://img.kano-drama.live/9981.jpg',
+      chapterCount: 30,
+      genres: ['Romance'],
+      status: 'Completed',
+      popularityScore: 700000,
+      rating: 4.7,
+      isVip: false,
+      dramaJson: {
+        bookId: '9981',
+        provider: 'NetShort',
+        title: "The Mafia Boss's Unexpected Bride",
+        cover: 'https://img.kano-drama.live/9981.jpg',
+        description: 'Second distinct drama sharing identical title.',
+        chapterCount: 30,
+        tags: ['Romance'],
+      },
+    },
+  ]);
+
+  assert.equal(
+    rows.get('DramaBoxV2:4429')?.slug,
+    'the-mafia-boss-s-unexpected-bride'
+  );
+  assert.equal(
+    rows.get('NetShort:9981')?.slug,
+    'the-mafia-boss-s-unexpected-bride-2'
+  );
+
+  const resolvedFromLegacy = await resolveDramaBySlugFromDb(
+    'the-mafia-boss-s-unexpected-bride-dram-4429',
+    'DramaBoxV2'
+  );
+  assert.equal(resolvedFromLegacy?.dramaId, '4429');
+  assert.equal(resolvedFromLegacy?.slug, 'the-mafia-boss-s-unexpected-bride');
 });

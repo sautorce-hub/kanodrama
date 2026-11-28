@@ -63,7 +63,11 @@ import {
 } from '../utils/adMonetization';
 import { useDramaContext } from '../context/DramaContext';
 import { formatCanonicalTime } from '../i18n/helpers';
-import { getWatchPath, syncEpisodePlayerSeo } from '../utils/seo';
+import {
+  getWatchPath,
+  resolveCanonicalDramaSlug,
+  syncEpisodePlayerSeo,
+} from '../utils/seo';
 import { ProviderBadge } from './ProviderBadge';
 import { ShareDramaModal } from './ShareDramaModal';
 import { EpisodeSupportModal } from './EpisodeSupportModal';
@@ -668,7 +672,12 @@ export const CinemaVideoPlayer: React.FC<CinemaVideoPlayerProps> = ({
         ...prevState,
         bookId: drama.bookId,
         provider: drama.provider,
-        slug: drama.slug,
+        slug: resolveCanonicalDramaSlug({
+          title: drama.title,
+          slug: drama.slug,
+          bookId: drama.bookId,
+          provider: drama.provider,
+        }),
       },
       '',
       watchPath

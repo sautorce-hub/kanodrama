@@ -6,7 +6,10 @@ import type {
   NavTab,
   ProviderName,
 } from '../types/drama.ts';
-import { getProviderRouteSlug } from '../constants/providerLogos.ts';
+import {
+  getProviderRouteSlug,
+  PROVIDER_SLUG_MAP,
+} from '../constants/providerLogos.ts';
 import type { ProgrammaticLandingConfig } from './programmaticSeo.ts';
 import {
   buildOgImageEndpointUrl,
@@ -53,16 +56,225 @@ export function slugifyDramaTitle(title: string): string {
   return slug || 'series';
 }
 
+const KNOWN_PROVIDER_ID_PREFIXES = new Set<string>([
+  'dram', 'nets', 'anyr', 'melo', 'wetv', 'reel', 'shor', 'good', 'free',
+  'flic', 'vigl', 'flex', 'flar', 'stor', 'vibe', 'cube', 'micr', 'fund',
+  'toon', 'happ', 'pine', 'dotd', 'idra', 'peta', 'radr', 'kalo', 'star',
+  'love', 'mydr', 'shot', 'mobo', 'blin', 'joyr', 'soda', 'bonu', 'iqiy',
+  'audi', 'play', 'mome', 'mymu', 'huan', 'more', 'rela', 'sixt', 'snac',
+  'sore', 'mini', 'velo', 'dyna', 'tall', 'qlax', 'luzi', 'zebr', 'drak',
+  'drac', 'ansf', 'lupa', 'bsta', 'anic', 'dong', 'same', 'anim', 'wink',
+  'db', 'ns', 'ar', 'ml',
+]);
+
+for (const [name, slug] of Object.entries(PROVIDER_SLUG_MAP)) {
+  if (name === 'LK21' || name === 'LookSeries') continue;
+  const a = name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4);
+  const b = slug.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4);
+  if (a.length >= 3) KNOWN_PROVIDER_ID_PREFIXES.add(a);
+  if (b.length >= 3) KNOWN_PROVIDER_ID_PREFIXES.add(b);
+}
+
+const STRICT_NON_WORD_PROVIDER_PREFIXES = new Set<string>([
+  'dram', 'nets', 'anyr', 'melo', 'wetv', 'reel', 'shor', 'flic', 'vigl',
+  'flex', 'flar', 'stor', 'vibe', 'cube', 'micr', 'fund', 'toon', 'happ',
+  'dotd', 'idra', 'peta', 'radr', 'kalo', 'mydr', 'mobo', 'blin', 'joyr',
+  'bonu', 'iqiy', 'audi', 'mome', 'mymu', 'huan', 'rela', 'sixt', 'snac',
+  'sore', 'velo', 'dyna', 'tall', 'qlax', 'luzi', 'zebr', 'drak', 'drac',
+  'ansf', 'lupa', 'bsta', 'anic', 'dong', 'same', 'anim', 'wink',
+]);
+
+function isPlausibleTitleYear(token: string): boolean {
+  if (!/^\d{4}$/.test(token)) return false;
+  const n = Number(token);
+  return n >= 1950 && n <= 2035;
+}
+
+export function isLikelyIdSuffixTail(
+  tail: string,
+  provider?: MediaProviderName | string,
+  bookId?: string
+): boolean {
+  const cleanTail = tail.trim().toLowerCase();
+  if (!cleanTail) return false;
+  if (bookId) {
+    const cleanId = slugifyDramaTitle(String(bookId));
+    if (cleanId && cleanId !== 'series' && cleanTail === cleanId) return true;
+    const rawIdAlnum = String(bookId).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (rawIdAlnum.length >= 4 && cleanTail.endsWith(rawIdAlnum.slice(-4))) {
+      const prov4 = String(provider || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4);
+      if (prov4 && cleanTail === `${prov4}-${rawIdAlnum.slice(-4)}`) return true;
+    }
+  }
+  const provIdMatch = cleanTail.match(/^([a-z]{3,6})-([a-z0-9]{3,8})$/);
+  if (provIdMatch) {
+    const [, prefix, idPart] = provIdMatch;
+    if (
+      KNOWN_PROVIDER_ID_PREFIXES.has(prefix) &&
+      (/\d/.test(idPart) || STRICT_NON_WORD_PROVIDER_PREFIXES.has(prefix)) &&
+      !isPlausibleTitleYear(idPart)
+    ) {
+      return true;
+    }
+  }
+  if (/^[a-z]{1,4}-\d{2,6}$/.test(cleanTail) && !/^(ep|s|part|vol)-\d+$/.test(cleanTail)) {
+    return true;
+  }
+  if (/^\d{5,}$/.test(cleanTail)) {
+    return true;
+  }
+  return false;
+}
+
+export function hasStrictLegacyProviderIdSuffix(rawSlug: string): boolean {
+  const clean = rawSlug.trim().toLowerCase();
+  const match = clean.match(/^(.+?)-([a-z]{3,6})-([a-z0-9]{3,8})$/);
+  if (!match) return false;
+  const [, base, prefix, idPart] = match;
+  if (base.length < 2) return false;
+  if (STRICT_NON_WORD_PROVIDER_PREFIXES.has(prefix) && idPart.length >= 3) {
+    return true;
+  }
+  if (
+    KNOWN_PROVIDER_ID_PREFIXES.has(prefix) &&
+    (/\d/.test(idPart) && !isPlausibleTitleYear(idPart))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function stripLegacyIdSuffixFromSlug(
+  rawSlug: string,
+  provider?: MediaProviderName | string,
+  bookId?: string
+): string {
+  let clean = rawSlug.trim().toLowerCase();
+  if (!clean) return '';
+
+  if (bookId) {
+    const idSlug = slugifyDramaTitle(String(bookId));
+    if (idSlug && idSlug !== 'series' && clean.endsWith(`-${idSlug}`) && clean.length > idSlug.length + 2) {
+      clean = clean.slice(0, -(idSlug.length + 1));
+    }
+    const prov4 = String(provider || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4);
+    const idTail4 = String(bookId).toLowerCase().replace(/[^a-z0-9]/g, '').slice(-4);
+    if (prov4 && idTail4 && clean.endsWith(`-${prov4}-${idTail4}`) && clean.length > prov4.length + idTail4.length + 3) {
+      clean = clean.slice(0, -(prov4.length + idTail4.length + 2));
+    }
+  }
+
+  const provMatch = clean.match(/^(.+?)-([a-z]{3,6})-([a-z0-9]{3,8})$/);
+  if (provMatch) {
+    const [, base, prefix, idPart] = provMatch;
+    if (
+      base.length >= 2 &&
+      KNOWN_PROVIDER_ID_PREFIXES.has(prefix) &&
+      (STRICT_NON_WORD_PROVIDER_PREFIXES.has(prefix) ||
+        (/\d/.test(idPart) && !isPlausibleTitleYear(idPart)))
+    ) {
+      return base;
+    }
+  }
+
+  const shortIdMatch = clean.match(/^(.+?)-(?:[a-z]{1,4}-\d{2,6}|\d{5,})$/);
+  if (shortIdMatch && shortIdMatch[1].length >= 3) {
+    return shortIdMatch[1];
+  }
+
+  return clean;
+}
+
+export function extractLegacySlugLookupCandidates(
+  rawSegment: string,
+  provider?: MediaProviderName | string
+): string[] {
+  const clean = decodeURIComponent(rawSegment || '').trim().toLowerCase();
+  if (!clean) return [];
+  const out: string[] = [];
+  const push = (val: string) => {
+    const v = val.trim().toLowerCase();
+    if (v && !out.includes(v)) out.push(v);
+  };
+
+  push(clean);
+  const stripped = stripLegacyIdSuffixFromSlug(clean, provider);
+  if (stripped && stripped !== clean) {
+    push(stripped);
+  }
+
+  // Handle legacy suffixes with multi-token bookId (e.g. -fast-db-101)
+  const parts = clean.split('-').filter(Boolean);
+  if (parts.length >= 4) {
+    const last = parts[parts.length - 1];
+    if (/\d/.test(last) && !isPlausibleTitleYear(last)) {
+      push(parts.slice(0, -1).join('-'));
+      push(parts.slice(0, -2).join('-'));
+      if (parts.length >= 5) {
+        push(parts.slice(0, -3).join('-'));
+      }
+    }
+  }
+
+  return out;
+}
+
+export function resolveCanonicalDramaSlug(input: {
+  title?: string;
+  slug?: string;
+  bookId?: string;
+  provider?: MediaProviderName | string;
+}): string {
+  const cleanTitle = (input.title || '').trim();
+  const rawSlug = (input.slug || '').trim().toLowerCase();
+  const baseSlug = cleanTitle ? slugifyDramaTitle(cleanTitle) : '';
+  const isMovieProvider =
+    input.provider === 'LK21' || input.provider === 'LookSeries';
+
+  if (isMovieProvider) {
+    if (rawSlug) return rawSlug;
+    if (baseSlug && baseSlug !== 'series') return baseSlug;
+    return input.bookId
+      ? encodeURIComponent(String(input.bookId)).toLowerCase()
+      : 'series';
+  }
+
+  if (baseSlug && baseSlug !== 'series') {
+    if (!rawSlug || rawSlug === baseSlug) {
+      return baseSlug;
+    }
+    const escapedBase = baseSlug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`^${escapedBase}-([2-9]\\d?)$`).test(rawSlug)) {
+      return rawSlug;
+    }
+    return baseSlug;
+  }
+
+  if (rawSlug) {
+    return (
+      stripLegacyIdSuffixFromSlug(rawSlug, input.provider, input.bookId) ||
+      rawSlug
+    );
+  }
+
+  return input.bookId
+    ? encodeURIComponent(String(input.bookId)).toLowerCase()
+    : 'series';
+}
+
 export function getDramaPath(
   bookId: string,
   title?: string,
   provider: MediaProviderName = 'DramaBoxV2',
   slug?: string
 ): string {
-  const cleanSlug = (
-    (slug || '').trim() ||
-    (title ? slugifyDramaTitle(title) : encodeURIComponent(bookId))
-  ).toLowerCase();
+  const isMovie = provider === 'LK21' || provider === 'LookSeries';
+  const cleanSlug = isMovie
+    ? (
+        (slug || '').trim() ||
+        (title ? slugifyDramaTitle(title) : encodeURIComponent(bookId))
+      ).toLowerCase()
+    : resolveCanonicalDramaSlug({ title, slug, bookId, provider });
   const providerSlug = getProviderRouteSlug(provider);
   return `/${providerSlug}/detail/${encodeURIComponent(cleanSlug)}`;
 }
@@ -74,10 +286,13 @@ export function getWatchPath(
   slug?: string,
   episodeNumber = 1
 ): string {
-  const cleanSlug = (
-    (slug || '').trim() ||
-    (title ? slugifyDramaTitle(title) : encodeURIComponent(bookId))
-  ).toLowerCase();
+  const isMovie = provider === 'LK21' || provider === 'LookSeries';
+  const cleanSlug = isMovie
+    ? (
+        (slug || '').trim() ||
+        (title ? slugifyDramaTitle(title) : encodeURIComponent(bookId))
+      ).toLowerCase()
+    : resolveCanonicalDramaSlug({ title, slug, bookId, provider });
   const providerSlug = getProviderRouteSlug(provider);
   const safeEp = Math.max(1, Math.floor(Number(episodeNumber) || 1));
   const basePath = `/${providerSlug}/watch/${encodeURIComponent(cleanSlug)}`;
@@ -90,7 +305,15 @@ const MAX_LOOKUP_CACHE_ENTRIES = 120;
 export function saveDramaLookupCache(drama: DramaItem | null | undefined): void {
   if (typeof window === 'undefined' || !drama?.bookId || !drama?.title) return;
   try {
-    const slug = (drama.slug || slugifyDramaTitle(drama.title)).toLowerCase();
+    const isMovie = drama.provider === 'LK21' || drama.provider === 'LookSeries';
+    const slug = isMovie
+      ? (drama.slug || slugifyDramaTitle(drama.title)).toLowerCase()
+      : resolveCanonicalDramaSlug({
+          title: drama.title,
+          slug: drama.slug,
+          bookId: drama.bookId,
+          provider: drama.provider,
+        });
     const raw = window.localStorage.getItem(DRAMA_LOOKUP_CACHE_KEY);
     const list: DramaItem[] = raw ? (JSON.parse(raw) as DramaItem[]) : [];
     const safeList = Array.isArray(list) ? list : [];
@@ -118,6 +341,9 @@ export function findDramaInLookupCache(
   if (typeof window === 'undefined') return null;
   const clean = decodeURIComponent(slugOrId || '').trim().toLowerCase();
   if (!clean) return null;
+  const candidates = new Set(
+    extractLegacySlugLookupCandidates(clean, providerHint)
+  );
   try {
     const raw = window.localStorage.getItem(DRAMA_LOOKUP_CACHE_KEY);
     if (!raw) return null;
@@ -125,9 +351,19 @@ export function findDramaInLookupCache(
     if (!Array.isArray(list)) return null;
 
     const matchesTarget = (d: DramaItem) => {
-      const dSlug = (d.slug || (d.title ? slugifyDramaTitle(d.title) : '')).toLowerCase();
+      const dSlug = resolveCanonicalDramaSlug({
+        title: d.title,
+        slug: d.slug,
+        bookId: d.bookId,
+        provider: d.provider,
+      });
       const dId = String(d.bookId || '').toLowerCase();
-      return dSlug === clean || dId === clean;
+      if (dId === clean || candidates.has(dSlug)) return true;
+      if (clean.startsWith(`${dSlug}-`)) {
+        const tail = clean.slice(dSlug.length + 1);
+        return isLikelyIdSuffixTail(tail, d.provider, d.bookId);
+      }
+      return false;
     };
 
     if (providerHint) {

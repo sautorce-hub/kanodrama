@@ -88,9 +88,11 @@ import {
   parseProviderFromRouteSlug,
 } from './constants/providerLogos';
 import {
+  extractLegacySlugLookupCandidates,
   findDramaInLookupCache,
   getDramaPath,
   getWatchPath,
+  resolveCanonicalDramaSlug,
   saveDramaLookupCache,
   slugifyDramaTitle,
   syncDramaDocumentSeo,
@@ -650,12 +652,25 @@ function parseDramaRouteFromLocation(): {
       };
     }
 
+    const segmentCandidates = extractLegacySlugLookupCandidates(
+      normSegment,
+      mappedProvider ?? pHint
+    );
     const ssr = window.__INITIAL_DRAMA__;
+    const ssrCanonicalSlug = ssr?.drama
+      ? resolveCanonicalDramaSlug({
+          title: ssr.drama.title,
+          slug: ssr.drama.slug,
+          bookId: ssr.drama.bookId,
+          provider: ssr.drama.provider,
+        })
+      : '';
     if (
       ssr &&
       (ssr.bookId === segment ||
-        ssr.drama?.slug?.toLowerCase() === normSegment ||
-        (ssr.drama?.title && slugifyDramaTitle(ssr.drama.title) === normSegment))
+        (ssrCanonicalSlug && segmentCandidates.includes(ssrCanonicalSlug)) ||
+        (ssr.drama?.title &&
+          segmentCandidates.includes(slugifyDramaTitle(ssr.drama.title))))
     ) {
       if (ssr.drama) saveDramaLookupCache(ssr.drama);
       return {
@@ -820,12 +835,22 @@ function parseDramaRouteFromLocation(): {
   if (slugOrIdMatch) {
     const segment = safeDecodeURIComponent(slugOrIdMatch[1]);
     const normSegment = segment.toLowerCase();
+    const segmentCandidates = extractLegacySlugLookupCandidates(normSegment, pHint);
     const ssr = window.__INITIAL_DRAMA__;
+    const ssrCanonicalSlug = ssr?.drama
+      ? resolveCanonicalDramaSlug({
+          title: ssr.drama.title,
+          slug: ssr.drama.slug,
+          bookId: ssr.drama.bookId,
+          provider: ssr.drama.provider,
+        })
+      : '';
     if (
       ssr &&
       (ssr.bookId === segment ||
-        ssr.drama?.slug?.toLowerCase() === normSegment ||
-        (ssr.drama?.title && slugifyDramaTitle(ssr.drama.title) === normSegment))
+        (ssrCanonicalSlug && segmentCandidates.includes(ssrCanonicalSlug)) ||
+        (ssr.drama?.title &&
+          segmentCandidates.includes(slugifyDramaTitle(ssr.drama.title))))
     ) {
       if (ssr.drama) saveDramaLookupCache(ssr.drama);
       return {
@@ -2391,7 +2416,12 @@ export default function App() {
       window.__INITIAL_NOT_FOUND__ = undefined;
     }
     saveDramaLookupCache(drama);
-    const resolvedSlug = drama.slug || slugifyDramaTitle(drama.title);
+    const resolvedSlug = resolveCanonicalDramaSlug({
+      title: drama.title,
+      slug: drama.slug,
+      bookId: drama.bookId,
+      provider: drama.provider,
+    });
     const path = getDramaPath(
       drama.bookId,
       drama.title,
@@ -2554,7 +2584,12 @@ export default function App() {
           drama.slug,
           episode
         );
-        const resolvedSlug = drama.slug || slugifyDramaTitle(drama.title);
+        const resolvedSlug = resolveCanonicalDramaSlug({
+          title: drama.title,
+          slug: drama.slug,
+          bookId: drama.bookId,
+          provider: drama.provider,
+        });
         const prevState =
           window.history.state && typeof window.history.state === 'object'
             ? (window.history.state as Record<string, unknown>)
@@ -2724,11 +2759,18 @@ export default function App() {
       return;
     }
 
-    const localMatch = allLoadedDramas.find(
-      (d) =>
-        (d.slug || slugifyDramaTitle(d.title)) === slugHint ||
-        d.bookId === slugHint
+    const hintCandidates = new Set(
+      extractLegacySlugLookupCandidates(slugHint, activeDramaRoute?.providerHint)
     );
+    const localMatch = allLoadedDramas.find((d) => {
+      const dSlug = resolveCanonicalDramaSlug({
+        title: d.title,
+        slug: d.slug,
+        bookId: d.bookId,
+        provider: d.provider,
+      });
+      return hintCandidates.has(dSlug) || d.bookId === slugHint;
+    });
     if (localMatch) {
       saveDramaLookupCache(localMatch);
       setActiveDramaRoute((prev) => ({
