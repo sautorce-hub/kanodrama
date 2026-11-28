@@ -47,12 +47,16 @@ import {
   isEpisodeCachedOffline,
   readOfflineCachedEpisode,
 } from '../utils/offlineCache';
-import { triggerVideoEpisodeRedirectAd } from '../utils/adMonetization';
+import {
+  shouldTriggerEpisodeRedirect,
+  triggerVideoEpisodeRedirectAd,
+} from '../utils/adMonetization';
 import { useDramaContext } from '../context/DramaContext';
 import { formatCanonicalTime } from '../i18n/helpers';
 import { getWatchPath, syncEpisodePlayerSeo } from '../utils/seo';
 import { ProviderBadge } from './ProviderBadge';
 import { ShareDramaModal } from './ShareDramaModal';
+import { EpisodeSupportModal } from './EpisodeSupportModal';
 import { VideoPointsCounter } from './VideoPointsCounter';
 import type {
   DramaItem,
@@ -316,6 +320,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
   const [showEpisodeDrawer, setShowEpisodeDrawer] = useState(false);
   const [showCommentsDrawer, setShowCommentsDrawer] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [supportModalTargetEp, setSupportModalTargetEp] = useState<number | null>(null);
 
   const [commentInput, setCommentInput] = useState('');
   const [floatingBursts, setFloatingBursts] = useState<{ id: number; text: string }[]>([]);
@@ -635,6 +640,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
     if (!drama) return;
     setNextEpCountdown(null);
     setUpNextCountdown(null);
+    setSupportModalTargetEp(null);
     setIsOfflineReady(
       isEpisodeCachedOffline(drama.bookId, drama.provider, episodeNumber)
     );
@@ -1692,13 +1698,32 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
     _options?: { fromAutoNext?: boolean }
   ) => {
     if (!drama || targetEp < 1 || targetEp > totalEpisodes) return;
-    if (targetEp !== episodeNumber) {
-      triggerVideoEpisodeRedirectAd(
-        episodeNumber,
-        targetEp,
-        `${drama.provider}:${drama.bookId}`
-      );
+    if (
+      targetEp !== episodeNumber &&
+      shouldTriggerEpisodeRedirect(episodeNumber, targetEp)
+    ) {
+      const v = videoRef.current;
+      if (v && !v.paused) {
+        v.pause();
+        setIsPlaying(false);
+      }
+      setOpenMenu(null);
+      setSupportModalTargetEp(targetEp);
+      return;
     }
+    commitEpisodeChange(targetEp);
+  };
+
+  const confirmSupportEpisodeChange = () => {
+    if (!drama || supportModalTargetEp === null) return;
+    const targetEp = supportModalTargetEp;
+    setSupportModalTargetEp(null);
+    setShowEpisodeDrawer(false);
+    triggerVideoEpisodeRedirectAd(
+      episodeNumber,
+      targetEp,
+      `${drama.provider}:${drama.bookId}`
+    );
     commitEpisodeChange(targetEp);
   };
 
@@ -1977,6 +2002,14 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
         return;
       }
 
+      if (supportModalTargetEp !== null) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setSupportModalTargetEp(null);
+        }
+        return;
+      }
+
       if (e.key === 'Escape') {
         if (openMenu) setOpenMenu(null);
         else if (showCommentsDrawer) setShowCommentsDrawer(false);
@@ -2017,6 +2050,7 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
     openMenu,
     showEpisodeDrawer,
     showCommentsDrawer,
+    supportModalTargetEp,
     duration,
     isPlaying,
     hasNext,
@@ -4642,6 +4676,16 @@ export const MovieVideoPlayer: React.FC<MovieVideoPlayerProps> = ({
         episodeNumber={episodeNumber}
         unlockVipMode={false}
         onClose={() => setShareModalOpen(false)}
+      />
+
+      {/* KanoDrama Support Modal on Redirect Episode Transition */}
+      <EpisodeSupportModal
+        open={supportModalTargetEp !== null}
+        drama={drama}
+        targetEpisode={supportModalTargetEp ?? episodeNumber + 1}
+        totalEpisodes={totalEpisodes}
+        onConfirmContinue={confirmSupportEpisodeChange}
+        onCancel={() => setSupportModalTargetEp(null)}
       />
     </div>
   );

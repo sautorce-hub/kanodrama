@@ -99,3 +99,31 @@ test('index.html disables popunder and keeps only redirect ad mechanism', () => 
   assert.doesNotMatch(html, /crookedagreement/i);
   assert.doesNotMatch(html, /popunder|kd_popunder_last_shown_at/i);
 });
+
+test('EpisodeSupportModal activates only on redirect-triggering episode transitions without popunder or legacy brands', () => {
+  const modalSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/EpisodeSupportModal.tsx'),
+    'utf-8'
+  );
+  const cinemaPlayerSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/CinemaVideoPlayer.tsx'),
+    'utf-8'
+  );
+  const moviePlayerSrc = fs.readFileSync(
+    path.resolve(process.cwd(), 'src/components/MovieVideoPlayer.tsx'),
+    'utf-8'
+  );
+
+  assert.match(modalSrc, /KanoDrama/);
+  assert.match(modalSrc, /Lanjut Nonton/);
+  assert.doesNotMatch(
+    modalSrc,
+    /HouseDrama|house-drama\.web\.id|house-drama\.xyz|popunder|crookedagreement/i
+  );
+
+  for (const playerSrc of [cinemaPlayerSrc, moviePlayerSrc]) {
+    assert.match(playerSrc, /shouldTriggerEpisodeRedirect\(episodeNumber,\s*targetEp\)/);
+    assert.match(playerSrc, /<EpisodeSupportModal/);
+    assert.match(playerSrc, /confirmSupportEpisodeChange/);
+  }
+});
