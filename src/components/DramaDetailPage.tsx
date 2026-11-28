@@ -14,6 +14,8 @@ import {
   Star,
   FolderOpen,
   Heart,
+  ChevronRight,
+  Clapperboard,
 } from 'lucide-react';
 import { getProviderAdapter } from '../services/dramaProviders';
 import {
@@ -27,7 +29,6 @@ import { useDramaContext } from '../context/DramaContext';
 import { ProviderBadge } from './ProviderBadge';
 import { ShareDramaModal } from './ShareDramaModal';
 import { DetailPageSkeleton } from './SkeletonCard';
-import { ChevronRight } from 'lucide-react';
 import { getProviderRouteSlug, normalizeMediaProviderName } from '../constants/providerLogos';
 import { buildOgImageEndpointUrl, DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import {
@@ -116,8 +117,9 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
   const [loading, setLoading] = useState<boolean>(!initialDrama && !initialNotFound);
   const [error, setError] = useState<string | null>(null);
   const [selectedBatch, setSelectedBatch] = useState(0);
-  const [coverFailed, setCoverFailed] = useState(false);
-  const [posterSrc, setPosterSrc] = useState<string>(initialDrama?.cover ?? '');
+  const [posterStage, setPosterStage] = useState<'primary' | 'proxy' | 'og' | 'failed'>(() =>
+    initialDrama?.cover?.trim() ? 'primary' : 'og'
+  );
   const [hoverStar, setHoverStar] = useState<number>(0);
   const [failedRecCovers, setFailedRecCovers] = useState<Record<string, number>>({});
   const [fallbackRelated, setFallbackRelated] = useState<DramaItem[]>([]);
@@ -144,6 +146,11 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
       setLoading(true);
     }
     setError(null);
+    const watchdogTimer = window.setTimeout(() => {
+      if (reqId === activeReqIdRef.current) {
+        setLoading(false);
+      }
+    }, 16000);
 
     try {
       const isLookSeries =
@@ -305,6 +312,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
         err instanceof Error ? err.message : t.ui.detailFailed
       );
     } finally {
+      window.clearTimeout(watchdogTimer);
       if (reqId === activeReqIdRef.current) {
         setLoading(false);
       }
@@ -320,8 +328,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
       setDetail(initialDrama);
       setEpisodes(initialEpisodes);
       setSelectedBatch(0);
-      setCoverFailed(false);
-      setPosterSrc(initialDrama?.cover ?? '');
+      setPosterStage(initialDrama?.cover?.trim() ? 'primary' : 'og');
       setError(null);
     }
 
@@ -359,7 +366,6 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
   }, [
     bookId,
     resolvedProvider,
-    language,
     initialDrama?.bookId,
     initialDrama?.provider,
     initialNotFound,
@@ -369,36 +375,11 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
   useEffect(() => {
     const rawCover = (detail?.cover || '').trim();
     if (!rawCover) {
-      setPosterSrc('');
+      setPosterStage('og');
       return;
     }
-    setCoverFailed(false);
-    setPosterSrc(rawCover);
-
-    let cancelled = false;
-    const probe = new Image();
-    probe.onerror = () => {
-      if (cancelled) return;
-      if (rawCover.startsWith('http://') || rawCover.startsWith('https://')) {
-        const proxyUrl = `/api/proxy?url=${encodeURIComponent(rawCover)}`;
-        const proxyProbe = new Image();
-        proxyProbe.onload = () => {
-          if (!cancelled) setPosterSrc(proxyUrl);
-        };
-        proxyProbe.onerror = () => {
-          if (!cancelled) setCoverFailed(true);
-        };
-        proxyProbe.src = proxyUrl;
-      } else {
-        setCoverFailed(true);
-      }
-    };
-    probe.src = rawCover;
-
-    return () => {
-      cancelled = true;
-    };
-  }, [detail?.cover]);
+    setPosterStage('primary');
+  }, [detail?.bookId, detail?.cover]);
 
   useEffect(() => {
     if (detail) {
@@ -629,14 +610,20 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
               <RotateCcw className="w-4 h-4" />
               {t.player.retry}
             </button>
-            <button
-              type="button"
-              onClick={onBackHome}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full cd-accent-bg text-white text-xs font-semibold"
+            <a
+              href={`${DEFAULT_SITE_ORIGIN}/`}
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+                  return;
+                }
+                e.preventDefault();
+                onBackHome();
+              }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 min-h-[44px] rounded-full cd-accent-bg text-white text-xs font-semibold"
             >
               <ArrowLeft className="w-4 h-4" />
               {t.sections.backToHome}
-            </button>
+            </a>
           </div>
         </div>
       </section>
@@ -651,13 +638,35 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
     detail.provider === 'LookSeries';
   const isSingleMovie = isMovieItem && totalEpisodeCount <= 1;
   const siteOrigin = getSeoOrigin();
+  const rawCoverUrl = (detail.cover || '').trim();
   const fallbackOgPoster = buildOgImageEndpointUrl(
     detail.cover,
     siteOrigin,
     detail.title
   );
-  const effectivePosterSrc =
-    detail.cover && !coverFailed && posterSrc ? posterSrc : fallbackOgPoster;
+  const proxyCoverUrl =
+    rawCoverUrl.startsWith('http://') || rawCoverUrl.startsWith('https://')
+      ? `/api/proxy?url=${encodeURIComponent(rawCoverUrl)}`
+      : '';
+  const activePosterUrl =
+    posterStage === 'primary' && rawCoverUrl
+      ? rawCoverUrl
+      : posterStage === 'proxy' && proxyCoverUrl
+      ? proxyCoverUrl
+      : posterStage !== 'failed' && fallbackOgPoster
+      ? fallbackOgPoster
+      : '';
+  const handlePosterError = () => {
+    setPosterStage((prev) => {
+      if (prev === 'primary') {
+        return proxyCoverUrl ? 'proxy' : fallbackOgPoster ? 'og' : 'failed';
+      }
+      if (prev === 'proxy') {
+        return fallbackOgPoster ? 'og' : 'failed';
+      }
+      return 'failed';
+    });
+  };
   const backHref = isMovieItem ? '/movies' : '/';
   const provRouteSlug = getProviderRouteSlug(detail.provider);
   const sectionCrumbHref = isMovieItem ? '/movies' : `/provider/${provRouteSlug}`;
@@ -780,23 +789,29 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
       </nav>
 
       {/* Hero Detail Card with Centered Poster & Dynamic Poster Blur Backdrop */}
-      <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden bg-[#0C0C10] border border-white/12 shadow-[0_24px_70px_rgba(0,0,0,0.75)] mb-6 sm:mb-8">
+      <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden bg-[#0B0B0F] border border-white/12 shadow-[0_24px_70px_rgba(0,0,0,0.78)] mb-6 sm:mb-8">
         {/* Ambient Blurred Backdrop Sourced Directly from the Drama Poster */}
-        {effectivePosterSrc && (
+        {activePosterUrl ? (
           <img
-            src={effectivePosterSrc}
+            src={activePosterUrl}
             alt=""
             aria-hidden="true"
             referrerPolicy="no-referrer"
-            className="absolute inset-0 w-full h-full object-cover object-center scale-150 blur-3xl opacity-60 saturate-150 pointer-events-none select-none transition-opacity duration-500"
+            onError={handlePosterError}
+            className="absolute inset-0 w-full h-full object-cover object-center scale-[1.65] blur-[54px] opacity-65 saturate-[1.5] pointer-events-none select-none transition-opacity duration-500"
+          />
+        ) : (
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(225,29,72,0.22),transparent_60%)] pointer-events-none"
           />
         )}
         <div
-          className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(12,12,16,0.12)_0%,rgba(12,12,16,0.72)_62%,rgba(12,12,16,0.97)_100%)] pointer-events-none"
+          className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(11,11,15,0.08)_0%,rgba(11,11,15,0.68)_58%,rgba(11,11,15,0.97)_100%)] pointer-events-none"
           aria-hidden="true"
         />
         <div
-          className="absolute inset-0 bg-gradient-to-b from-black/35 via-[#0C0C10]/65 to-[#0C0C10] pointer-events-none"
+          className="absolute inset-0 bg-gradient-to-b from-black/40 via-[#0B0B0F]/60 to-[#0B0B0F] pointer-events-none"
           aria-hidden="true"
         />
 
@@ -804,17 +819,17 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
           <div className="max-w-3xl mx-auto flex flex-col items-center text-center">
             {/* Centered Poster / Artwork with Ambient Glow Halo */}
             <div className="relative mb-5 sm:mb-6 flex items-center justify-center">
-              {effectivePosterSrc && (
+              {activePosterUrl && (
                 <img
-                  src={effectivePosterSrc}
+                  src={activePosterUrl}
                   alt=""
                   aria-hidden="true"
                   referrerPolicy="no-referrer"
-                  className="absolute -inset-3 w-[calc(100%+24px)] h-[calc(100%+24px)] object-cover rounded-3xl blur-2xl opacity-50 saturate-150 pointer-events-none select-none"
+                  className="absolute -inset-4 w-[calc(100%+32px)] h-[calc(100%+32px)] object-cover rounded-[28px] blur-2xl opacity-65 saturate-150 pointer-events-none select-none"
                 />
               )}
               <a
-                href={watchHref}
+                href={`${DEFAULT_SITE_ORIGIN}${watchHref}`}
                 onClick={(e) => {
                   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
                     return;
@@ -828,17 +843,27 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                   );
                 }}
                 aria-label={detail.title}
-                className="group relative block w-44 sm:w-52 md:w-56 aspect-[2/3] rounded-2xl overflow-hidden bg-[#18181D] ring-1 ring-white/25 shadow-[0_22px_54px_rgba(0,0,0,0.88)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cd-accent)]"
+                className="group relative block w-44 sm:w-52 md:w-56 aspect-[2/3] rounded-2xl overflow-hidden bg-[#18181D] ring-1 ring-white/25 shadow-[0_22px_56px_rgba(0,0,0,0.9)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--cd-accent)]"
               >
-                <img
-                  src={effectivePosterSrc}
-                  alt={detail.title}
-                  itemProp="image"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover object-top transition-transform duration-300 group-hover:scale-105 bg-[#18181D]"
-                />
+                {activePosterUrl ? (
+                  <img
+                    src={activePosterUrl}
+                    alt={detail.title}
+                    itemProp="image"
+                    referrerPolicy="no-referrer"
+                    onError={handlePosterError}
+                    className="w-full h-full object-cover object-top transition-transform duration-200 group-hover:scale-105 bg-[#18181D]"
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-2.5 p-4 bg-gradient-to-br from-[#23161B] via-[#17171D] to-[#101014] text-center">
+                    <Clapperboard className="w-9 h-9 text-[var(--cd-accent-text)] opacity-85" />
+                    <span className="text-xs font-semibold text-white/90 line-clamp-3">
+                      {detail.title}
+                    </span>
+                  </div>
+                )}
                 <span className="absolute inset-0 bg-black/20 group-hover:bg-black/35 transition-colors flex items-center justify-center">
-                  <span className="w-12 h-12 rounded-full bg-black/55 backdrop-blur-md border border-white/30 group-hover:bg-[var(--cd-accent)] group-hover:border-[var(--cd-accent)] text-white flex items-center justify-center shadow-xl group-hover:scale-110 transition-all">
+                  <span className="w-12 h-12 rounded-full bg-black/55 backdrop-blur-md border border-white/30 group-hover:bg-[var(--cd-accent)] group-hover:border-[var(--cd-accent)] text-white flex items-center justify-center shadow-xl group-hover:scale-110 transition-all duration-200">
                     <Play className="w-5 h-5 fill-current ml-0.5" />
                   </span>
                 </span>
@@ -855,7 +880,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                 </span>
               )}
               {detail.playCount && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-black/45 backdrop-blur-md border border-white/10 text-[#E4E4E7] tabular-nums">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-black/50 backdrop-blur-md border border-white/15 text-[#E4E4E7] tabular-nums">
                   <Eye className="w-3.5 h-3.5 text-[#D4AF37]" />
                   {detail.playCount}
                 </span>
@@ -875,7 +900,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
             <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
               <span
                 itemProp={isSingleMovie ? undefined : 'numberOfEpisodes'}
-                className="inline-flex items-center px-3 py-1 rounded-full bg-white/12 backdrop-blur-md border border-white/20 text-xs font-semibold text-white tabular-nums"
+                className="inline-flex items-center px-3 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/25 text-xs font-semibold text-white tabular-nums"
               >
                 {isSingleMovie
                   ? detail.quality || t.detail.hdMovie
@@ -893,7 +918,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                     e.preventDefault();
                     onSelectTag?.(tag);
                   }}
-                  className="inline-flex items-center px-3 py-1 rounded-full bg-white/10 backdrop-blur-md border border-white/15 hover:border-[var(--cd-accent)] hover:bg-white/15 text-xs font-medium text-[#F4F4F5] hover:text-white transition-colors"
+                  className="inline-flex items-center px-3 py-1 rounded-full bg-black/35 backdrop-blur-md border border-white/20 hover:border-[var(--cd-accent)] hover:bg-white/15 text-xs font-medium text-[#F4F4F5] hover:text-white transition-colors"
                 >
                   {tag}
                 </a>
@@ -949,11 +974,11 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
               )}
             </div>
 
-            {/* Primary CTA Buttons: Mulai Menonton & Simpan (+ Like & Folder) */}
-            <div className="w-full flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 mb-6">
+            {/* Primary CTA Buttons: Mobile-first thumb-friendly stack -> inline centered on sm+ */}
+            <div className="w-full flex flex-col sm:flex-row sm:flex-wrap items-center justify-center gap-2.5 sm:gap-3 mb-6">
               {resumePoint ? (
                 <a
-                  href={watchHref}
+                  href={`${DEFAULT_SITE_ORIGIN}${watchHref}`}
                   data-episode-switch="true"
                   data-primary-action="true"
                   onClick={(e) => {
@@ -968,7 +993,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                       resumePoint.currentTime
                     );
                   }}
-                  className="inline-flex items-center justify-center gap-2 px-7 py-3 min-h-[46px] rounded-full cd-accent-bg text-white font-semibold text-sm shadow-[0_10px_28px_rgba(225,29,72,0.35)] hover:brightness-110 transition-all whitespace-nowrap flex-1 sm:flex-initial"
+                  className="inline-flex items-center justify-center gap-2 w-full sm:w-auto px-7 py-3 min-h-[48px] rounded-full cd-accent-bg text-white font-semibold text-sm shadow-[0_10px_28px_rgba(225,29,72,0.38)] hover:brightness-110 transition-all whitespace-nowrap"
                 >
                   <Clock className="w-4 h-4 shrink-0" />
                   <span>
@@ -980,7 +1005,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                 </a>
               ) : (
                 <a
-                  href={ep1WatchHref}
+                  href={`${DEFAULT_SITE_ORIGIN}${ep1WatchHref}`}
                   data-episode-switch="true"
                   data-primary-action="true"
                   aria-disabled={loading && episodes.length === 0 ? true : undefined}
@@ -992,7 +1017,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                     if (loading && episodes.length === 0) return;
                     onPlayEpisode(detail, 1, episodes, 0);
                   }}
-                  className={`inline-flex items-center justify-center gap-2 px-7 py-3 min-h-[46px] rounded-full cd-accent-bg text-white font-semibold text-sm shadow-[0_10px_28px_rgba(225,29,72,0.35)] hover:brightness-110 transition-all whitespace-nowrap flex-1 sm:flex-initial ${
+                  className={`inline-flex items-center justify-center gap-2 w-full sm:w-auto px-7 py-3 min-h-[48px] rounded-full cd-accent-bg text-white font-semibold text-sm shadow-[0_10px_28px_rgba(225,29,72,0.38)] hover:brightness-110 transition-all whitespace-nowrap ${
                     loading && episodes.length === 0 ? 'opacity-60 pointer-events-none' : ''
                   }`}
                 >
@@ -1001,82 +1026,84 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                 </a>
               )}
 
-              <button
-                type="button"
-                data-primary-action="true"
-                onClick={() => toggleMyList(detail)}
-                className={`inline-flex items-center justify-center gap-2 px-5 py-3 min-h-[46px] rounded-full border text-sm font-semibold transition-all whitespace-nowrap shrink-0 backdrop-blur-md ${
-                  isSaved
-                    ? 'bg-[var(--cd-accent-soft)] border-[var(--cd-accent)] text-[var(--cd-accent-text)]'
-                    : 'bg-white/12 border-white/20 hover:bg-white/18 text-white'
-                }`}
-              >
-                {isSaved ? (
-                  <>
-                    <Check className="w-4 h-4 shrink-0" />
-                    <span>{t.hero.inList}</span>
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4 shrink-0" />
-                    <span>{t.hero.addToList}</span>
-                  </>
-                )}
-              </button>
+              <div className="grid grid-cols-2 gap-2.5 w-full sm:w-auto sm:flex sm:flex-wrap sm:items-center sm:justify-center">
+                <button
+                  type="button"
+                  data-primary-action="true"
+                  onClick={() => toggleMyList(detail)}
+                  className={`inline-flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-3 min-h-[46px] rounded-full border text-sm font-semibold transition-all whitespace-nowrap shrink-0 backdrop-blur-md ${
+                    isSaved
+                      ? 'bg-[var(--cd-accent-soft)] border-[var(--cd-accent)] text-[var(--cd-accent-text)]'
+                      : 'bg-black/40 border-white/25 hover:bg-white/15 text-white'
+                  }`}
+                >
+                  {isSaved ? (
+                    <>
+                      <Check className="w-4 h-4 shrink-0" />
+                      <span>{t.hero.inList}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4 shrink-0" />
+                      <span>{t.hero.addToList}</span>
+                    </>
+                  )}
+                </button>
 
-              <button
-                type="button"
-                data-primary-action="true"
-                onClick={() => toggleLikeDrama(detail)}
-                className={`inline-flex items-center justify-center gap-2 px-4 py-3 min-h-[46px] rounded-full border text-sm font-medium transition-colors whitespace-nowrap shrink-0 backdrop-blur-md ${
-                  isLiked
-                    ? 'bg-red-500/20 border-red-500 text-red-300'
-                    : 'bg-white/10 border-white/15 hover:bg-white/15 text-white'
-                }`}
-              >
-                <Heart
-                  className={`w-4 h-4 shrink-0 ${isLiked ? 'fill-current text-red-400' : ''}`}
-                />
-                <span>{isLiked ? t.player.liked : t.player.like}</span>
-                {likesCount > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full bg-white/10 text-[11px] font-bold tabular-nums">
-                    {likesCount.toLocaleString()}
-                  </span>
-                )}
-              </button>
+                <button
+                  type="button"
+                  data-primary-action="true"
+                  onClick={() => toggleLikeDrama(detail)}
+                  className={`inline-flex items-center justify-center gap-2 w-full sm:w-auto px-4 py-3 min-h-[46px] rounded-full border text-sm font-medium transition-colors whitespace-nowrap shrink-0 backdrop-blur-md ${
+                    isLiked
+                      ? 'bg-red-500/20 border-red-500 text-red-300'
+                      : 'bg-black/40 border-white/20 hover:bg-white/15 text-white'
+                  }`}
+                >
+                  <Heart
+                    className={`w-4 h-4 shrink-0 ${isLiked ? 'fill-current text-red-400' : ''}`}
+                  />
+                  <span>{isLiked ? t.player.liked : t.player.like}</span>
+                  {likesCount > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-white/10 text-[11px] font-bold tabular-nums">
+                      {likesCount.toLocaleString()}
+                    </span>
+                  )}
+                </button>
 
-              {/* Watchlist Folder Selector */}
-              {isSaved && (
-                <label className="inline-flex items-center gap-1.5 px-3.5 py-2.5 min-h-[44px] rounded-full bg-[#18181D]/90 backdrop-blur-md border border-white/15 text-xs text-white">
-                  <FolderOpen className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
-                  <select
-                    value={currentFolderId}
-                    onChange={(e) =>
-                      assignDramaToFolder(
-                        detail.bookId,
-                        detail.provider,
-                        e.target.value
-                      )
-                    }
-                    aria-label={t.engagement.saveToFolder}
-                    className="bg-transparent text-xs text-white focus:outline-none cursor-pointer"
-                  >
-                    {watchlistFolders.map((f) => (
-                      <option
-                        key={f.id}
-                        value={f.id}
-                        className="bg-[#141418] text-white"
-                      >
-                        {f.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
+                {/* Watchlist Folder Selector */}
+                {isSaved && (
+                  <label className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 min-h-[44px] rounded-full bg-[#18181D]/90 backdrop-blur-md border border-white/15 text-xs text-white">
+                    <FolderOpen className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
+                    <select
+                      value={currentFolderId}
+                      onChange={(e) =>
+                        assignDramaToFolder(
+                          detail.bookId,
+                          detail.provider,
+                          e.target.value
+                        )
+                      }
+                      aria-label={t.engagement.saveToFolder}
+                      className="bg-transparent text-xs text-white focus:outline-none cursor-pointer"
+                    >
+                      {watchlistFolders.map((f) => (
+                        <option
+                          key={f.id}
+                          value={f.id}
+                          className="bg-[#141418] text-white"
+                        >
+                          {f.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
             </div>
 
             {/* Sinopsis, Credits & Interactive Rating Panel */}
-            <div className="w-full text-left rounded-2xl bg-black/45 backdrop-blur-md border border-white/10 p-4 sm:p-6 space-y-4">
+            <div className="w-full text-left rounded-2xl bg-black/50 backdrop-blur-md border border-white/12 p-4 sm:p-6 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-[11px] font-bold uppercase tracking-wider text-[#D4AF37]">
                   {t.detail.synopsis}
@@ -1177,7 +1204,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
               )}
             </div>
             <a
-              href={watchHref}
+              href={`${DEFAULT_SITE_ORIGIN}${watchHref}`}
               data-episode-switch="true"
               onClick={(e) => {
                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
@@ -1363,7 +1390,7 @@ export const DramaDetailPage: React.FC<DramaDetailPageProps> = ({
                   return (
                     <a
                       key={ep.chapterId}
-                      href={epWatchHref}
+                      href={`${DEFAULT_SITE_ORIGIN}${epWatchHref}`}
                       data-episode-switch="true"
                       onClick={(e) => {
                         if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {

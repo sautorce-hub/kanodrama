@@ -1460,7 +1460,8 @@ function truncateMetaDescription(raw: string, maxLen = 165): string {
 function composeRichMetaDescription(
   rawDesc: string | undefined,
   fallbackDesc: string,
-  watchSuffix: string
+  watchSuffix: string,
+  seoLeadIn?: string
 ): string {
   const cleanRaw = sanitizeMetaText(rawDesc);
   if (!cleanRaw) {
@@ -1472,6 +1473,15 @@ function composeRichMetaDescription(
     const combined = `${punctuated} ${watchSuffix}`.trim();
     if (combined.length <= 165) {
       return combined;
+    }
+  }
+  if (!hasBrandHint && seoLeadIn) {
+    const cleanLead = sanitizeMetaText(seoLeadIn);
+    if (cleanLead && cleanLead.length <= 92) {
+      const combinedWithLead = `${cleanLead} — ${cleanRaw}`;
+      if (combinedWithLead.length >= 115) {
+        return truncateMetaDescription(combinedWithLead, 165);
+      }
     }
   }
   return truncateMetaDescription(cleanRaw, 165);
@@ -1589,6 +1599,12 @@ export function generateMetadata(
         watchSuffixMap[lang]
       );
     } else {
+      const topTags = (input.tags || [])
+        .map((tg) => sanitizeMetaText(tg))
+        .filter(Boolean)
+        .slice(0, 2);
+      const tagPhraseId = topTags.length > 0 ? ` (${topTags.join(', ')})` : '';
+      const tagPhraseEn = topTags.length > 0 ? ` [${topTags.join(', ')}]` : '';
       const fullTitleMap: Record<LanguageCode, string> = {
         id: `Nonton ${dramaTitle}${subIndoTag} Full Episode${epsTag} HD | KanoDrama`,
         en: `Watch ${dramaTitle} Full Episodes Ad-Free HD${epsTag} | KanoDrama`,
@@ -1602,8 +1618,8 @@ export function generateMetadata(
         tl: `Panoorin Nang Libre ${dramaTitle} Full Episodes HD${epsTag} | KanoDrama`,
       };
       const fullDescMap: Record<LanguageCode, string> = {
-        id: `Sinopsis & nonton ${dramaTitle}${subIndoTag} full${epCount > 1 ? ` ${epCount}` : ''} episode HD${providerPhraseId} gratis tanpa iklan di KanoDrama.`,
-        en: `Read synopsis & watch ${dramaTitle}${epCount > 1 ? ` (${epCount} episodes)` : ''} full series ad-free in HD${providerPhraseEn} with subtitles on KanoDrama.`,
+        id: `Sinopsis & nonton ${dramaTitle}${subIndoTag} full${epCount > 1 ? ` ${epCount}` : ''} episode${tagPhraseId} HD${providerPhraseId} gratis tanpa iklan di KanoDrama.`,
+        en: `Read synopsis & watch ${dramaTitle}${epCount > 1 ? ` (${epCount} episodes)` : ''}${tagPhraseEn} full series ad-free in HD${providerPhraseEn} with subtitles on KanoDrama.`,
         cn: `在 KanoDrama 免费无广告高清观看${providerLabel ? ` ${providerLabel} ` : ''}《${dramaTitle}》剧情简介与全集${epCount > 1 ? `（共${epCount}集）` : ''}。`,
         vi: `Xem miễn phí trọn bộ ${dramaTitle}${epCount > 1 ? ` (${epCount} tập)` : ''} chất lượng HD trên KanoDrama.`,
         es: `Ver gratis episodios completos de ${dramaTitle}${epCount > 1 ? ` (${epCount} episodios)` : ''} en calidad HD en KanoDrama.`,
@@ -1613,11 +1629,18 @@ export function generateMetadata(
         ms: `Tonton percuma ${dramaTitle}${epCount > 1 ? ` (${epCount} episod)` : ''} dalam kualiti HD di KanoDrama.`,
         tl: `Panoorin nang libre ang ${dramaTitle}${epCount > 1 ? ` (${epCount} episodes)` : ''} sa malinaw na HD sa KanoDrama.`,
       };
+      const detailLeadIn =
+        lang === 'id'
+          ? `Nonton ${dramaTitle}${epsTag}${providerPhraseId} Sub Indo HD di KanoDrama`
+          : lang === 'en'
+          ? `Watch ${dramaTitle}${epsTag}${providerPhraseEn} HD on KanoDrama`
+          : undefined;
       title = fullTitleMap[lang];
       description = composeRichMetaDescription(
         input.description,
         fullDescMap[lang],
-        watchSuffixMap[lang]
+        watchSuffixMap[lang],
+        detailLeadIn
       );
     }
   } else if (input.page === 'movie') {
@@ -1847,47 +1870,54 @@ export function generateMetadata(
       const localizedCore: Record<LanguageCode, string[]> = {
         id: [
           `Nonton ${baseTitle} Sub Indo`,
+          `Sinopsis ${baseTitle}`,
           `Streaming ${baseTitle} Full Episode`,
           `${baseTitle} Sub Indo HD`,
           ...(input.page === 'movie'
             ? [`Nonton Film ${baseTitle} Sub Indo`, 'Streaming Film HD Gratis']
-            : ['Nonton Drama Pendek Sub Indo', 'Drama China Sub Indo']),
+            : ['Nonton Drama Pendek Sub Indo', 'Drama China Sub Indo', 'Short Drama Sub Indo']),
           'Nonton Gratis Tanpa Iklan',
         ],
         en: [
           `Watch ${baseTitle} Full Episodes`,
+          `${baseTitle} Synopsis`,
           `${baseTitle} HD Subtitles`,
           `Stream ${baseTitle} Online Free`,
           ...(input.page === 'movie'
             ? [`Watch ${baseTitle} Full Movie HD`, 'Free Asian Movies HD']
-            : ['Watch Vertical Short Dramas', 'Asian Short Series HD']),
+            : ['Watch Vertical Short Dramas', 'Asian Short Series HD', 'Chinese Short Drama']),
           'Ad-Free HD Streaming',
         ],
         cn: [
           `免费观看 ${baseTitle}`,
+          `${baseTitle} 剧情简介`,
           `${baseTitle} 高清全集`,
           '在线短剧免费看',
           '竖屏短剧高清',
         ],
         vi: [
           `Xem ${baseTitle} Vietsub HD`,
+          `Tóm tắt ${baseTitle}`,
           `${baseTitle} Trọn Bộ`,
           'Phim Ngắn Trung Quốc',
           'Xem Phim HD Miễn Phí',
         ],
         es: [
           `Ver ${baseTitle} Sub Español`,
+          `Sinopsis ${baseTitle}`,
           `${baseTitle} Capítulos Completos`,
           'Dramas Cortos HD',
           'Ver Series Asiáticas Gratis',
         ],
         ko: [
           `${baseTitle} 무료 다시보기`,
+          `${baseTitle} 줄거리`,
           `${baseTitle} 전편 HD`,
           '숏드라마 무료 감상',
         ],
         ja: [
           `${baseTitle} 無料視聴`,
+          `${baseTitle} あらすじ`,
           `${baseTitle} 全話 HD`,
           'ショートドラマ無料',
         ],
@@ -1917,16 +1947,27 @@ export function generateMetadata(
               lang === 'id'
                 ? `${baseTitle} ${epCount} Episode`
                 : `${baseTitle} ${epCount} Episodes`,
+              lang === 'id'
+                ? `${baseTitle} Full ${epCount} Episode Sub Indo`
+                : `${baseTitle} All ${epCount} Episodes`,
             ]
           : []),
         ...(providerLabel
-          ? [providerLabel, `${providerLabel} ${baseTitle}`]
+          ? [
+              providerLabel,
+              `${baseTitle} ${providerLabel}`,
+              lang === 'id'
+                ? `Nonton ${providerLabel} Sub Indo`
+                : `Watch ${providerLabel} Dramas`,
+            ]
           : []),
         ...cleanTags,
-        ...cleanTags.slice(0, 2).map((tg) =>
+        ...cleanTags.slice(0, 3).map((tg) =>
           lang === 'id' ? `Drama ${tg} Sub Indo` : `${tg} Short Drama`
         ),
+        ...cleanTags.slice(0, 2).map((tg) => `${baseTitle} ${tg}`),
         ...(input.keywords || []).map((k) => sanitizeMetaText(k)),
+        `KanoDrama ${baseTitle}`,
         'KanoDrama',
         'kano-drama.live',
       ];
@@ -1939,7 +1980,7 @@ export function generateMetadata(
         if (seen.has(norm)) continue;
         seen.add(norm);
         deduped.push(candidate);
-        if (deduped.length >= 18) break;
+        if (deduped.length >= 22) break;
       }
       return deduped.join(', ');
     }

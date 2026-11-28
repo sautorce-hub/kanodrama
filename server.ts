@@ -2357,6 +2357,9 @@ function injectDramaSeoIntoHtml(
     'kano-drama.live',
     providerDisplay,
     ...drama.tags,
+    ...(drama.protagonist
+      ? drama.protagonist.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 2)
+      : []),
   ].filter(Boolean);
 
   const meta = generateMetadata({
@@ -2630,6 +2633,7 @@ ${buildHreflangLinksHtml(canonicalUrl)}
     <meta name="twitter:title" content="${escapeHtmlAttr(pageTitle)}" />
     <meta name="twitter:description" content="${escapeHtmlAttr(desc)}" />
     <meta name="twitter:image" content="${escapeHtmlAttr(ogImageUrl)}" />
+    <meta name="twitter:url" content="${escapeHtmlAttr(epWatchUrl)}" />
     <script type="application/ld+json" id="kano-drama-jsonld">${JSON.stringify(
       jsonLd
     ).replace(/<\/script>/gi, '<\\/script>')}</script>

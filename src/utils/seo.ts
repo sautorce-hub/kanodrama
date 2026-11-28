@@ -422,6 +422,9 @@ export function buildDramaSeoMetadata(
       ...(drama.year ? [String(drama.year)] : []),
       ...(drama.area ? [drama.area] : []),
       ...(drama.director ? [drama.director] : []),
+      ...(drama.protagonist
+        ? drama.protagonist.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 2)
+        : []),
     ],
   });
 
@@ -646,9 +649,11 @@ function applyMetadataToDocument(
     upsertMetaTag('property', 'og:image:height', String(primaryImg.height));
     upsertMetaTag('property', 'og:image:alt', primaryImg.alt);
   }
+  upsertMetaTag('name', 'twitter:card', meta.twitter.card);
   upsertMetaTag('name', 'twitter:title', meta.twitter.title);
   upsertMetaTag('name', 'twitter:description', meta.twitter.description);
   upsertMetaTag('name', 'twitter:image', meta.twitter.image);
+  upsertMetaTag('name', 'twitter:url', meta.openGraph.url);
   upsertCanonicalLink(meta.canonicalUrl);
   upsertHreflangLinks(meta.canonicalUrl);
 }
@@ -1044,12 +1049,16 @@ export function syncDramaDocumentSeo(
     image: toAbsoluteOgImage(drama.cover, origin),
     keywords: [
       drama.title,
+      effectiveLang === 'id' ? `Nonton ${drama.title} Sub Indo` : `Watch ${drama.title} HD online`,
       'KanoDrama',
       formatProviderDisplayName(drama.provider),
       ...drama.tags,
       ...(drama.year ? [String(drama.year)] : []),
       ...(drama.area ? [drama.area] : []),
       ...(drama.director ? [drama.director] : []),
+      ...(drama.protagonist
+        ? drama.protagonist.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 2)
+        : []),
     ],
   });
   applyMetadataToDocument(meta);

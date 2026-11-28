@@ -91,16 +91,11 @@ test('Video player redirect rotates through all 5 URLs and opens only 1 per trig
   }
 });
 
-test('index.html includes crookedagreement.com popunder with 1-minute per-browser limit', () => {
+test('index.html disables popunder and keeps only redirect ad mechanism', () => {
   const html = fs.readFileSync(
     path.resolve(process.cwd(), 'index.html'),
     'utf-8'
   );
-  assert.match(
-    html,
-    /crookedagreement\.com\\\/ctD\.9j6QbZ2\\\/5Dl\\\/S\\\/WkQo9uNTz-Y\\\/2cMCTaYu2ZMoSm0q3GNQj\\\/YAxwNNjNYx1m/
-  );
-  assert.match(html, /COOLDOWN_MS = 60000/);
-  assert.match(html, /kd_popunder_last_shown_at/);
-  assert.match(html, /no-referrer-when-downgrade/);
+  assert.doesNotMatch(html, /crookedagreement/i);
+  assert.doesNotMatch(html, /popunder|kd_popunder_last_shown_at/i);
 });

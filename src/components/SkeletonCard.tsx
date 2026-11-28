@@ -76,34 +76,44 @@ export const CarouselSkeleton: React.FC<{ ranked?: boolean }> = ({ ranked = fals
 export const DetailPageSkeleton: React.FC = () => {
   return (
     <section
-      className="max-w-[1440px] mx-auto px-3 sm:px-8 pt-4 pb-20 space-y-6"
+      className="max-w-[1440px] mx-auto px-3 sm:px-8 pt-4 pb-20 space-y-5"
       aria-label="Loading Drama Details"
       aria-busy="true"
     >
-      <div className="flex items-center justify-between gap-3">
-        <div className="h-10 w-36 rounded-full skeleton-espresso" />
-        <div className="h-10 w-28 rounded-full skeleton-espresso" />
+      <div className="flex items-center justify-between gap-2.5">
+        <div className="h-11 sm:h-10 w-36 rounded-full skeleton-espresso" />
+        <div className="flex items-center gap-2">
+          <div className="sm:hidden h-11 w-11 rounded-full skeleton-espresso" />
+          <div className="h-11 sm:h-10 w-28 rounded-full skeleton-espresso" />
+        </div>
       </div>
-      <div className="h-4 w-56 rounded skeleton-espresso" />
-      <div className="rounded-2xl sm:rounded-3xl bg-[#0E0E13] border border-white/10 px-4 py-7 sm:px-8 sm:py-10">
-        <div className="max-w-3xl mx-auto flex flex-col items-center text-center">
-          <div className="w-44 sm:w-52 md:w-56 aspect-[2/3] rounded-2xl skeleton-espresso mb-6" />
+      <div className="h-4 w-56 rounded skeleton-espresso mx-1" />
+      <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-[#0B0B0F] border border-white/12 px-4 pt-7 pb-6 sm:px-8 sm:pt-10 sm:pb-9">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute top-10 left-1/2 -translate-x-1/2 w-64 h-64 rounded-full bg-[var(--cd-accent-soft)] blur-3xl opacity-35"
+        />
+        <div className="relative z-10 max-w-3xl mx-auto flex flex-col items-center text-center">
+          <div className="w-44 sm:w-52 md:w-56 aspect-[2/3] rounded-2xl skeleton-espresso ring-1 ring-white/15 mb-5 sm:mb-6" />
           <div className="flex gap-2 mb-3">
-            <div className="h-5 w-24 rounded skeleton-espresso" />
+            <div className="h-5 w-24 rounded-full skeleton-espresso" />
             <div className="h-5 w-16 rounded-full skeleton-espresso" />
           </div>
-          <div className="h-8 sm:h-10 w-72 sm:w-96 max-w-full rounded-lg skeleton-espresso mb-4" />
-          <div className="flex flex-wrap justify-center gap-2 mb-5">
+          <div className="h-8 sm:h-10 w-72 sm:w-96 max-w-full rounded-lg skeleton-espresso mb-3" />
+          <div className="flex flex-wrap justify-center gap-2 mb-3">
             <div className="h-7 w-24 rounded-full skeleton-espresso" />
             <div className="h-7 w-20 rounded-full skeleton-espresso" />
             <div className="h-7 w-24 rounded-full skeleton-espresso" />
           </div>
-          <div className="flex flex-wrap justify-center gap-3 w-full mb-6">
-            <div className="h-11 w-44 rounded-full skeleton-espresso" />
-            <div className="h-11 w-32 rounded-full skeleton-espresso" />
-            <div className="h-11 w-24 rounded-full skeleton-espresso" />
+          <div className="h-4 w-52 rounded skeleton-espresso mb-6" />
+          <div className="w-full flex flex-col sm:flex-row sm:flex-wrap items-center justify-center gap-2.5 sm:gap-3 mb-6">
+            <div className="h-12 w-full sm:w-48 rounded-full skeleton-espresso" />
+            <div className="grid grid-cols-2 gap-2.5 w-full sm:w-auto sm:flex">
+              <div className="h-12 w-full sm:w-32 rounded-full skeleton-espresso" />
+              <div className="h-12 w-full sm:w-28 rounded-full skeleton-espresso" />
+            </div>
           </div>
-          <div className="w-full rounded-2xl bg-black/35 border border-white/10 p-4 sm:p-6 space-y-2.5 text-left">
+          <div className="w-full rounded-2xl bg-black/45 border border-white/10 p-4 sm:p-6 space-y-2.5 text-left">
             <div className="h-4 w-24 rounded skeleton-espresso" />
             <div className="h-4 w-full rounded skeleton-espresso" />
             <div className="h-4 w-5/6 rounded skeleton-espresso" />
