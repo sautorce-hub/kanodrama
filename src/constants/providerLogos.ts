@@ -187,6 +187,48 @@ export function getProxiedLogoUrl(logoUrl: string): string {
   return `/api/proxy?url=${encodeURIComponent(logoUrl)}`;
 }
 
+let syncedPlatformLogosCache: Record<string, string> | null = null;
+let syncedPlatformLogosPromise: Promise<Record<string, string>> | null = null;
+
+export function getSyncedPlatformLogosSnapshot(): Record<string, string> | null {
+  return syncedPlatformLogosCache;
+}
+
+export async function loadSyncedPlatformLogos(): Promise<Record<string, string>> {
+  if (syncedPlatformLogosCache) return syncedPlatformLogosCache;
+  if (syncedPlatformLogosPromise) return syncedPlatformLogosPromise;
+
+  syncedPlatformLogosPromise = (async () => {
+    try {
+      const res = await fetch('/api/platforms', {
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) return {};
+      const json = (await res.json()) as {
+        platforms?: Array<{ id?: string; logo?: string; icon?: string }>;
+      };
+      const map: Record<string, string> = {};
+      if (Array.isArray(json.platforms)) {
+        for (const entry of json.platforms) {
+          const id = entry.id?.trim();
+          const url = (entry.logo || entry.icon || '').trim();
+          if (id && url) map[id] = url;
+        }
+      }
+      if (Object.keys(map).length > 0) {
+        syncedPlatformLogosCache = map;
+      }
+      return map;
+    } catch {
+      return {};
+    } finally {
+      syncedPlatformLogosPromise = null;
+    }
+  })();
+
+  return syncedPlatformLogosPromise;
+}
+
 const ALL_MEDIA_PROVIDERS = Object.keys(PROVIDER_SLUG_MAP) as MediaProviderName[];
 
 export const LEGACY_V1_TO_V2_PROVIDER: Record<string, ProviderName> = {
@@ -213,6 +255,8 @@ const ROUTE_PROVIDER_ALIAS_MAP: Record<string, MediaProviderName> = {
   dramabox: 'DramaBoxV2',
   dramaboxv2: 'DramaBoxV2',
   dramabox_v2: 'DramaBoxV2',
+  anireel: 'AnyReel',
+  anyreel: 'AnyReel',
   melolo: 'MeloLoV2',
   melolov2: 'MeloLoV2',
   melolo_v2: 'MeloLoV2',

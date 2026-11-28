@@ -5354,6 +5354,13 @@ export async function createServerApp(options?: { enableVite?: boolean }) {
       const upstreamHeaders: Record<string, string> = {
         Accept: req.get('accept') || '*/*',
       };
+      if (
+        parsed.hostname === 'api.molatv.id' ||
+        parsed.hostname.endsWith('.molatv.id')
+      ) {
+        upstreamHeaders['User-Agent'] =
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+      }
       const rangeHeader = req.get('range');
       if (rangeHeader) {
         upstreamHeaders.Range = rangeHeader;

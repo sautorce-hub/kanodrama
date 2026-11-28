@@ -1,8 +1,15 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import {
+  getOfficialProviderLogoUrl,
+  getProxiedLogoUrl,
+  getSyncedPlatformLogosSnapshot,
+  loadSyncedPlatformLogos,
+  normalizeMediaProviderName,
+} from '../constants/providerLogos';
 import type { MediaProviderName } from '../types/drama';
 
 interface ProviderBadgeProps {
-  provider: MediaProviderName;
+  provider: MediaProviderName | string;
   size?: 'xs' | 'sm';
   className?: string;
 }
@@ -776,61 +783,410 @@ const PROVIDER_BADGE_THEMES: Record<MediaProviderName, BadgeTheme> = {
   },
 };
 
+const loadedLogoUrls = new Set<string>();
+const failedLogoUrls = new Set<string>();
+
+function resolveBadgeProvider(rawProvider: string): {
+  providerKey: MediaProviderName | null;
+  theme: BadgeTheme;
+} {
+  const raw = String(rawProvider || '').trim();
+  if (raw && raw in PROVIDER_BADGE_THEMES) {
+    const key = raw as MediaProviderName;
+    return { providerKey: key, theme: PROVIDER_BADGE_THEMES[key] };
+  }
+
+  const normalized = normalizeMediaProviderName(raw);
+  const rawCompact = raw.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const normCompact = normalized.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const isKnown =
+    !raw ||
+    rawCompact === normCompact ||
+    rawCompact.startsWith('dramabox') ||
+    rawCompact.startsWith('anireel') ||
+    rawCompact.startsWith('anyreel') ||
+    rawCompact.startsWith('melolo') ||
+    rawCompact.startsWith('reelshort') ||
+    rawCompact.startsWith('shortmax') ||
+    rawCompact.startsWith('storyreel') ||
+    rawCompact.startsWith('vibeshort') ||
+    rawCompact.startsWith('idrama') ||
+    rawCompact.startsWith('stardust') ||
+    rawCompact.startsWith('stareel') ||
+    rawCompact.startsWith('starreel') ||
+    rawCompact.startsWith('dynasty') ||
+    rawCompact === 'lk21' ||
+    rawCompact === 'lookseries' ||
+    rawCompact === 'movie' ||
+    rawCompact === 'movies';
+
+  if (isKnown && normalized in PROVIDER_BADGE_THEMES) {
+    return { providerKey: normalized, theme: PROVIDER_BADGE_THEMES[normalized] };
+  }
+
+  const cleanLabel = raw || 'Drama';
+  const letters = cleanLabel
+    .replace(/[^A-Za-z0-9]/g, '')
+    .slice(0, 2)
+    .toUpperCase();
+  return {
+    providerKey: null,
+    theme: {
+      label: cleanLabel,
+      mono: letters || 'KD',
+      bg: '#EF4444',
+      text: '#FFFFFF',
+      border: 'border-white/20',
+      badgeBg: 'bg-[#09090B]/90',
+      badgeText: 'text-white',
+    },
+  };
+}
+
+const ProviderSvgFallback: React.FC<{
+  providerKey: MediaProviderName | null;
+  theme: BadgeTheme;
+  iconPx: number;
+}> = ({ providerKey, theme, iconPx }) => {
+  if (providerKey === 'DramaBoxV2') {
+    return (
+      <svg
+        width={iconPx}
+        height={iconPx}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        className="w-full h-full block"
+      >
+        <rect width="24" height="24" rx="6" fill="#09090B" />
+        <path d="M8.5 7.2L17.2 12L8.5 16.8V7.2Z" fill="#EF4444" />
+      </svg>
+    );
+  }
+
+  if (providerKey === 'NetShort') {
+    return (
+      <svg
+        width={iconPx}
+        height={iconPx}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        className="w-full h-full block"
+      >
+        <rect width="24" height="24" rx="6" fill="#DC2626" />
+        <path
+          d="M6.5 17V7L11.5 17V7"
+          stroke="#FFFFFF"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path d="M14.5 9L19 12L14.5 15V9Z" fill="#FFFFFF" />
+      </svg>
+    );
+  }
+
+  if (providerKey === 'AnyReel') {
+    return (
+      <svg
+        width={iconPx}
+        height={iconPx}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        className="w-full h-full block"
+      >
+        <rect width="24" height="24" rx="6" fill="#10B981" />
+        <path
+          d="M7 16.5L11.8 6.5L16.6 16.5"
+          stroke="#09090B"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path d="M9.2 13.5H14.4" stroke="#09090B" strokeWidth="2.2" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (providerKey === 'MeloLoV2') {
+    return (
+      <svg
+        width={iconPx}
+        height={iconPx}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        className="w-full h-full block"
+      >
+        <rect width="24" height="24" rx="6" fill="#F59E0B" />
+        <circle cx="12" cy="12" r="7.2" stroke="#09090B" strokeWidth="2.1" />
+        <path
+          d="M9 13.5C9.8 14.9 11 15.5 12 15.5C13 15.5 14.2 14.9 15 13.5"
+          stroke="#09090B"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <circle cx="9.6" cy="10.2" r="1.1" fill="#09090B" />
+        <circle cx="14.4" cy="10.2" r="1.1" fill="#09090B" />
+      </svg>
+    );
+  }
+
+  if (providerKey === 'WeTV') {
+    return (
+      <svg
+        width={iconPx}
+        height={iconPx}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        className="w-full h-full block"
+      >
+        <rect width="24" height="24" rx="6" fill="#FF6A00" />
+        <path
+          d="M7.8 6.2C6.8 5.7 5.6 6.4 5.6 7.5V16.5C5.6 17.6 6.8 18.3 7.8 17.8L17.4 13.3C18.5 12.8 18.5 11.2 17.4 10.7L7.8 6.2Z"
+          fill="#FFFFFF"
+        />
+        <circle cx="9.6" cy="12" r="1.9" fill="#FF6A00" />
+      </svg>
+    );
+  }
+
+  if (providerKey === 'iQIYI') {
+    return (
+      <svg
+        width={iconPx}
+        height={iconPx}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        className="w-full h-full block"
+      >
+        <rect width="24" height="24" rx="6" fill="#00BE06" />
+        <rect x="4.5" y="6.5" width="2.6" height="11" rx="1.3" fill="#FFFFFF" />
+        <circle cx="14.5" cy="12" r="4.8" stroke="#FFFFFF" strokeWidth="2.3" />
+        <path d="M13.2 9.8L17 12L13.2 14.2V9.8Z" fill="#FFFFFF" />
+      </svg>
+    );
+  }
+
+  if (providerKey === 'ReelShortV2') {
+    return (
+      <svg
+        width={iconPx}
+        height={iconPx}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        className="w-full h-full block"
+      >
+        <rect width="24" height="24" rx="6" fill="#BE123C" />
+        <rect x="4.5" y="5.5" width="15" height="13" rx="3.5" stroke="#FFFFFF" strokeWidth="2" />
+        <path d="M10.2 9L15.2 12L10.2 15V9Z" fill="#FFFFFF" />
+      </svg>
+    );
+  }
+
+  if (providerKey === 'ShortMaxV2') {
+    return (
+      <svg
+        width={iconPx}
+        height={iconPx}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        className="w-full h-full block"
+      >
+        <rect width="24" height="24" rx="6" fill="#DC2626" />
+        <path
+          d="M16.2 8.4C15.2 7.2 13.5 6.8 11.7 7.2C9.7 7.6 8.7 9 9.2 10.5C9.8 12 14.7 11.7 15.4 13.6C16.1 15.4 14.5 17 11.9 17C10.1 17 8.5 16.2 7.6 15"
+          stroke="#FFFFFF"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+
+  if (providerKey === 'GoodShort') {
+    return (
+      <svg
+        width={iconPx}
+        height={iconPx}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        className="w-full h-full block"
+      >
+        <rect width="24" height="24" rx="6" fill="#D97706" />
+        <circle cx="12" cy="12" r="7.5" fill="#18181B" />
+        <path d="M10 8.5L15.8 12L10 15.5V8.5Z" fill="#FBBF24" />
+      </svg>
+    );
+  }
+
+  if (providerKey === 'LK21' || providerKey === 'LookSeries') {
+    return (
+      <svg
+        width={iconPx}
+        height={iconPx}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+        className="w-full h-full block"
+      >
+        <rect width="24" height="24" rx="6" fill={theme.bg} />
+        <rect
+          x="4.5"
+          y="6"
+          width="15"
+          height="12"
+          rx="2.5"
+          stroke={theme.text}
+          strokeWidth="2"
+        />
+        <path d="M10 9.2L15 12L10 14.8V9.2Z" fill={theme.text} />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      width={iconPx}
+      height={iconPx}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="w-full h-full block"
+    >
+      <rect width="24" height="24" rx="6" fill={theme.bg} />
+      <text
+        x="12"
+        y="16"
+        textAnchor="middle"
+        fill={theme.text}
+        fontSize="10.2"
+        fontWeight="800"
+        fontFamily="system-ui, -apple-system, sans-serif"
+      >
+        {theme.mono}
+      </text>
+    </svg>
+  );
+};
+
 export const ProviderBadge: React.FC<ProviderBadgeProps> = ({
   provider,
   size = 'xs',
   className = '',
 }) => {
   const padding = size === 'sm' ? 'px-2.5 py-1 text-[11px]' : 'px-2 py-0.5 text-[10px]';
-  const theme = PROVIDER_BADGE_THEMES[provider] ?? PROVIDER_BADGE_THEMES.DramaBoxV2;
+  const iconSizeClass = size === 'sm' ? 'w-4 h-4' : 'w-3.5 h-3.5';
+  const iconPx = size === 'sm' ? 16 : 14;
+  const { providerKey, theme } = resolveBadgeProvider(provider);
 
-  if (provider === 'DramaBoxV2') {
-    return (
-      <span
-        className={`inline-flex items-center gap-1.5 rounded-md bg-white/95 backdrop-blur-md border border-white/20 font-bold tracking-wide text-[#09090B] shadow-sm whitespace-nowrap ${padding} ${className}`}
-      >
-        <svg
-          width="13"
-          height="13"
-          viewBox="0 0 24 24"
-          fill="none"
-          aria-hidden="true"
-          className="shrink-0"
-        >
-          <rect width="24" height="24" rx="6" fill="#09090B" />
-          <path d="M8.5 7.2L17.2 12L8.5 16.8V7.2Z" fill="#EF4444" />
-        </svg>
-        <span>DramaBox V2</span>
-      </span>
-    );
-  }
+  const [syncedLogos, setSyncedLogos] = useState<Record<string, string> | null>(
+    () => getSyncedPlatformLogosSnapshot()
+  );
+
+  useEffect(() => {
+    if (!providerKey || syncedLogos) return;
+    let active = true;
+    void loadSyncedPlatformLogos().then((map) => {
+      if (active && Object.keys(map).length > 0) {
+        setSyncedLogos(map);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [providerKey, syncedLogos]);
+
+  const officialUrl = providerKey
+    ? (syncedLogos?.[providerKey] || getOfficialProviderLogoUrl(providerKey))
+    : '';
+  const proxiedUrl = officialUrl ? getProxiedLogoUrl(officialUrl) : '';
+
+  const getInitialStage = (): 0 | 1 | 2 => {
+    if (!officialUrl) return 2;
+    if (!failedLogoUrls.has(officialUrl)) return 0;
+    if (proxiedUrl && !failedLogoUrls.has(proxiedUrl)) return 1;
+    return 2;
+  };
+
+  const [sourceStage, setSourceStage] = useState<0 | 1 | 2>(getInitialStage);
+  const currentSrc =
+    sourceStage === 0 ? officialUrl : sourceStage === 1 ? proxiedUrl : '';
+  const [imgLoaded, setImgLoaded] = useState<boolean>(() =>
+    Boolean(currentSrc && loadedLogoUrls.has(currentSrc))
+  );
+
+  useEffect(() => {
+    const nextStage = getInitialStage();
+    setSourceStage(nextStage);
+    const nextSrc =
+      nextStage === 0 ? officialUrl : nextStage === 1 ? proxiedUrl : '';
+    setImgLoaded(Boolean(nextSrc && loadedLogoUrls.has(nextSrc)));
+  }, [officialUrl, proxiedUrl]);
+
+  const handleImageFail = () => {
+    if (currentSrc) {
+      failedLogoUrls.add(currentSrc);
+    }
+    setImgLoaded(false);
+    setSourceStage((prev) => {
+      if (prev === 0 && proxiedUrl && !failedLogoUrls.has(proxiedUrl)) {
+        return 1;
+      }
+      return 2;
+    });
+  };
+
+  const containerStyleClass =
+    providerKey === 'DramaBoxV2'
+      ? `bg-white/95 backdrop-blur-md border border-white/25 text-[#09090B]`
+      : `${theme.badgeBg} backdrop-blur-md border ${theme.border} ${theme.badgeText}`;
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-md ${theme.badgeBg} backdrop-blur-md border ${theme.border} font-bold tracking-wide ${theme.badgeText} shadow-sm whitespace-nowrap ${padding} ${className}`}
+      className={`inline-flex items-center gap-1.5 max-w-full min-w-0 rounded-md ${containerStyleClass} font-bold tracking-wide shadow-sm whitespace-nowrap ${padding} ${className}`}
     >
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 24 24"
-        fill="none"
-        aria-hidden="true"
-        className="shrink-0"
+      <span
+        className={`relative ${iconSizeClass} shrink-0 rounded-[4px] overflow-hidden flex items-center justify-center`}
       >
-        <rect width="24" height="24" rx="6" fill={theme.bg} />
-        <text
-          x="12"
-          y="16"
-          textAnchor="middle"
-          fill={theme.text}
-          fontSize="10.5"
-          fontWeight="800"
-          fontFamily="system-ui, -apple-system, sans-serif"
-        >
-          {theme.mono}
-        </text>
-      </svg>
-      <span>{theme.label}</span>
+        <ProviderSvgFallback
+          providerKey={providerKey}
+          theme={theme}
+          iconPx={iconPx}
+        />
+        {sourceStage < 2 && currentSrc && (
+          <img
+            src={currentSrc}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              if (img.naturalWidth === 0 && img.naturalHeight === 0) {
+                handleImageFail();
+                return;
+              }
+              loadedLogoUrls.add(currentSrc);
+              setImgLoaded(true);
+            }}
+            onError={handleImageFail}
+            className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-150 ${
+              providerKey === 'DramaBoxV2' ? 'bg-white' : 'bg-[#09090B]'
+            } ${imgLoaded ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+          />
+        )}
+      </span>
+      <span className="truncate">{theme.label}</span>
     </span>
   );
 };
+

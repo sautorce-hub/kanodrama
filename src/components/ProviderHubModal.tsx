@@ -5,7 +5,10 @@ import { DEFAULT_SITE_ORIGIN } from '../i18n/helpers';
 import {
   getOfficialProviderLogoUrl,
   getProxiedLogoUrl,
+  getSyncedPlatformLogosSnapshot,
+  loadSyncedPlatformLogos,
 } from '../constants/providerLogos';
+export { loadSyncedPlatformLogos };
 import type { ProviderId, ProviderName } from '../types/drama';
 
 interface ProviderHubModalProps {
@@ -550,32 +553,7 @@ function BrandFallbackEmblem({
   );
 }
 
-let syncedPlatformLogosCache: Record<string, string> | null = null;
 
-export async function loadSyncedPlatformLogos(): Promise<Record<string, string>> {
-  if (syncedPlatformLogosCache) return syncedPlatformLogosCache;
-  try {
-    const res = await fetch('/api/platforms', {
-      headers: { Accept: 'application/json' },
-    });
-    if (!res.ok) return {};
-    const json = (await res.json()) as {
-      platforms?: Array<{ id?: string; logo?: string; icon?: string }>;
-    };
-    const map: Record<string, string> = {};
-    if (Array.isArray(json.platforms)) {
-      for (const entry of json.platforms) {
-        const id = entry.id?.trim();
-        const url = (entry.logo || entry.icon || '').trim();
-        if (id && url) map[id] = url;
-      }
-    }
-    syncedPlatformLogosCache = map;
-    return map;
-  } catch {
-    return {};
-  }
-}
 
 export const PROVIDER_DIRECTORY_ITEMS: Array<{
   id: ProviderName;
@@ -744,7 +722,7 @@ export const ProviderHubModal: React.FC<ProviderHubModalProps> = ({
   const { t } = useDramaContext();
   const [searchQuery, setSearchQuery] = useState('');
   const [liveLogos, setLiveLogos] = useState<Record<string, string>>(
-    () => syncedPlatformLogosCache ?? {}
+    () => getSyncedPlatformLogosSnapshot() ?? {}
   );
   const inputRef = useRef<HTMLInputElement>(null);
 
